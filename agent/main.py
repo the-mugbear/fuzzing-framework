@@ -1,0 +1,172 @@
+"""
+Target Agent main application
+
+Lightweight agent that:
+1. Registers with Core
+2. Receives fuzzed test cases
+3. Forwards to target
+4. Monitors execution
+5. Reports results back to Core
+"""
+import argparse
+import asyncio
+import socket
+import sys
+import uuid
+from typing import Optional
+
+import httpx
+import structlog
+
+from agent.monitor import TargetExecutor
+
+logger = structlog.get_logger()
+
+
+class FuzzerAgent:
+    """
+    Minimal fuzzing agent
+
+    Connects to Core and executes test cases against a target
+    """
+
+    def __init__(
+        self,
+        core_url: str,
+        target_host: str,
+        target_port: int,
+        agent_id: Optional[str] = None,
+    ):
+        self.core_url = core_url.rstrip("/")
+        self.target_host = target_host
+        self.target_port = target_port
+        self.agent_id = agent_id or str(uuid.uuid4())
+        self.hostname = socket.gethostname()
+        self.executor = TargetExecutor(target_host, target_port)
+        self.running = False
+
+    async def register(self) -> bool:
+        """Register with Core"""
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.core_url}/api/agents/register",
+                    json={
+                        "agent_id": self.agent_id,
+                        "hostname": self.hostname,
+                        "target_host": self.target_host,
+                        "target_port": self.target_port,
+                    },
+                    timeout=10.0,
+                )
+                response.raise_for_status()
+                logger.info("agent_registered", agent_id=self.agent_id, core_url=self.core_url)
+                return True
+        except Exception as e:
+            logger.error("registration_failed", error=str(e), core_url=self.core_url)
+            return False
+
+    async def heartbeat_loop(self):
+        """Send periodic heartbeats to Core"""
+        while self.running:
+            try:
+                async with httpx.AsyncClient() as client:
+                    await client.post(
+                        f"{self.core_url}/api/agents/{self.agent_id}/heartbeat",
+                        json={
+                            "status": "running",
+                            "target_host": self.target_host,
+                            "target_port": self.target_port,
+                        },
+                        timeout=5.0,
+                    )
+                    logger.debug("heartbeat_sent", agent_id=self.agent_id)
+            except Exception as e:
+                logger.error("heartbeat_failed", error=str(e))
+
+            await asyncio.sleep(30)
+
+    async def run(self):
+        """Main agent loop"""
+        logger.info(
+            "agent_starting",
+            agent_id=self.agent_id,
+            target=f"{self.target_host}:{self.target_port}",
+        )
+
+        # Register with Core
+        if not await self.register():
+            logger.error("failed_to_register", core_url=self.core_url)
+            return
+
+        self.running = True
+
+        # Start heartbeat loop
+        heartbeat_task = asyncio.create_task(self.heartbeat_loop())
+
+        try:
+            # MVP: Agent waits for commands (will implement polling/websocket in full version)
+            logger.info("agent_ready", agent_id=self.agent_id)
+            while self.running:
+                await asyncio.sleep(1)
+
+        except KeyboardInterrupt:
+            logger.info("agent_shutdown_requested")
+        finally:
+            self.running = False
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except asyncio.CancelledError:
+                pass
+
+        logger.info("agent_stopped", agent_id=self.agent_id)
+
+
+async def main():
+    """Main entry point"""
+    parser = argparse.ArgumentParser(description="Fuzzer Target Agent")
+    parser.add_argument(
+        "--core-url",
+        default="http://localhost:8000",
+        help="URL of the Core API server",
+    )
+    parser.add_argument(
+        "--target-host",
+        default="localhost",
+        help="Target host to fuzz",
+    )
+    parser.add_argument(
+        "--target-port",
+        type=int,
+        default=9999,
+        help="Target port to fuzz",
+    )
+    parser.add_argument(
+        "--agent-id",
+        help="Agent ID (auto-generated if not provided)",
+    )
+
+    args = parser.parse_args()
+
+    # Configure logging
+    structlog.configure(
+        processors=[
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.add_log_level,
+            structlog.processors.JSONRenderer(),
+        ]
+    )
+
+    agent = FuzzerAgent(
+        core_url=args.core_url,
+        target_host=args.target_host,
+        target_port=args.target_port,
+        agent_id=args.agent_id,
+    )
+
+    await agent.run()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

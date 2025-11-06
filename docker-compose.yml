@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # Fuzzer Core - API and orchestration
+  core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fuzzer-core
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist corpus and findings
+      - ./data/corpus:/app/data/corpus
+      - ./data/crashes:/app/data/crashes
+      - ./data/logs:/app/data/logs
+      # Development: mount plugins for live reload
+      - ./core/plugins:/app/core/plugins
+    environment:
+      - FUZZER_API_HOST=0.0.0.0
+      - FUZZER_API_PORT=8000
+      - FUZZER_CORPUS_DIR=/app/data/corpus
+      - FUZZER_CRASH_DIR=/app/data/crashes
+    networks:
+      - fuzzer-network
+    restart: unless-stopped
+
+  # Test target server
+  target:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fuzzer-target
+    command: python tests/simple_tcp_server.py --host 0.0.0.0 --port 9999
+    ports:
+      - "9999:9999"
+    networks:
+      - fuzzer-network
+    restart: unless-stopped
+
+  # Fuzzer Agent (optional - can run externally)
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: fuzzer-agent
+    environment:
+      - FUZZER_CORE_URL=http://core:8000
+      - FUZZER_TARGET_HOST=target
+      - FUZZER_TARGET_PORT=9999
+    depends_on:
+      - core
+      - target
+    networks:
+      - fuzzer-network
+    restart: unless-stopped
+
+networks:
+  fuzzer-network:
+    driver: bridge
+
+volumes:
+  corpus-data:
+  crash-data:
+  log-data:

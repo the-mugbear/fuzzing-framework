@@ -1,0 +1,30 @@
+# Dockerfile for Fuzzer Agent
+FROM python:3.11-slim
+
+LABEL maintainer="Ken Charles"
+LABEL description="Portable Proprietary Protocol Fuzzer - Target Agent"
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy requirements and install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy agent code
+COPY agent/ ./agent/
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV FUZZER_CORE_URL=http://core:8000
+ENV FUZZER_TARGET_HOST=localhost
+ENV FUZZER_TARGET_PORT=9999
+
+# Run the agent - use shell form for env var expansion
+CMD python -m agent.main --core-url $FUZZER_CORE_URL --target-host $FUZZER_TARGET_HOST --target-port $FUZZER_TARGET_PORT
