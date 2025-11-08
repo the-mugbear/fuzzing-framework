@@ -16,21 +16,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from core.agents.manager import agent_manager
 from core.config import settings
+from core.logging import setup_logging
 from core.corpus.store import CorpusStore
+from core.engine.mutators import MutationEngine
 from core.engine.orchestrator import orchestrator
-from core.models import FuzzConfig, FuzzSession, ProtocolPlugin
-from core.plugins.loader import plugin_manager
-
-# Configure structured logging
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.add_log_level,
-        structlog.processors.JSONRenderer(),
-    ]
+from core.models import (
+    AgentTestResult,
+    AgentWorkItem,
+    FuzzConfig,
+    FuzzSession,
+    OneOffTestRequest,
+    OneOffTestResult,
+    ProtocolPlugin,
 )
+from core.plugin_loader import plugin_manager
 
+setup_logging("core-api")
 logger = structlog.get_logger()
 
 # Create FastAPI app
@@ -50,6 +53,15 @@ app.add_middleware(
 )
 
 corpus_store = CorpusStore()
+
+
+docs_path = settings.project_root / "docs"
+if docs_path.exists():
+    app.mount("/docs", StaticFiles(directory=docs_path), name="docs")
+
+guides_path = settings.project_root / "core" / "ui" / "guides"
+if guides_path.exists():
+    app.mount("/guides", StaticFiles(directory=guides_path), name="guides")
 
 
 @app.get("/")
@@ -100,6 +112,12 @@ async def reload_plugin(plugin_name: str):
     except Exception as e:
         logger.error("failed_to_reload_plugin", plugin=plugin_name, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/mutators")
+async def list_mutators():
+    """Expose available mutators for the UI"""
+    return {"mutators": MutationEngine.available_mutators()}
 
 
 # ========== Session Management Endpoints ==========
@@ -157,6 +175,19 @@ async def get_session_stats(session_id: str):
     if not stats:
         raise HTTPException(status_code=404, detail="Session not found")
     return stats
+
+
+# ========== Ad-hoc Testing ==========
+
+
+@app.post("/api/tests/execute", response_model=OneOffTestResult)
+async def execute_test(request: OneOffTestRequest):
+    """Execute a single test case without creating a session"""
+    try:
+        result = await orchestrator.execute_one_off(request)
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 # ========== Corpus Management Endpoints ==========
@@ -219,25 +250,48 @@ async def get_finding(finding_id: str):
 @app.post("/api/agents/register")
 async def register_agent(agent_info: dict):
     """Register a new agent"""
-    # MVP: Simple registration, will add authentication in full version
-    logger.info("agent_registered", agent_id=agent_info.get("agent_id"))
-    return {"status": "registered", "agent_id": agent_info.get("agent_id")}
+    required_fields = {"agent_id", "hostname", "target_host", "target_port"}
+    missing = [field for field in required_fields if field not in agent_info]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing fields: {', '.join(missing)}")
+
+    status = agent_manager.register_agent(
+        agent_id=agent_info["agent_id"],
+        hostname=agent_info["hostname"],
+        target_host=agent_info["target_host"],
+        target_port=int(agent_info["target_port"]),
+    )
+    return status
 
 
 @app.post("/api/agents/{agent_id}/heartbeat")
 async def agent_heartbeat(agent_id: str, status: dict):
     """Agent heartbeat and status update"""
-    # MVP: Just log, will add proper tracking in full version
-    logger.debug("agent_heartbeat", agent_id=agent_id, status=status)
+    updated = agent_manager.heartbeat(
+        agent_id,
+        cpu_usage=status.get("cpu_usage", 0.0),
+        memory_usage_mb=status.get("memory_usage_mb", 0.0),
+        active_tests=status.get("active_tests", 0),
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Agent not registered")
     return {"status": "ok"}
 
 
+@app.get("/api/agents/{agent_id}/next-case", response_model=Optional[AgentWorkItem])
+async def agent_next_case(agent_id: str):
+    """Provide the next pending test case for an agent"""
+    work = await agent_manager.request_work(agent_id)
+    if not work:
+        return JSONResponse(status_code=204, content=None)
+    return work
+
+
 @app.post("/api/agents/{agent_id}/result")
-async def agent_submit_result(agent_id: str, result: dict):
+async def agent_submit_result(agent_id: str, result: AgentTestResult):
     """Agent submits a test case result"""
-    logger.info("agent_result_received", agent_id=agent_id, result=result)
-    # MVP: Just log, will integrate with orchestrator in full version
-    return {"status": "received"}
+    response = await orchestrator.handle_agent_result(agent_id, result)
+    return response
 
 
 # ========== System Endpoints ==========

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Fuzzing Guide</title>
+<style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #111; color: #e5e5e5; margin: 40px; line-height: 1.6; }
+    h1, h2, h3 { color: #66b0ff; }
+    code { background: #1e1e1e; padding: 2px 5px; border-radius: 4px; }
+    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+    th, td { border: 1px solid #333; padding: 8px; text-align: left; }
+    th { background: #1f1f1f; }
+    .callout { background: #1a2332; padding: 15px; border-left: 4px solid #66b0ff; border-radius: 4px; margin: 20px 0; }
+</style>
+</head>
+<body>
+<h1>Fuzzing Guide</h1>
+<p>A practical reference to help you speak the same language as the fuzzer, structure campaigns intentionally, and triage findings quickly.</p>
+
+<h2>Terminology Cheat Sheet</h2>
+<table>
+    <tr><th>Term</th><th>Meaning</th></tr>
+    <tr><td><strong>Seed</strong></td><td>A valid byte sequence that bootstraps the mutation engine. Stored in <code>data/corpus/seeds</code>.</td></tr>
+    <tr><td><strong>Corpus</strong></td><td>All seeds plus interesting mutations and crash reproducers saved during a run.</td></tr>
+    <tr><td><strong>Session</strong></td><td>A fuzzing campaign bound to a protocol, host, port, execution mode, and mutator selection.</td></tr>
+    <tr><td><strong>Mutator</strong></td><td>Algorithm that transforms a seed (e.g., <code>bitflip</code>, <code>havoc</code>, <code>splice</code>). Choose them via <code>enabled_mutators</code>.</td></tr>
+    <tr><td><strong>Behavior</strong></td><td>Declarative rule attached to a protocol block (e.g., “increment sequence”, “add constant”). Behaviors run before every send to keep deterministic fields valid.</td></tr>
+    <tr><td><strong>Agent Mode</strong></td><td>Test cases are executed by remote agents that talk to the target and stream results back to the core.</td></tr>
+    <tr><td><strong>One-off Test</strong></td><td>Single payload execution via <code>POST /api/tests/execute</code>—use it for quick validation or reproduction.</td></tr>
+</table>
+
+<h2>Building an Effective Campaign</h2>
+<ol>
+    <li>
+        <h3>Instrument the Target</h3>
+        <ul>
+            <li>Run the sample target (<code>make run-target</code> or <code>docker compose up target</code>) and tail its logs.</li>
+            <li>For custom binaries, expose structured logs or basic metrics so you spot crashes immediately.</li>
+        </ul>
+    </li>
+    <li>
+        <h3>Author/Review the Protocol Plugin</h3>
+        <ul>
+            <li>Define immutable headers (<code>mutable: false</code>) so signatures stay intact.</li>
+            <li>Model state transitions and supply at least three realistic seeds.</li>
+            <li>Add <code>behavior</code> blocks for deterministic fields:
+                <pre>{
+    "name": "sequence",
+    "type": "uint16",
+    "behavior": {"operation": "increment", "initial": 0, "step": 1}
+}
+{
+    "name": "checksum",
+    "type": "uint8",
+    "behavior": {"operation": "add_constant", "value": 0x55}
+}</pre>
+            </li>
+        </ul>
+    </li>
+    <li>
+        <h3>Choose Execution & Mutators</h3>
+        <ul>
+            <li>Core mode is simplest; agent mode lets you forward traffic via remote workers.</li>
+            <li>Use <code>/api/mutators</code> to list options and pass <code>enabled_mutators</code> when creating the session.</li>
+        </ul>
+    </li>
+    <li>
+        <h3>Run & Observe</h3>
+        <ul>
+            <li>Poll <code>/api/sessions/&lt;id&gt;/stats</code> or watch the UI dashboard.</li>
+            <li>Monitor target logs, <code>logs/core-api.log</code>, and agent logs at the same time.</li>
+        </ul>
+    </li>
+    <li>
+        <h3>Triage & Iterate</h3>
+        <ul>
+            <li>Re-run interesting seeds via the one-off endpoint or netcat.</li>
+            <li>Promote failing inputs to the seed corpus for future runs.</li>
+        </ul>
+    </li>
+</ol>
+
+<h2>Practical Tips</h2>
+<div class="callout">
+    <ul>
+        <li><strong>Good Seeds Trump Raw Speed:</strong> Authentic traffic captures produce deeper coverage.</li>
+        <li><strong>Behaviors for Protocol Glue:</strong> Sequence counters, derived lengths, and checksums belong in behaviors.</li>
+        <li><strong>Layer Monitoring:</strong> Combine target logs with CPU/memory metrics.</li>
+        <li><strong>Split Campaigns:</strong> Stop sessions periodically to snapshot findings.</li>
+        <li><strong>Reproduce Outside the Lab:</strong> Replay crashes against staging systems to confirm impact.</li>
+    </ul>
+</div>
+</body>
+</html>

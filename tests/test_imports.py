@@ -15,7 +15,7 @@ def test_core_imports():
     print("Testing core imports...")
     from core.config import settings
     from core.models import FuzzSession, TestCase, CrashReport
-    from core.plugins.loader import plugin_manager
+    from core.plugin_loader import plugin_manager
     from core.corpus.store import CorpusStore
     from core.engine.mutators import MutationEngine, BitFlipMutator
     from core.engine.orchestrator import orchestrator
@@ -32,7 +32,7 @@ def test_agent_imports():
 def test_plugin_discovery():
     """Test plugin discovery"""
     print("Testing plugin discovery...")
-    from core.plugins.loader import plugin_manager
+    from core.plugin_loader import plugin_manager
 
     plugins = plugin_manager.discover_plugins()
     print(f"  Found {len(plugins)} plugins: {plugins}")

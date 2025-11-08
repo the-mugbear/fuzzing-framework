@@ -5,22 +5,29 @@ import asyncio
 import time
 import uuid
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import structlog
 
+from core.agents.manager import agent_manager
 from core.config import settings
 from core.corpus.store import CorpusStore
 from core.engine.mutators import MutationEngine
 from core.models import (
+    AgentTestResult,
+    AgentWorkItem,
     CrashReport,
+    ExecutionMode,
     FuzzConfig,
     FuzzSession,
     FuzzSessionStatus,
+    OneOffTestRequest,
+    OneOffTestResult,
     TestCase,
     TestCaseResult,
 )
-from core.plugins.loader import plugin_manager
+from core.plugin_loader import plugin_manager
+from core.protocol_behavior import build_behavior_processor
 
 logger = structlog.get_logger()
 
@@ -36,6 +43,8 @@ class FuzzOrchestrator:
         self.corpus_store = CorpusStore()
         self.sessions: Dict[str, FuzzSession] = {}
         self.active_tasks: Dict[str, asyncio.Task] = {}
+        self.pending_tests: Dict[str, TestCase] = {}
+        self.behavior_processors: Dict[str, Any] = {}
 
     async def create_session(self, config: FuzzConfig) -> FuzzSession:
         """
@@ -66,16 +75,26 @@ class FuzzOrchestrator:
                 )
                 seed_corpus.append(seed_id)
 
+        enabled_mutators = self._resolve_mutators(config)
+        behavior_processor = build_behavior_processor(protocol.data_model)
+
         session = FuzzSession(
             id=session_id,
             protocol=config.protocol,
             target_host=config.target_host,
             target_port=config.target_port,
             seed_corpus=seed_corpus,
+            enabled_mutators=enabled_mutators,
+            timeout_per_test_ms=config.timeout_per_test_ms,
+            max_iterations=config.max_iterations,
+            execution_mode=config.execution_mode,
             status=FuzzSessionStatus.IDLE,
+            behavior_state=behavior_processor.initialize_state() if behavior_processor.has_behaviors() else {},
         )
 
         self.sessions[session_id] = session
+        if behavior_processor.has_behaviors():
+            self.behavior_processors[session_id] = behavior_processor
         logger.info("session_created", session_id=session_id, protocol=config.protocol)
         return session
 
@@ -88,6 +107,17 @@ class FuzzOrchestrator:
 
         if session.status == FuzzSessionStatus.RUNNING:
             logger.warning("session_already_running", session_id=session_id)
+            return False
+
+        if session.execution_mode == ExecutionMode.AGENT and not agent_manager.has_agent_for_target(
+            session.target_host, session.target_port
+        ):
+            session.error_message = (
+                "No live agents registered for target "
+                f"{session.target_host}:{session.target_port}"
+            )
+            session.status = FuzzSessionStatus.FAILED
+            logger.error("no_agents_for_session", session_id=session_id)
             return False
 
         session.status = FuzzSessionStatus.RUNNING
@@ -119,6 +149,10 @@ class FuzzOrchestrator:
                 pass
             del self.active_tasks[session_id]
 
+        await agent_manager.clear_session(session_id)
+        self._discard_pending_tests(session_id)
+        self.behavior_processors.pop(session_id, None)
+
         logger.info("session_stopped", session_id=session_id)
         return True
 
@@ -126,11 +160,14 @@ class FuzzOrchestrator:
         """
         Main fuzzing loop for a session
 
-        This is a simplified version for MVP - just generates mutations
-        and simulates sending them. Full version will integrate with agents.
+        Session executes either locally or via agent queues.
         """
         session = self.sessions[session_id]
-        logger.info("fuzzing_loop_started", session_id=session_id)
+        logger.info(
+            "fuzzing_loop_started",
+            session_id=session_id,
+            execution_mode=session.execution_mode,
+        )
 
         # Load seeds
         seeds = [self.corpus_store.get_seed(sid) for sid in session.seed_corpus]
@@ -141,41 +178,36 @@ class FuzzOrchestrator:
             session.status = FuzzSessionStatus.FAILED
             return
 
-        # Initialize mutation engine
-        mutation_engine = MutationEngine(seeds)
+        # Initialize mutation engine with selected mutators
+        mutation_engine = MutationEngine(seeds, enabled_mutators=session.enabled_mutators)
 
         try:
             iteration = 0
             while session.status == FuzzSessionStatus.RUNNING:
-                # Generate test case
                 base_seed = seeds[iteration % len(seeds)]
                 test_case_data = mutation_engine.generate_test_case(base_seed)
+                final_data = self._apply_behaviors(session, test_case_data)
 
-                # Create test case record
                 test_case = TestCase(
                     id=str(uuid.uuid4()),
                     session_id=session_id,
-                    data=test_case_data,
+                    data=final_data,
                     seed_id=session.seed_corpus[iteration % len(session.seed_corpus)],
                 )
 
-                # Execute test case (MVP: simulated, will integrate with agent)
-                result = await self._execute_test_case(session, test_case)
-
-                # Update statistics
-                session.total_tests += 1
-
-                if result == TestCaseResult.CRASH:
-                    session.crashes += 1
-                    await self._handle_crash(session, test_case)
-                elif result == TestCaseResult.HANG:
-                    session.hangs += 1
-                elif result in (TestCaseResult.ANOMALY, TestCaseResult.LOGICAL_FAILURE):
-                    session.anomalies += 1
+                if session.execution_mode == ExecutionMode.CORE:
+                    result, _response = await self._execute_test_case(session, test_case)
+                    await self._finalize_test_case(session, test_case, result)
+                else:
+                    await self._dispatch_to_agent(session, test_case)
 
                 iteration += 1
 
-                # Small delay to prevent overwhelming the target
+                if session.max_iterations and iteration >= session.max_iterations:
+                    session.status = FuzzSessionStatus.COMPLETED
+                    session.completed_at = datetime.utcnow()
+                    break
+
                 await asyncio.sleep(0.001)
 
         except asyncio.CancelledError:
@@ -184,8 +216,123 @@ class FuzzOrchestrator:
             logger.error("fuzzing_loop_error", session_id=session_id, error=str(e))
             session.status = FuzzSessionStatus.FAILED
             session.error_message = f"Fuzzing error: {str(e)}"
+        finally:
+            if session.execution_mode == ExecutionMode.AGENT:
+                await agent_manager.clear_session(session_id)
+            self._discard_pending_tests(session_id)
 
-    async def _execute_test_case(self, session: FuzzSession, test_case: TestCase) -> TestCaseResult:
+    async def _dispatch_to_agent(self, session: FuzzSession, test_case: TestCase) -> None:
+        """Send a test case to the agent queue"""
+        work = AgentWorkItem(
+            session_id=session.id,
+            test_case_id=test_case.id,
+            protocol=session.protocol,
+            target_host=session.target_host,
+            target_port=session.target_port,
+            data=test_case.data,
+            timeout_ms=session.timeout_per_test_ms,
+        )
+        self.pending_tests[test_case.id] = test_case
+        await agent_manager.enqueue_test_case(session.target_host, session.target_port, work)
+
+    async def _finalize_test_case(
+        self,
+        session: FuzzSession,
+        test_case: TestCase,
+        result: TestCaseResult,
+        metrics: Optional[Dict[str, float]] = None,
+    ) -> None:
+        """Update session statistics and persist findings"""
+        metrics = metrics or {}
+        session.total_tests += 1
+        test_case.result = result
+
+        if result == TestCaseResult.CRASH:
+            session.crashes += 1
+            await self._handle_crash(
+                session,
+                test_case,
+                cpu_usage=metrics.get("cpu_usage"),
+                memory_usage=metrics.get("memory_usage_mb"),
+            )
+        elif result == TestCaseResult.HANG:
+            session.hangs += 1
+        elif result in (TestCaseResult.ANOMALY, TestCaseResult.LOGICAL_FAILURE):
+            session.anomalies += 1
+
+    async def handle_agent_result(self, agent_id: str, payload: AgentTestResult) -> Dict[str, Any]:
+        """Persist results coming back from an agent"""
+        session = self.sessions.get(payload.session_id)
+        if not session:
+            await agent_manager.complete_work(payload.test_case_id)
+            logger.error("agent_result_unknown_session", session_id=payload.session_id)
+            return {"status": "unknown_session"}
+
+        test_case = self.pending_tests.pop(payload.test_case_id, None)
+        if not test_case:
+            await agent_manager.complete_work(payload.test_case_id)
+            logger.warning(
+                "agent_result_missing_test",
+                test_case_id=payload.test_case_id,
+                session_id=payload.session_id,
+            )
+            return {"status": "stale"}
+
+        test_case.execution_time_ms = payload.execution_time_ms
+        await self._finalize_test_case(
+            session,
+            test_case,
+            payload.result,
+            metrics={
+                "cpu_usage": payload.cpu_usage or 0.0,
+                "memory_usage_mb": payload.memory_usage_mb or 0.0,
+            },
+        )
+
+        await agent_manager.complete_work(payload.test_case_id)
+
+        return {"status": "recorded", "result": payload.result}
+
+    async def execute_one_off(self, request: OneOffTestRequest) -> OneOffTestResult:
+        """Run a single test case outside of a session"""
+        if request.execution_mode == ExecutionMode.AGENT:
+            raise ValueError("Agent-mode one-off execution is not yet supported")
+
+        session_stub = FuzzSession(
+            id=str(uuid.uuid4()),
+            protocol=request.protocol,
+            target_host=request.target_host,
+            target_port=request.target_port,
+            seed_corpus=[],
+            enabled_mutators=request.mutators or [],
+            timeout_per_test_ms=request.timeout_ms,
+        )
+        test_case = TestCase(
+            id=str(uuid.uuid4()),
+            session_id=session_stub.id,
+            data=request.payload,
+        )
+        try:
+            plugin = plugin_manager.load_plugin(request.protocol)
+            processor = build_behavior_processor(plugin.data_model)
+            if processor.has_behaviors():
+                session_stub.behavior_state = processor.initialize_state()
+                test_case.data = processor.apply(test_case.data, session_stub.behavior_state)
+        except Exception as exc:
+            logger.warning("one_off_behavior_init_failed", error=str(exc))
+        result, response = await self._execute_test_case(session_stub, test_case)
+
+        return OneOffTestResult(
+            success=result == TestCaseResult.PASS,
+            result=result,
+            execution_time_ms=test_case.execution_time_ms or 0.0,
+            response=response,
+            metadata={"session_id": session_stub.id},
+        )
+
+    async def _execute_test_case(
+        self, session: FuzzSession, test_case: TestCase
+    ) -> tuple[TestCaseResult, Optional[bytes]]:
         """
         Execute a test case against the target by actually sending data
         """
@@ -257,9 +404,15 @@ class FuzzOrchestrator:
         test_case.result = result
         test_case.execution_time_ms = (time.time() - start_time) * 1000
 
-        return result
+        return result, locals().get("response")
 
-    async def _handle_crash(self, session: FuzzSession, test_case: TestCase):
+    async def _handle_crash(
+        self,
+        session: FuzzSession,
+        test_case: TestCase,
+        cpu_usage: Optional[float] = None,
+        memory_usage: Optional[float] = None,
+    ):
         """Handle a crash finding"""
         crash_report = CrashReport(
             id=str(uuid.uuid4()),
@@ -268,6 +421,8 @@ class FuzzOrchestrator:
             result_type=test_case.result,
             reproducer_data=test_case.data,
             severity="medium",  # Will be triaged properly in full version
+            cpu_usage=cpu_usage,
+            memory_usage_mb=memory_usage,
         )
 
         # Save to corpus store
@@ -279,6 +434,42 @@ class FuzzOrchestrator:
             finding_id=crash_report.id,
             test_case_id=test_case.id,
         )
+
+    def _resolve_mutators(self, config: FuzzConfig) -> List[str]:
+        """Translate config into concrete mutator names"""
+        if config.enabled_mutators:
+            return config.enabled_mutators
+
+        mapping = {
+            "bitflip": "bitflip",
+            "byte_flip": "byteflip",
+            "arithmetic": "arithmetic",
+            "interesting_values": "interesting",
+            "havoc": "havoc",
+            "splice": "splice",
+        }
+
+        enabled = []
+        strategy = config.mutation_strategy
+        for key, name in mapping.items():
+            if getattr(strategy, key, False):
+                enabled.append(name)
+
+        return enabled or MutationEngine.available_mutators()
+
+    def _discard_pending_tests(self, session_id: str) -> None:
+        """Remove pending tests for a session"""
+        stale = [tc_id for tc_id, tc in self.pending_tests.items() if tc.session_id == session_id]
+        for tc_id in stale:
+            self.pending_tests.pop(tc_id, None)
+
+    def _apply_behaviors(self, session: FuzzSession, data: bytes) -> bytes:
+        processor = self.behavior_processors.get(session.id)
+        if not processor:
+            return data
+        state = session.behavior_state or processor.initialize_state()
+        session.behavior_state = state
+        return processor.apply(data, state)
 
     def get_session(self, session_id: str) -> Optional[FuzzSession]:
         """Get session by ID"""

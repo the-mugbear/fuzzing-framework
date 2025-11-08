@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Protocol Authoring Guide</title>
+<style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1115; color: #f0f0f0; margin: 40px; line-height: 1.6; }
+    h1, h2, h3 { color: #4ec9b0; }
+    pre { background: #1b1f27; padding: 15px; border-radius: 6px; overflow-x: auto; }
+    code { background: #1b1f27; padding: 2px 4px; border-radius: 4px; }
+    ul { margin-left: 20px; }
+</style>
+</head>
+<body>
+<h1>Protocol Authoring Guide</h1>
+<p>Use this guide when building <code>core/plugins/&lt;name&gt;.py</code> files for new targets.</p>
+
+<h2>1. Understand the Protocol</h2>
+<ul>
+    <li>Document message structure (fields, sizes, endianness).</li>
+    <li>Map the state machine (e.g., INIT → AUTH → READY).</li>
+    <li>Collect at least three valid example messages.</li>
+</ul>
+
+<h2>2. Define the Data Model</h2>
+<pre>{
+    "blocks": [
+        {
+            "name": "magic",
+            "type": "bytes",
+            "size": 4,
+            "default": b"BANK",
+            "mutable": False
+        },
+        {
+            "name": "length",
+            "type": "uint32",
+            "endian": "big",
+            "is_size_field": True,
+            "size_of": "payload"
+        },
+        {
+            "name": "payload",
+            "type": "bytes",
+            "max_size": 1024
+        }
+    ],
+    "seeds": [b"BANK\x01\x01\x00\x00\x00\x00", ...]
+}
+</pre>
+<p>Mark headers or signatures as <code>mutable: false</code>, and keep payload fields generous so mutators can explore.</p>
+
+<h2>3. Add Field Behaviors</h2>
+<p>Behaviors execute before every test case is sent and keep deterministic fields valid.</p>
+<pre>{
+    "name": "sequence",
+    "type": "uint16",
+    "behavior": {
+        "operation": "increment",
+        "initial": 0,
+        "step": 1,
+        "wrap": 65536
+    }
+},
+{
+    "name": "checksum",
+    "type": "uint8",
+    "behavior": {
+        "operation": "add_constant",
+        "value": 0x55
+    }
+}
+</pre>
+<ul>
+    <li><strong>increment</strong>: serializes the current counter, then advances it using <code>step</code>/<code>wrap</code>.</li>
+    <li><strong>add_constant</strong>: adds a constant to the field value modulo its width before sending.</li>
+</ul>
+<p>Behaviors require fixed-width blocks (uint16/32/64 or <code>bytes</code> with <code>size</code>). They run in both core and agent modes and remove the need for custom mutators.</p>
+
+<h2>4. Model the State Machine</h2>
+<pre>state_model = {
+    "initial_state": "INIT",
+    "states": ["INIT", "AUTH", "READY"],
+    "transitions": [
+        {"from": "INIT", "to": "AUTH", "trigger": "send_auth"},
+        {"from": "AUTH", "to": "READY", "trigger": "auth_success"}
+    ]
+}
+</pre>
+<p>This metadata helps other humans understand the protocol and will power richer orchestration later.</p>
+
+<h2>5. Optional: Response Validator</h2>
+<pre>def validate_response(response: bytes) -> bool:
+    if len(response) < 4 or response[:4] != b"BANK":
+        return False
+    if len(response) > 8 and response[8] == 0xFF:
+        return False
+    return True
+</pre>
+<p>Return <code>False</code> (or raise) when the target behaves unexpectedly even if it doesn’t crash.</p>
+
+<h2>6. Test the Plugin</h2>
+<ul>
+    <li>Import it via <code>curl http://localhost:8000/api/plugins/&lt;name&gt;</code>.</li>
+    <li>Start a session in core mode and watch the target logs.</li>
+    <li>When behaviors are defined, the dashboard’s behavior summary will list them automatically.</li>
+</ul>
+
+<h2>7. Iterate</h2>
+<ul>
+    <li>Promote new crashing inputs to <code>data/corpus/seeds</code>.</li>
+    <li>Adjust behaviors as you learn about fresh checksum or sequence requirements.</li>
+    <li>Document quirks in the plugin’s module docstring so teammates can follow suit.</li>
+</ul>
+</body>
+</html>

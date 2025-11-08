@@ -34,6 +34,8 @@ class MonitoringResult:
     hung: bool = False
     cpu_spike: bool = False
     memory_leak: bool = False
+    verdict: str = "pass"
+    response: bytes = b""
 
 
 class ProcessMonitor:
@@ -160,10 +162,15 @@ class TargetExecutor:
     - Detecting crashes and anomalies
     """
 
-    def __init__(self, target_host: str, target_port: int):
+    def __init__(self, target_host: str, target_port: int, launch_cmd: Optional[str] = None):
         self.target_host = target_host
         self.target_port = target_port
+        self.launch_cmd = launch_cmd
         self.monitor = ProcessMonitor()
+        self._process_handle: Optional[psutil.Process] = None
+        self._popen: Optional[subprocess.Popen] = None
+        if self.launch_cmd:
+            self._ensure_target_process()
 
     async def execute_test_case(
         self, test_data: bytes, timeout_sec: float = 5.0
@@ -181,58 +188,92 @@ class TargetExecutor:
         import socket
 
         start_time = time.time()
+        response = b""
+        verdict = "pass"
 
         try:
-            # Connect to target
+            self._ensure_target_process()
+
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(timeout_sec)
             sock.connect((self.target_host, self.target_port))
-
-            # Send test data
             sock.sendall(test_data)
 
-            # Try to receive response (with timeout)
             try:
                 response = sock.recv(4096)
             except socket.timeout:
                 response = b""
+                verdict = "hang"
+            finally:
+                sock.close()
 
-            sock.close()
+        except ConnectionRefusedError:
+            verdict = "crash"
+            logger.error("target_connection_refused", host=self.target_host, port=self.target_port)
+        except socket.timeout:
+            verdict = "hang"
+            logger.warning("target_timeout", host=self.target_host, port=self.target_port)
+        except Exception as exc:
+            verdict = "crash"
+            logger.error("execution_error", error=str(exc))
 
-            execution_time = (time.time() - start_time) * 1000
+        metrics: Optional[MonitoringResult] = None
+        if self._process_handle:
+            try:
+                metrics = self.monitor.monitor_process(self._process_handle, duration_sec=min(1.0, timeout_sec))
+            except Exception as exc:
+                logger.warning("process_monitor_failed", error=str(exc))
 
-            # For now, just return success (will add real monitoring when integrated with process tracking)
-            return MonitoringResult(
-                success=True,
-                cpu_usage=0,
-                memory_usage_mb=0,
+        execution_time = (time.time() - start_time) * 1000
+
+        if not metrics:
+            metrics = MonitoringResult(
+                success=verdict == "pass",
+                cpu_usage=0.0,
+                memory_usage_mb=0.0,
                 execution_time_ms=execution_time,
             )
 
-        except ConnectionRefusedError:
-            logger.error("target_connection_refused", host=self.target_host, port=self.target_port)
-            return MonitoringResult(
-                success=False,
-                cpu_usage=0,
-                memory_usage_mb=0,
-                execution_time_ms=(time.time() - start_time) * 1000,
-                crashed=True,
-            )
-        except socket.timeout:
-            logger.warning("target_timeout", host=self.target_host, port=self.target_port)
-            return MonitoringResult(
-                success=False,
-                cpu_usage=0,
-                memory_usage_mb=0,
-                execution_time_ms=(time.time() - start_time) * 1000,
-                hung=True,
-            )
-        except Exception as e:
-            logger.error("execution_error", error=str(e))
-            return MonitoringResult(
-                success=False,
-                cpu_usage=0,
-                memory_usage_mb=0,
-                execution_time_ms=(time.time() - start_time) * 1000,
-                crashed=True,
-            )
+        metrics.execution_time_ms = execution_time
+        metrics.response = response
+        metrics.verdict = verdict
+        if verdict != "pass":
+            metrics.success = False
+            metrics.crashed = verdict == "crash"
+            metrics.hung = verdict == "hang"
+
+        return metrics
+
+    def _ensure_target_process(self) -> None:
+        """Launch the target process if a command was provided"""
+        if not self.launch_cmd or self._process_handle:
+            return
+
+        creationflags = 0
+        kwargs = {"shell": True}
+        if os.name == "nt":
+            creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            kwargs["creationflags"] = creationflags
+        else:
+            kwargs["preexec_fn"] = os.setsid
+
+        self._popen = subprocess.Popen(self.launch_cmd, **kwargs)
+        self._process_handle = psutil.Process(self._popen.pid)
+        logger.info("launched_target_process", pid=self._popen.pid)
+
+    async def shutdown(self) -> None:
+        """Terminate launched target processes"""
+        if not self._popen:
+            return
+
+        try:
+            if os.name == "nt":
+                self._popen.terminate()
+            else:
+                os.killpg(os.getpgid(self._popen.pid), signal.SIGTERM)
+            self._popen.wait(timeout=5)
+        except Exception as exc:
+            logger.warning("failed_to_shutdown_target", error=str(exc))
+        finally:
+            self._popen = None
+            self._process_handle = None

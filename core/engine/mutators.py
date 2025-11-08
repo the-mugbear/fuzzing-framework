@@ -10,7 +10,7 @@ Implements various mutation strategies from the blueprint:
 """
 import random
 import struct
-from typing import List
+from typing import List, Optional
 
 import structlog
 
@@ -211,7 +211,7 @@ class MutationEngine:
     Selects and applies appropriate mutators based on configuration
     """
 
-    def __init__(self, seed_corpus: List[bytes]):
+    def __init__(self, seed_corpus: List[bytes], enabled_mutators: Optional[List[str]] = None):
         self.seed_corpus = seed_corpus
         self.mutators = {
             "bitflip": BitFlipMutator(),
@@ -229,6 +229,7 @@ class MutationEngine:
             "havoc": 15,
             "splice": 10,
         }
+        self.enabled_mutators = self._normalize_enabled(enabled_mutators)
 
     def generate_test_case(self, base_seed: bytes, num_mutations: int = 1) -> bytes:
         """
@@ -246,7 +247,8 @@ class MutationEngine:
         for _ in range(num_mutations):
             # Select mutator based on weights
             mutator_name = random.choices(
-                list(self.mutators.keys()), weights=list(self.weights.values())
+                self.enabled_mutators,
+                weights=[self.weights.get(name, 1) for name in self.enabled_mutators],
             )[0]
 
             mutator = self.mutators[mutator_name]
@@ -262,3 +264,18 @@ class MutationEngine:
             num_mutations = random.randint(1, 5)
             test_cases.append(self.generate_test_case(seed, num_mutations))
         return test_cases
+
+    def _normalize_enabled(self, enabled: Optional[List[str]]) -> List[str]:
+        available = list(self.mutators.keys())
+        if not enabled:
+            return available
+
+        normalized = [name for name in enabled if name in self.mutators]
+        if not normalized:
+            logger.warning("mutator_fallback", enabled=enabled)
+            return available
+        return normalized
+
+    @staticmethod
+    def available_mutators() -> List[str]:
+        return ["bitflip", "byteflip", "arithmetic", "interesting", "havoc", "splice"]

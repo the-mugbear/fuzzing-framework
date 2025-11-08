@@ -34,6 +34,8 @@ volumes/
 # Environment
 .env
 .env.local
+*.md
+
 
 # OS
 .DS_Store

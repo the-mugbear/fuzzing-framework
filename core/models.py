@@ -74,11 +74,20 @@ class AgentStatus(BaseModel):
 
     agent_id: str
     hostname: str
+    target_host: str
+    target_port: int
     is_alive: bool
     last_heartbeat: datetime
-    cpu_usage: float
-    memory_usage_mb: float
+    cpu_usage: float = 0.0
+    memory_usage_mb: float = 0.0
     active_test_count: int = 0
+
+
+class ExecutionMode(str, Enum):
+    """Where test cases execute"""
+
+    CORE = "core"
+    AGENT = "agent"
 
 
 class FuzzSession(BaseModel):
@@ -88,10 +97,14 @@ class FuzzSession(BaseModel):
 
     id: str
     protocol: str
+    execution_mode: ExecutionMode = Field(default=ExecutionMode.CORE)
     status: FuzzSessionStatus = FuzzSessionStatus.IDLE
     target_host: str
     target_port: int
     seed_corpus: List[str] = Field(default_factory=list)
+    enabled_mutators: List[str] = Field(default_factory=list)
+    timeout_per_test_ms: int = 5000
+    max_iterations: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -103,6 +116,7 @@ class FuzzSession(BaseModel):
     hangs: int = 0
     anomalies: int = 0
     unique_crashes: int = 0
+    behavior_state: Dict[str, Any] = Field(default_factory=dict)
 
 
 class MutationStrategy(BaseModel):
@@ -123,6 +137,60 @@ class FuzzConfig(BaseModel):
     target_host: str
     target_port: int
     mutation_strategy: MutationStrategy = Field(default_factory=MutationStrategy)
+    enabled_mutators: Optional[List[str]] = Field(
+        default=None, description="Explicit mutators to use (overrides strategy flags)"
+    )
+    execution_mode: ExecutionMode = Field(default=ExecutionMode.CORE)
     max_iterations: Optional[int] = None
     timeout_per_test_ms: int = 5000
     enable_state_tracking: bool = True
+
+
+class AgentWorkItem(BaseModel):
+    """Serialized task sent to an agent"""
+
+    session_id: str
+    test_case_id: str
+    protocol: str
+    target_host: str
+    target_port: int
+    data: bytes
+    timeout_ms: int
+
+
+class AgentTestResult(BaseModel):
+    """Result payload submitted by an agent"""
+
+    session_id: str
+    test_case_id: str
+    result: TestCaseResult
+    execution_time_ms: float
+    cpu_usage: Optional[float] = None
+    memory_usage_mb: Optional[float] = None
+    crashed: bool = False
+    hung: bool = False
+    response: Optional[bytes] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class OneOffTestRequest(BaseModel):
+    """Ad-hoc test case execution request"""
+
+    protocol: str
+    target_host: str
+    target_port: int
+    payload: bytes
+    execution_mode: ExecutionMode = ExecutionMode.CORE
+    timeout_ms: int = 5000
+    mutators: Optional[List[str]] = None  # Allows reusing existing seeds for chaining
+
+
+class OneOffTestResult(BaseModel):
+    """Response for an ad-hoc test"""
+
+    success: bool
+    result: TestCaseResult
+    execution_time_ms: float
+    response: Optional[bytes] = None
+    crash_report_id: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)

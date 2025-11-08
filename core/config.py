@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     plugins_dir: Path = project_root / "core" / "plugins"
     corpus_dir: Path = project_root / "core" / "corpus"
     crash_dir: Path = project_root / "core" / "crashes"
+    log_dir: Path = project_root / "logs"
 
     # Fuzzing engine
     max_mutations_per_seed: int = 1000
@@ -32,6 +33,7 @@ class Settings(BaseSettings):
     # Agent settings
     agent_heartbeat_interval: int = 30
     agent_timeout_sec: int = 60
+    agent_queue_size: int = 1024
 
     # Oracle thresholds
     cpu_spike_threshold: float = 90.0  # percent

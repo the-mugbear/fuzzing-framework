@@ -226,6 +226,103 @@ def validate_response(response: bytes) -> bool:
 
 Reload the Core or restart Docker to load the new plugin.
 
+## Testing Your Protocol Plugin
+
+After creating a protocol plugin, verify it works correctly:
+
+### 1. Verify Plugin Loads
+
+```bash
+# List all plugins
+curl http://localhost:8000/api/plugins
+
+# Get your protocol details
+curl http://localhost:8000/api/plugins/my_protocol | jq .
+```
+
+### 2. Test Seeds Against Your Target
+
+Create a test script `test_my_protocol.py`:
+
+```python
+#!/usr/bin/env python3
+import socket
+import sys
+sys.path.insert(0, '.')
+
+from core.plugin_loader import plugin_manager
+
+TARGET_HOST = "localhost"
+TARGET_PORT = 9999
+
+protocol = plugin_manager.load_plugin("my_protocol")
+
+for i, seed in enumerate(protocol.data_model['seeds'], 1):
+    print(f"Testing seed {i}...")
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(5.0)
+
+    try:
+        sock.connect((TARGET_HOST, TARGET_PORT))
+        sock.sendall(seed)
+        response = sock.recv(4096)
+        print(f"  ✓ Received {len(response)} bytes")
+
+        # Validate if validator exists
+        if hasattr(protocol, 'validate_response'):
+            is_valid = protocol.validate_response(response)
+            print(f"  {'✓' if is_valid else '✗'} Response valid: {is_valid}")
+    except Exception as e:
+        print(f"  ✗ Error: {e}")
+    finally:
+        sock.close()
+```
+
+Run it:
+```bash
+python test_my_protocol.py
+```
+
+### 3. Run a Test Fuzzing Session
+
+```bash
+# Create session
+SESSION_ID=$(curl -s -X POST http://localhost:8000/api/sessions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "protocol": "my_protocol",
+    "target_host": "localhost",
+    "target_port": 9999
+  }' | jq -r '.id')
+
+# Start fuzzing for 10 seconds
+curl -X POST "http://localhost:8000/api/sessions/$SESSION_ID/start"
+sleep 10
+curl -X POST "http://localhost:8000/api/sessions/$SESSION_ID/stop"
+
+# Check results
+curl "http://localhost:8000/api/sessions/$SESSION_ID" | jq '{
+  status, total_tests, crashes, hangs, anomalies
+}'
+```
+
+Expected output:
+```json
+{
+  "status": "completed",
+  "total_tests": 1523,
+  "crashes": 0,
+  "hangs": 0,
+  "anomalies": 0
+}
+```
+
+### 4. Complete Testing Guide
+
+For comprehensive protocol testing documentation, see:
+- **[PROTOCOL_TESTING.md](./PROTOCOL_TESTING.md)** - Complete guide with advanced techniques
+- Web UI → "Protocol Guide" tab - Interactive tutorial
+
 ## Troubleshooting
 
 ### Core won't start

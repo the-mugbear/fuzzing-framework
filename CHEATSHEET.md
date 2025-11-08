@@ -153,6 +153,132 @@ def validate_response(response: bytes) -> bool:
 
 Reload plugin: `curl -X POST http://localhost:8000/api/plugins/my_protocol/reload`
 
+## Testing Protocol Implementations
+
+### Quick Protocol Test
+
+```bash
+# 1. Verify plugin loads
+curl http://localhost:8000/api/plugins/my_protocol | jq '.name'
+
+# 2. Test seeds against target manually
+echo -ne 'MYPK\x00\x00\x00\x04TEST' | nc localhost 9999
+
+# 3. Create and run test fuzzing session
+SESSION_ID=$(curl -s -X POST http://localhost:8000/api/sessions \
+  -H "Content-Type: application/json" \
+  -d '{"protocol":"my_protocol","target_host":"localhost","target_port":9999}' \
+  | jq -r '.id')
+
+curl -X POST "http://localhost:8000/api/sessions/$SESSION_ID/start"
+sleep 10
+curl -X POST "http://localhost:8000/api/sessions/$SESSION_ID/stop"
+
+# 4. Check results
+curl "http://localhost:8000/api/sessions/$SESSION_ID" | jq '{
+  status, total_tests, crashes, hangs, anomalies, error_message
+}'
+```
+
+### Test Seeds with Python
+
+Create `test_protocol.py`:
+
+```python
+#!/usr/bin/env python3
+import socket, sys
+sys.path.insert(0, '.')
+from core.plugin_loader import plugin_manager
+
+protocol = plugin_manager.load_plugin("my_protocol")
+TARGET = ("localhost", 9999)
+
+for i, seed in enumerate(protocol.data_model['seeds'], 1):
+    print(f"Seed {i}: ", end="")
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect(TARGET)
+        sock.sendall(seed)
+        response = sock.recv(4096)
+        print(f"✓ {len(response)} bytes received")
+        sock.close()
+    except Exception as e:
+        print(f"✗ {e}")
+```
+
+Run: `python test_protocol.py`
+
+### Complete Test Script
+
+```bash
+#!/bin/bash
+# complete_test.sh - Test protocol end-to-end
+
+PROTOCOL="my_protocol"
+HOST="localhost"
+PORT="9999"
+
+echo "Testing $PROTOCOL..."
+
+# Check plugin
+curl -sf http://localhost:8000/api/plugins/$PROTOCOL > /dev/null || {
+  echo "✗ Plugin not found"
+  exit 1
+}
+echo "✓ Plugin loaded"
+
+# Create session
+SESSION_ID=$(curl -sf -X POST http://localhost:8000/api/sessions \
+  -H "Content-Type: application/json" \
+  -d "{\"protocol\":\"$PROTOCOL\",\"target_host\":\"$HOST\",\"target_port\":$PORT}" \
+  | jq -r '.id')
+
+echo "✓ Session: $SESSION_ID"
+
+# Run fuzzing
+curl -sf -X POST "http://localhost:8000/api/sessions/$SESSION_ID/start" > /dev/null
+sleep 30
+curl -sf -X POST "http://localhost:8000/api/sessions/$SESSION_ID/stop" > /dev/null
+
+# Check results
+STATS=$(curl -s "http://localhost:8000/api/sessions/$SESSION_ID")
+TESTS=$(echo $STATS | jq -r '.total_tests')
+ERROR=$(echo $STATS | jq -r '.error_message')
+
+if [ "$ERROR" != "null" ]; then
+  echo "✗ Error: $ERROR"
+  exit 1
+fi
+
+if [ "$TESTS" -eq 0 ]; then
+  echo "✗ No tests executed"
+  exit 1
+fi
+
+echo "✓ Tests: $TESTS"
+echo "✓ All checks passed"
+```
+
+### Docker Networking for Testing
+
+```bash
+# Inside Docker targeting host
+curl -X POST http://localhost:8000/api/sessions \
+  -d '{"protocol":"my_protocol","target_host":"172.17.0.1","target_port":9999}'
+  # Linux: 172.17.0.1
+  # Mac/Win: host.docker.internal
+
+# Inside Docker targeting container
+curl -X POST http://localhost:8000/api/sessions \
+  -d '{"protocol":"my_protocol","target_host":"target","target_port":9999}'
+  # Use service name from docker-compose.yml
+
+# Check container connectivity
+docker exec fuzzer-core ping -c 1 target
+docker exec fuzzer-core nc -zv target 9999
+```
+
 ## File Locations
 
 ```
@@ -287,7 +413,9 @@ docker-compose exec core bash
 
 ## Getting Help
 
-- Check `QUICKSTART.md` for detailed setup
-- Read `blueprint.md` for architecture
-- See `MVP_SUMMARY.md` for feature list
-- View logs for debugging
+- **[PROTOCOL_TESTING.md](./PROTOCOL_TESTING.md)** - Complete guide for testing protocol implementations
+- **[QUICKSTART.md](./QUICKSTART.md)** - Detailed setup instructions
+- **[README.md](./README.md)** - Overview and features
+- `blueprint.md` - Architecture details
+- `MVP_SUMMARY.md` - Feature list
+- View logs for debugging: `docker-compose logs -f core`

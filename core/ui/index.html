@@ -103,6 +103,49 @@
             color: #fff;
         }
 
+        .guide-links {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .guide-links a {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 12px;
+            background: #1f1f1f;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #66b0ff;
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .guide-links a:hover {
+            background: #252525;
+            border-color: #0066cc;
+        }
+
+        .behavior-summary {
+            margin-top: 15px;
+            padding: 12px;
+            background: #1f1f1f;
+            border: 1px dashed #333;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #cbcaca;
+        }
+
+        .behavior-summary ul {
+            margin-top: 8px;
+            margin-left: 18px;
+        }
+
+        .behavior-summary li {
+            margin-bottom: 4px;
+        }
+
         .card-description {
             color: #888;
             font-size: 13px;
@@ -573,6 +616,9 @@
                         </div>
                         <button type="submit">Create Session</button>
                     </form>
+                    <div id="behaviorSummary" class="behavior-summary">
+                        Select a protocol to view automatic field behaviors.
+                    </div>
                 </div>
 
                 <!-- System Status -->
@@ -622,6 +668,20 @@
                                 target response time.
                             </span>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Help & Guides -->
+                <div class="card">
+                    <h2>📚 Help & Guides</h2>
+                    <p class="card-description">
+                        Need a refresher on terminology or plugin development? These curated links open in a new tab so
+                        you can keep the dashboard in view while reading the docs.
+                    </p>
+                    <div class="guide-links">
+                        <a href="/guides/fuzzing-guide.html" target="_blank">Fuzzing Guide – Terminology & Workflow</a>
+                        <a href="/guides/protocol-guide.html" target="_blank">Protocol Authoring & Behaviors</a>
+                        <a href="/CHEATSHEET.md" target="_blank">CLI Cheatsheet & API Commands</a>
                     </div>
                 </div>
             </div>
@@ -1115,9 +1175,10 @@ Result: Authentication message with SQL query - may bypass checks!</pre>
             <div>
                 <h3 style="color: #0066cc; margin-bottom: 15px;">Quick Links</h3>
                 <ul style="margin-left: 20px; line-height: 2;">
-                    <li><a href="#" onclick="switchTab('help'); closeHelp(); return false;" style="color: #0066cc;">Getting Started Guide</a></li>
-                    <li><a href="#" onclick="switchTab('protocol-guide'); closeHelp(); return false;" style="color: #0066cc;">Create Custom Protocol Plugins</a></li>
-                    <li><a href="#" onclick="switchTab('mutation-guide'); closeHelp(); return false;" style="color: #0066cc;">Understand Mutation Strategies</a></li>
+                    <li><a href="/guides/fuzzing-guide.html" target="_blank" style="color: #0066cc;">Fuzzing Guide (Terminology & Workflow)</a></li>
+                    <li><a href="/guides/protocol-guide.html" target="_blank" style="color: #0066cc;">Protocol Authoring & Behaviors</a></li>
+                    <li><a href="#" onclick="switchTab('help'); closeHelp(); return false;" style="color: #0066cc;">Getting Started Overview</a></li>
+                    <li><a href="#" onclick="switchTab('mutation-guide'); closeHelp(); return false;" style="color: #0066cc;">Mutation Strategy Reference</a></li>
                 </ul>
 
                 <h3 style="color: #0066cc; margin-top: 30px; margin-bottom: 15px;">External Documentation</h3>
@@ -1179,6 +1240,58 @@ docker-compose logs -f target</pre>
         });
 
         // Load protocols on page load
+        const protocolCache = {};
+
+        async function fetchProtocolDetail(name) {
+            if (!name) return null;
+            if (protocolCache[name]) {
+                return protocolCache[name];
+            }
+            const response = await fetch(`${API_BASE}/api/plugins/${name}`);
+            if (!response.ok) {
+                throw new Error(`Failed to load plugin ${name}`);
+            }
+            const detail = await response.json();
+            protocolCache[name] = detail;
+            return detail;
+        }
+
+        function describeBehavior(behavior) {
+            if (!behavior) return '';
+            const op = behavior.operation || behavior.type;
+            if (op === 'increment') {
+                const step = behavior.step ?? 1;
+                return `increments each send (step ${step})`;
+            }
+            if (op === 'add_constant') {
+                return `adds ${behavior.value ?? 0} before sending`;
+            }
+            return op ? `custom operation: ${op}` : 'custom operation';
+        }
+
+        async function updateBehaviorSummary(protocolName) {
+            const summary = document.getElementById('behaviorSummary');
+            if (!protocolName) {
+                summary.textContent = 'Select a protocol to view automatic field behaviors.';
+                return;
+            }
+            try {
+                const detail = await fetchProtocolDetail(protocolName);
+                const blocks = detail?.data_model?.blocks || [];
+                const behaviors = blocks.filter(block => block.behavior);
+                if (!behaviors.length) {
+                    summary.textContent = 'No automatic field behaviors defined in this plugin.';
+                    return;
+                }
+                const items = behaviors
+                    .map(block => `<li><strong>${block.name}</strong> — ${describeBehavior(block.behavior)}</li>`)
+                    .join('');
+                summary.innerHTML = `<span>Automatic operations applied before each message:</span><ul>${items}</ul>`;
+            } catch (error) {
+                summary.textContent = `Unable to load behavior details: ${error.message}`;
+            }
+        }
+
         async function loadProtocols() {
             try {
                 const response = await fetch(`${API_BASE}/api/plugins`);
@@ -1187,10 +1300,17 @@ docker-compose logs -f target</pre>
                 select.innerHTML = protocols.map(p =>
                     `<option value="${p}">${p}</option>`
                 ).join('');
+                if (protocols.length) {
+                    await updateBehaviorSummary(protocols[0]);
+                }
             } catch (error) {
                 showMessage('Failed to load protocols: ' + error.message, 'error');
             }
         }
+
+        document.getElementById('protocol').addEventListener('change', (e) => {
+            updateBehaviorSummary(e.target.value);
+        });
 
         // Create session
         document.getElementById('createSessionForm').addEventListener('submit', async (e) => {
