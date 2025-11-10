@@ -21,7 +21,14 @@ from core.agents.manager import agent_manager
 from core.config import settings
 from core.logging import setup_logging
 from core.corpus.store import CorpusStore
-from core.engine.mutators import MutationEngine
+from core.engine.mutators import (
+    ArithmeticMutator,
+    BitFlipMutator,
+    ByteFlipMutator,
+    HavocMutator,
+    InterestingValueMutator,
+    MutationEngine,
+)
 from core.engine.orchestrator import orchestrator
 from core.engine.protocol_parser import ProtocolParser
 from core.engine.structure_mutators import StructureAwareMutator
@@ -36,6 +43,8 @@ from core.models import (
     PreviewRequest,
     PreviewResponse,
     ProtocolPlugin,
+    StateMachineInfo,
+    StateTransition,
     TestCasePreview,
 )
 from core.plugin_loader import plugin_manager
@@ -144,23 +153,72 @@ async def preview_test_cases(plugin_name: str, request: PreviewRequest):
         parser = ProtocolParser(data_model)
         previews = []
 
+        # Get state model for transition detection
+        state_model = plugin.state_model if plugin.state_model else {}
+
         if request.mode == "seeds":
             # Show actual seeds
             for i, seed in enumerate(seeds[:request.count]):
-                preview = _build_preview(i, seed, parser, blocks, mode="baseline")
+                preview = _build_preview(
+                    i, seed, parser, blocks,
+                    mode="baseline",
+                    state_model=state_model
+                )
                 previews.append(preview)
 
         elif request.mode == "mutations":
-            # Generate actual mutations using StructureAwareMutator
+            # Generate both structure-aware and byte-level mutations
             if not seeds:
                 raise HTTPException(status_code=400, detail="Protocol has no seeds defined")
 
-            mutator = StructureAwareMutator(data_model)
+            structure_mutator = StructureAwareMutator(data_model)
 
+            # Initialize byte-level mutation engine
+            byte_mutators = {
+                "bitflip": BitFlipMutator(),
+                "byteflip": ByteFlipMutator(),
+                "arithmetic": ArithmeticMutator(),
+                "interesting": InterestingValueMutator(),
+                "havoc": HavocMutator()
+            }
+
+            # Generate mix of structure-aware and byte-level mutations
             for i in range(request.count):
                 seed = random.choice(seeds)
-                mutated = mutator.mutate(seed)
-                preview = _build_preview(i, mutated, parser, blocks, mode="mutated")
+
+                # Alternate between structure-aware and byte-level
+                if i % 2 == 0:
+                    # Structure-aware mutation
+                    mutated = structure_mutator.mutate(seed)
+
+                    # Try to determine which field was mutated by comparing
+                    mutated_field = _detect_mutated_field(seed, mutated, parser, blocks)
+
+                    preview = _build_preview(
+                        i, mutated, parser, blocks,
+                        mode="mutated",
+                        mutation_type="structure_aware",
+                        mutators_used=["structure_aware"],
+                        description=f"Structure-aware mutation respecting protocol grammar{f' (field: {mutated_field})' if mutated_field else ''}",
+                        state_model=state_model
+                    )
+                else:
+                    # Byte-level mutation
+                    mutator_name = random.choice(list(byte_mutators.keys()))
+                    mutator = byte_mutators[mutator_name]
+                    mutated = mutator.mutate(seed)
+
+                    description = _get_mutator_description(mutator_name)
+
+                    preview = _build_preview(
+                        i, mutated, parser, blocks,
+                        mode="mutated",
+                        mutation_type="byte_level",
+                        mutators_used=[mutator_name],
+                        description=description,
+                        state_model=state_model
+                    )
+
                 previews.append(preview)
 
         elif request.mode == "field_focus":
@@ -179,14 +237,22 @@ async def preview_test_cases(plugin_name: str, request: PreviewRequest):
                 preview = _build_preview(
                     i, mutated, parser, blocks,
                     mode="mutated",
-                    focus_field=request.focus_field
+                    focus_field=request.focus_field,
+                    state_model=state_model
                 )
                 previews.append(preview)
 
         else:
             raise HTTPException(status_code=400, detail=f"Invalid mode: {request.mode}")
 
-        return PreviewResponse(protocol=plugin_name, previews=previews)
+        # Build state machine info if protocol has state model
+        state_machine_info = _build_state_machine_info(plugin)
+
+        return PreviewResponse(
+            protocol=plugin_name,
+            previews=previews,
+            state_machine=state_machine_info
+        )
 
     except HTTPException:
         raise
@@ -201,7 +267,11 @@ def _build_preview(
     parser: ProtocolParser,
     blocks: List[dict],
     mode: str = "baseline",
-    focus_field: Optional[str] = None
+    mutation_type: Optional[str] = None,
+    mutators_used: List[str] = None,
+    description: Optional[str] = None,
+    focus_field: Optional[str] = None,
+    state_model: dict = None
 ) -> TestCasePreview:
     """
     Build a test case preview from binary data.
@@ -212,10 +282,14 @@ def _build_preview(
         parser: Protocol parser instance
         blocks: Block definitions from data_model
         mode: "baseline" or "mutated"
+        mutation_type: "structure_aware" | "byte_level"
+        mutators_used: List of mutator names
+        description: Human-readable description
         focus_field: Optional field name that was mutated
+        state_model: Protocol state machine model
 
     Returns:
-        TestCasePreview with parsed fields
+        TestCasePreview with parsed fields and state info
     """
     try:
         # Parse the data into fields
@@ -261,13 +335,144 @@ def _build_preview(
     # Create hex dump
     hex_dump = data.hex().upper()
 
+    # Determine message type and transition info if state model exists
+    message_type = None
+    valid_in_state = None
+    causes_transition = None
+
+    if state_model and state_model.get("transitions"):
+        # Find command field to identify message type
+        command_value = fields_dict.get("command")
+
+        if command_value is not None:
+            # Map command value to message type
+            for block in blocks:
+                if block.get("name") == "command" and "values" in block:
+                    message_type = block["values"].get(command_value)
+                    break
+
+            if message_type:
+                # Find which state this message is valid in and what transition it causes
+                transitions = state_model.get("transitions", [])
+
+                # Find the first transition that matches this message type
+                for trans in transitions:
+                    if trans.get("message_type") == message_type:
+                        valid_in_state = trans.get("from")
+                        to_state = trans.get("to")
+                        causes_transition = f"{valid_in_state} → {to_state}"
+                        break
+
     return TestCasePreview(
         id=preview_id,
         mode=mode,
+        mutation_type=mutation_type,
+        mutators_used=mutators_used or [],
+        description=description,
         focus_field=focus_field,
         hex_dump=hex_dump,
         total_bytes=len(data),
-        fields=preview_fields
+        fields=preview_fields,
+        message_type=message_type,
+        valid_in_state=valid_in_state,
+        causes_transition=causes_transition
+    )
+
+
+def _get_mutator_description(mutator_name: str) -> str:
+    """Get human-readable description of what a mutator does"""
+    descriptions = {
+        "bitflip": "Bit flipping: Randomly flips individual bits in the message, potentially breaking field boundaries and creating invalid values",
+        "byteflip": "Byte flipping: Replaces random bytes with random values, ignoring protocol structure",
+        "arithmetic": "Arithmetic: Adds/subtracts small integers to 4-byte sequences, may corrupt length fields or counters",
+        "interesting": "Interesting values: Injects boundary values (0, 255, 65535, etc.) at random positions",
+        "havoc": "Havoc: Aggressive random mutations including insertions, deletions, and bit flips throughout the message"
+    }
+    return descriptions.get(mutator_name, f"Byte-level mutation: {mutator_name}")
+
+
+def _detect_mutated_field(original: bytes, mutated: bytes, parser: ProtocolParser, blocks: List[dict]) -> Optional[str]:
+    """
+    Try to detect which field was mutated by comparing original and mutated messages.
+
+    Returns the name of the field that was likely mutated, or None if unclear.
+    """
+    try:
+        original_fields = parser.parse(original)
+        mutated_fields = parser.parse(mutated)
+
+        # Compare each field
+        for block in blocks:
+            field_name = block['name']
+            if field_name in original_fields and field_name in mutated_fields:
+                orig_val = original_fields[field_name]
+                mut_val = mutated_fields[field_name]
+
+                # Skip computed fields (they change as a result of other changes)
+                if block.get('is_size_field'):
+                    continue
+
+                if orig_val != mut_val:
+                    return field_name
+
+    except Exception:
+        # If parsing fails, we can't determine the field
+        pass
+
+    return None
+
+
+def _build_state_machine_info(plugin: ProtocolPlugin) -> Optional[StateMachineInfo]:
+    """
+    Build state machine information from protocol plugin.
+
+    Args:
+        plugin: Protocol plugin with state_model
+
+    Returns:
+        StateMachineInfo if protocol has state model, None otherwise
+    """
+    state_model = plugin.state_model
+    if not state_model:
+        return StateMachineInfo(has_state_model=False)
+
+    transitions_list = state_model.get("transitions", [])
+    if not transitions_list:
+        return StateMachineInfo(has_state_model=False)
+
+    # Build message type to command mapping from data model
+    message_type_to_command = {}
+    command_block = None
+
+    for block in plugin.data_model.get("blocks", []):
+        if block.get("name") == "command" and "values" in block:
+            command_block = block
+            break
+
+    if command_block:
+        # Invert the values dict: "CONNECT" -> 0x01
+        for cmd_value, cmd_name in command_block["values"].items():
+            message_type_to_command[cmd_name] = cmd_value
+
+    # Convert transitions to Pydantic models
+    transitions = []
+    for trans in transitions_list:
+        transitions.append(StateTransition(
+            **{
+                "from": trans.get("from"),
+                "to": trans.get("to"),
+                "message_type": trans.get("message_type"),
+                "trigger": trans.get("trigger"),
+                "expected_response": trans.get("expected_response")
+            }
+        ))
+
+    return StateMachineInfo(
+        has_state_model=True,
+        initial_state=state_model.get("initial_state"),
+        states=state_model.get("states", []),
+        transitions=transitions,
+        message_type_to_command=message_type_to_command
     )
 
 
@@ -326,6 +531,32 @@ async def get_session_stats(session_id: str):
     if not stats:
         raise HTTPException(status_code=404, detail="Session not found")
     return stats
+
+
+@app.get("/api/sessions/{session_id}/state_coverage")
+async def get_session_state_coverage(session_id: str):
+    """
+    Get state coverage for stateful fuzzing session.
+
+    Returns state machine coverage including:
+    - Which states have been visited
+    - Which transitions have been taken
+    - Coverage percentages
+
+    Returns 404 if session not found or not using stateful fuzzing.
+    """
+    coverage = orchestrator.get_state_coverage(session_id)
+    if not coverage:
+        # Check if session exists
+        session = orchestrator.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Session is not using stateful fuzzing"
+            )
+    return coverage
 
 
 # ========== Ad-hoc Testing ==========

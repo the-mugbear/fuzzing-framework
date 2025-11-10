@@ -34,8 +34,13 @@ volumes/
 # Environment
 .env
 .env.local
-*.md
 
+# Ignore markdown files in the root, which are often AI-generated artifacts
+/*.md
+
+# But explicitly re-include the primary README and QUICKSTART files
+!README.md
+!QUICKSTART.md
 
 # OS
 .DS_Store

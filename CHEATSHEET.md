@@ -63,6 +63,17 @@ curl http://localhost:8000/api/plugins
 
 # Get plugin details
 curl http://localhost:8000/api/plugins/simple_tcp
+
+# Reload plugin after edits
+curl -X POST http://localhost:8000/api/plugins/simple_tcp/reload
+
+# Preview real parser/mutator output
+curl -X POST http://localhost:8000/api/plugins/simple_tcp/preview \\
+  -H "Content-Type: application/json" \\
+  -d '{"mode":"mutations","count":4}'
+
+# List available mutators
+curl http://localhost:8000/api/mutators
 ```
 
 ### Corpus
@@ -92,6 +103,22 @@ curl http://localhost:8000/api/system/config
 
 # Corpus stats
 curl http://localhost:8000/api/corpus/stats
+```
+
+### One-off Tests & State Coverage
+```bash
+# Stateful coverage report
+curl http://localhost:8000/api/sessions/{ID}/state_coverage
+
+# Execute a single payload (base64 body)
+curl -X POST http://localhost:8000/api/tests/execute \\
+  -H "Content-Type: application/json" \\
+  -d '{
+        "protocol": "simple_tcp",
+        "target_host": "localhost",
+        "target_port": 9999,
+        "payload": "U1RDUAAABQFIRUxMTw=="
+      }'
 ```
 
 ## Creating a Protocol Plugin

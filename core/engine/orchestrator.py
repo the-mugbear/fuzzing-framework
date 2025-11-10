@@ -13,6 +13,7 @@ from core.agents.manager import agent_manager
 from core.config import settings
 from core.corpus.store import CorpusStore
 from core.engine.mutators import MutationEngine
+from core.engine.stateful_fuzzer import StatefulFuzzingSession
 from core.models import (
     AgentTestResult,
     AgentWorkItem,
@@ -45,6 +46,7 @@ class FuzzOrchestrator:
         self.active_tasks: Dict[str, asyncio.Task] = {}
         self.pending_tests: Dict[str, TestCase] = {}
         self.behavior_processors: Dict[str, Any] = {}
+        self.stateful_sessions: Dict[str, StatefulFuzzingSession] = {}  # Track stateful sessions
 
     async def create_session(self, config: FuzzConfig) -> FuzzSession:
         """
@@ -155,6 +157,7 @@ class FuzzOrchestrator:
         await agent_manager.clear_session(session_id)
         self._discard_pending_tests(session_id)
         self.behavior_processors.pop(session_id, None)
+        self.stateful_sessions.pop(session_id, None)  # Clean up stateful session
 
         logger.info("session_stopped", session_id=session_id)
         return True
@@ -164,6 +167,7 @@ class FuzzOrchestrator:
         Main fuzzing loop for a session
 
         Session executes either locally or via agent queues.
+        Supports both stateful and stateless fuzzing.
         """
         session = self.sessions[session_id]
         logger.info(
@@ -198,6 +202,28 @@ class FuzzOrchestrator:
             structure_aware_weight=session.structure_aware_weight
         )
 
+        # Check if protocol has state model for stateful fuzzing
+        stateful_session = None
+        use_stateful_fuzzing = False
+
+        if protocol and protocol.state_model:
+            transitions = protocol.state_model.get("transitions", [])
+            if transitions:
+                use_stateful_fuzzing = True
+                stateful_session = StatefulFuzzingSession(
+                    protocol.state_model,
+                    protocol.data_model,
+                    progression_weight=0.8  # 80% follow happy path
+                )
+                # Store stateful session for metrics access
+                self.stateful_sessions[session_id] = stateful_session
+                logger.info(
+                    "stateful_fuzzing_enabled",
+                    session_id=session_id,
+                    initial_state=stateful_session.current_state,
+                    num_transitions=len(transitions)
+                )
+
         try:
             iteration = 0
 
@@ -216,7 +242,33 @@ class FuzzOrchestrator:
                 # Record test start time for rate limiting
                 loop_start = time.time()
 
-                base_seed = seeds[iteration % len(seeds)]
+                # Generate test case based on fuzzing mode
+                if use_stateful_fuzzing:
+                    # Stateful fuzzing: select message for current state
+                    message_type = stateful_session.get_message_type_for_state()
+
+                    if message_type is None:
+                        # Terminal state - reset
+                        logger.debug("terminal_state_reached", iteration=iteration)
+                        stateful_session.reset_to_initial_state()
+                        message_type = stateful_session.get_message_type_for_state()
+
+                    # Find seed matching this message type
+                    base_seed = stateful_session.find_seed_for_message_type(message_type, seeds)
+
+                    if base_seed is None:
+                        # No seed found for this message type, use fallback
+                        logger.warning(
+                            "no_seed_for_message_type",
+                            message_type=message_type,
+                            using_random_seed=True
+                        )
+                        base_seed = seeds[iteration % len(seeds)]
+                else:
+                    # Stateless fuzzing: random seed selection (existing behavior)
+                    base_seed = seeds[iteration % len(seeds)]
+
+                # Mutate the selected seed
                 test_case_data = mutation_engine.generate_test_case(base_seed)
                 final_data = self._apply_behaviors(session, test_case_data)
 
@@ -227,9 +279,23 @@ class FuzzOrchestrator:
                     seed_id=session.seed_corpus[iteration % len(session.seed_corpus)],
                 )
 
+                # Execute test case
                 if session.execution_mode == ExecutionMode.CORE:
-                    result, _response = await self._execute_test_case(session, test_case)
+                    result, response = await self._execute_test_case(session, test_case)
                     await self._finalize_test_case(session, test_case, result)
+
+                    # Update state if using stateful fuzzing
+                    if use_stateful_fuzzing:
+                        stateful_session.update_state(
+                            final_data,
+                            response,
+                            result.value if result else "unknown"
+                        )
+
+                        # Periodically reset state to explore different paths
+                        if stateful_session.should_reset(iteration, reset_interval=100):
+                            logger.debug("periodic_state_reset", iteration=iteration)
+                            stateful_session.reset_to_initial_state()
                 else:
                     await self._dispatch_to_agent(session, test_case)
 
@@ -526,7 +592,7 @@ class FuzzOrchestrator:
 
         findings = self.corpus_store.list_findings(session_id)
 
-        return {
+        stats = {
             "session_id": session_id,
             "status": session.status,
             "total_tests": session.total_tests,
@@ -540,6 +606,29 @@ class FuzzOrchestrator:
                 else 0
             ),
         }
+
+        # Add state coverage if using stateful fuzzing
+        stateful_session = self.stateful_sessions.get(session_id)
+        if stateful_session:
+            stats["state_coverage"] = stateful_session.get_coverage_stats()
+
+        return stats
+
+    def get_state_coverage(self, session_id: str) -> Optional[Dict]:
+        """
+        Get state coverage for a stateful fuzzing session.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            State coverage stats or None if not stateful
+        """
+        stateful_session = self.stateful_sessions.get(session_id)
+        if not stateful_session:
+            return None
+
+        return stateful_session.get_coverage_stats()
 
 
 # Global orchestrator instance

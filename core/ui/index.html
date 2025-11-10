@@ -358,6 +358,225 @@
             white-space: nowrap;
         }
 
+        .badge-group {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .type-badge {
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .type-badge-structure {
+            background: #1a3a2a;
+            color: #4ade80;
+            border: 1px solid #22543d;
+        }
+
+        .type-badge-byte {
+            background: #3a1a1a;
+            color: #fca5a5;
+            border: 1px solid #7f1d1d;
+        }
+
+        .mutator-badge {
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 9px;
+            font-weight: 500;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .mutator-badge-structure {
+            background: #1e3a26;
+            color: #86efac;
+            border: 1px solid #2d5a3d;
+        }
+
+        .mutator-badge-byte {
+            background: #3a1e1e;
+            color: #f59e9e;
+            border: 1px solid #5a2d2d;
+        }
+
+        .mutation-description {
+            margin-bottom: 8px;
+            padding: 8px;
+            background: #1a1a1a;
+            border-left: 3px solid #0f8ecb;
+            border-radius: 3px;
+            font-size: 11px;
+            color: #999;
+            line-height: 1.4;
+        }
+
+        /* State Machine Diagram */
+        .state-machine-diagram {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border: 1px solid #2a4365;
+            border-radius: 8px;
+        }
+
+        .state-machine-header h4 {
+            margin: 0 0 8px 0;
+            color: #60a5fa;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .state-machine-header p {
+            margin: 0 0 15px 0;
+            font-size: 11px;
+            color: #94a3b8;
+            line-height: 1.4;
+        }
+
+        .state-flow {
+            display: flex;
+            gap: 15px;
+            overflow-x: auto;
+            padding: 10px 0;
+        }
+
+        .state-box {
+            min-width: 200px;
+            padding: 12px;
+            background: #0f172a;
+            border: 2px solid #334155;
+            border-radius: 6px;
+            flex-shrink: 0;
+        }
+
+        .state-box.state-initial {
+            border-color: #10b981;
+            background: linear-gradient(135deg, #064e3b 0%, #0f172a 100%);
+        }
+
+        .state-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: #e2e8f0;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .initial-badge {
+            font-size: 9px;
+            padding: 2px 6px;
+            background: #10b981;
+            color: #fff;
+            border-radius: 3px;
+            font-weight: 600;
+        }
+
+        .state-transitions {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .state-transition-item {
+            font-size: 10px;
+            padding: 6px;
+            background: #1e293b;
+            border-left: 2px solid #3b82f6;
+            border-radius: 3px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        .transition-message {
+            color: #60a5fa;
+            font-weight: 600;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .transition-arrow-simple {
+            color: #64748b;
+            margin: 0 4px;
+        }
+
+        .transition-target {
+            color: #10b981;
+            font-weight: 600;
+        }
+
+        .transition-response {
+            font-size: 9px;
+            color: #94a3b8;
+            font-style: italic;
+        }
+
+        .state-terminal {
+            font-size: 10px;
+            color: #64748b;
+            font-style: italic;
+            padding: 6px;
+            text-align: center;
+        }
+
+        /* State Transition Info in Preview Cards */
+        .state-transition-info {
+            margin-bottom: 8px;
+            padding: 8px;
+            background: #0f172a;
+            border-left: 3px solid #8b5cf6;
+            border-radius: 3px;
+            font-size: 10px;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .state-label {
+            color: #94a3b8;
+            font-weight: 500;
+        }
+
+        .message-type-badge {
+            padding: 2px 8px;
+            background: #5b21b6;
+            color: #e9d5ff;
+            border-radius: 3px;
+            font-weight: 600;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .state-badge {
+            padding: 2px 8px;
+            background: #065f46;
+            color: #6ee7b7;
+            border-radius: 3px;
+            font-weight: 600;
+        }
+
+        .transition-arrow {
+            color: #60a5fa;
+            font-weight: 600;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .sample-case-structure_aware {
+            border-left: 3px solid #4ade80;
+        }
+
+        .sample-case-byte_level {
+            border-left: 3px solid #fca5a5;
+        }
+
         .coach-panel {
             margin-top: 20px;
         }
@@ -2357,6 +2576,60 @@ docker-compose logs -f target</pre>
             `;
         }
 
+        function renderStateMachineDiagram(stateMachine) {
+            const { initial_state, states, transitions, message_type_to_command } = stateMachine;
+
+            // Build transition map for rendering
+            const transitionsByState = {};
+            transitions.forEach(trans => {
+                if (!transitionsByState[trans.from_state]) {
+                    transitionsByState[trans.from_state] = [];
+                }
+                transitionsByState[trans.from_state].push(trans);
+            });
+
+            // Render state boxes
+            const stateBoxes = states.map(state => {
+                const isInitial = state === initial_state;
+                const outgoingTransitions = transitionsByState[state] || [];
+
+                const transitionsHtml = outgoingTransitions.map(trans => {
+                    const cmdValue = message_type_to_command[trans.message_type];
+                    const cmdHex = cmdValue !== undefined ? ` (0x${cmdValue.toString(16).toUpperCase().padStart(2, '0')})` : '';
+                    return `
+                        <div class="state-transition-item">
+                            <span class="transition-message">${trans.message_type}${cmdHex}</span>
+                            <span class="transition-arrow-simple">→</span>
+                            <span class="transition-target">${trans.to_state}</span>
+                            ${trans.expected_response ? `<span class="transition-response">expects: ${trans.expected_response}</span>` : ''}
+                        </div>
+                    `;
+                }).join('');
+
+                return `
+                    <div class="state-box ${isInitial ? 'state-initial' : ''}">
+                        <div class="state-name">
+                            ${isInitial ? '<span class="initial-badge">INITIAL</span>' : ''}
+                            ${state}
+                        </div>
+                        ${transitionsHtml ? `<div class="state-transitions">${transitionsHtml}</div>` : '<div class="state-terminal">Terminal State</div>'}
+                    </div>
+                `;
+            }).join('');
+
+            return `
+                <div class="state-machine-diagram">
+                    <div class="state-machine-header">
+                        <h4>📊 Protocol State Machine</h4>
+                        <p>This protocol follows a stateful message sequence. The fuzzer will send messages valid for each state.</p>
+                    </div>
+                    <div class="state-flow">
+                        ${stateBoxes}
+                    </div>
+                </div>
+            `;
+        }
+
         async function renderTestCaseSamples(detail) {
             const seedContainer = document.getElementById('seedSampleList');
             const mutationContainer = document.getElementById('mutationPreviewList');
@@ -2412,7 +2685,7 @@ docker-compose logs -f target</pre>
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         mode: 'mutations',
-                        count: 3
+                        count: 6
                     })
                 });
 
@@ -2422,7 +2695,49 @@ docker-compose logs -f target</pre>
 
                 const data = await response.json();
 
-                mutationContainer.innerHTML = data.previews.map(preview => {
+                // Render state machine diagram if protocol has state model
+                let stateMachineHtml = '';
+                if (data.state_machine && data.state_machine.has_state_model) {
+                    stateMachineHtml = renderStateMachineDiagram(data.state_machine);
+                }
+
+                const previewsHtml = data.previews.map(preview => {
+                    // Build mutator badges
+                    let mutatorBadges = '';
+                    if (preview.mutators_used && preview.mutators_used.length > 0) {
+                        const mutatorClass = preview.mutation_type === 'structure_aware' ? 'mutator-badge-structure' : 'mutator-badge-byte';
+                        mutatorBadges = preview.mutators_used.map(m =>
+                            `<span class="mutator-badge ${mutatorClass}">${m}</span>`
+                        ).join('');
+                    }
+
+                    // Build mutation type badge
+                    let typeBadge = '';
+                    if (preview.mutation_type) {
+                        const typeClass = preview.mutation_type === 'structure_aware' ? 'type-badge-structure' : 'type-badge-byte';
+                        const typeLabel = preview.mutation_type === 'structure_aware' ? 'Structure-Aware' : 'Byte-Level';
+                        typeBadge = `<span class="type-badge ${typeClass}">${typeLabel}</span>`;
+                    }
+
+                    // Build description
+                    let descriptionHtml = '';
+                    if (preview.description) {
+                        descriptionHtml = `<div class="mutation-description">${preview.description}</div>`;
+                    }
+
+                    // Build state transition info
+                    let stateInfoHtml = '';
+                    if (preview.message_type) {
+                        stateInfoHtml = `
+                            <div class="state-transition-info">
+                                <span class="state-label">Message Type:</span>
+                                <span class="message-type-badge">${preview.message_type}</span>
+                                ${preview.valid_in_state ? `<span class="state-label">Valid in:</span> <span class="state-badge">${preview.valid_in_state}</span>` : ''}
+                                ${preview.causes_transition ? `<span class="transition-arrow">${preview.causes_transition}</span>` : ''}
+                            </div>
+                        `;
+                    }
+
                     const fieldsHtml = preview.fields.map(field => {
                         const computedBadge = field.computed ? `<span class="computed-badge">→${field.references}</span>` : '';
                         const mutatedClass = field.mutated ? 'mutated' : '';
@@ -2435,18 +2750,25 @@ docker-compose logs -f target</pre>
                     }).join('');
 
                     return `
-                        <div class="sample-case">
+                        <div class="sample-case ${preview.mutation_type ? 'sample-case-' + preview.mutation_type : ''}">
                             <div class="sample-case-header">
                                 <span>Case ${preview.id + 1} · ${preview.total_bytes} bytes</span>
-                                <span>${preview.mode.toUpperCase()}</span>
+                                <div class="badge-group">
+                                    ${typeBadge}
+                                    ${mutatorBadges}
+                                </div>
                             </div>
                             <div class="sample-case-body">
+                                ${descriptionHtml}
+                                ${stateInfoHtml}
                                 <div class="hex-preview">${formatHexPreview(hexStringToBytes(preview.hex_dump), 32)}</div>
                                 <div class="field-breakdown">${fieldsHtml}</div>
                             </div>
                         </div>
                     `;
                 }).join('');
+
+                mutationContainer.innerHTML = stateMachineHtml + previewsHtml;
 
             } catch (error) {
                 mutationContainer.innerHTML = `<p class="empty-state">Failed to generate previews: ${error.message}</p>`;

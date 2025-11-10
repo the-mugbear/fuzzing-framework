@@ -232,10 +232,17 @@ class TestCasePreview(BaseModel):
 
     id: int
     mode: str  # "baseline" | "mutated"
+    mutation_type: Optional[str] = None  # "structure_aware" | "byte_level"
+    mutators_used: List[str] = Field(default_factory=list)  # List of mutator names
     focus_field: Optional[str] = None
     hex_dump: str
     total_bytes: int
     fields: List[PreviewField]
+    description: Optional[str] = None  # Human-readable description of what was mutated
+    # State machine info
+    message_type: Optional[str] = None  # Message type (e.g., "CONNECT", "DATA")
+    valid_in_state: Optional[str] = None  # State where this message is valid
+    causes_transition: Optional[str] = None  # Transition this message causes (e.g., "INIT->CONNECTED")
 
 
 class PreviewRequest(BaseModel):
@@ -246,8 +253,29 @@ class PreviewRequest(BaseModel):
     focus_field: Optional[str] = None
 
 
+class StateTransition(BaseModel):
+    """State machine transition definition"""
+
+    from_state: str = Field(alias="from")
+    to_state: str = Field(alias="to")
+    message_type: str
+    trigger: Optional[str] = None
+    expected_response: Optional[str] = None
+
+
+class StateMachineInfo(BaseModel):
+    """State machine metadata for protocol"""
+
+    has_state_model: bool
+    initial_state: Optional[str] = None
+    states: List[str] = Field(default_factory=list)
+    transitions: List[StateTransition] = Field(default_factory=list)
+    message_type_to_command: Dict[str, int] = Field(default_factory=dict)
+
+
 class PreviewResponse(BaseModel):
     """Response containing test case previews"""
 
     protocol: str
     previews: List[TestCasePreview]
+    state_machine: Optional[StateMachineInfo] = None
