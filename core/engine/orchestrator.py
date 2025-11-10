@@ -86,6 +86,9 @@ class FuzzOrchestrator:
             seed_corpus=seed_corpus,
             enabled_mutators=enabled_mutators,
             timeout_per_test_ms=config.timeout_per_test_ms,
+            rate_limit_per_second=config.rate_limit_per_second,
+            mutation_mode=config.mutation_mode,
+            structure_aware_weight=config.structure_aware_weight,
             max_iterations=config.max_iterations,
             execution_mode=config.execution_mode,
             status=FuzzSessionStatus.IDLE,
@@ -169,6 +172,13 @@ class FuzzOrchestrator:
             execution_mode=session.execution_mode,
         )
 
+        # Load protocol for structure-aware mutations
+        protocol = None
+        try:
+            protocol = plugin_manager.load_plugin(session.protocol)
+        except Exception as e:
+            logger.warning("failed_to_load_protocol_for_mutations", error=str(e))
+
         # Load seeds
         seeds = [self.corpus_store.get_seed(sid) for sid in session.seed_corpus]
         seeds = [s for s in seeds if s is not None]
@@ -178,12 +188,34 @@ class FuzzOrchestrator:
             session.status = FuzzSessionStatus.FAILED
             return
 
-        # Initialize mutation engine with selected mutators
-        mutation_engine = MutationEngine(seeds, enabled_mutators=session.enabled_mutators)
+        # Initialize mutation engine with selected mutators and protocol data_model
+        data_model = protocol.data_model if protocol else None
+        mutation_engine = MutationEngine(
+            seeds,
+            enabled_mutators=session.enabled_mutators,
+            data_model=data_model,
+            mutation_mode=session.mutation_mode,
+            structure_aware_weight=session.structure_aware_weight
+        )
 
         try:
             iteration = 0
+
+            # Calculate rate limiting parameters
+            rate_limit_delay = None
+            if session.rate_limit_per_second and session.rate_limit_per_second > 0:
+                rate_limit_delay = 1.0 / session.rate_limit_per_second
+                logger.info(
+                    "rate_limiting_enabled",
+                    session_id=session_id,
+                    rate_limit=session.rate_limit_per_second,
+                    delay_per_test=rate_limit_delay,
+                )
+
             while session.status == FuzzSessionStatus.RUNNING:
+                # Record test start time for rate limiting
+                loop_start = time.time()
+
                 base_seed = seeds[iteration % len(seeds)]
                 test_case_data = mutation_engine.generate_test_case(base_seed)
                 final_data = self._apply_behaviors(session, test_case_data)
@@ -208,7 +240,14 @@ class FuzzOrchestrator:
                     session.completed_at = datetime.utcnow()
                     break
 
-                await asyncio.sleep(0.001)
+                # Apply rate limiting - sleep to maintain desired rate
+                if rate_limit_delay:
+                    elapsed = time.time() - loop_start
+                    if elapsed < rate_limit_delay:
+                        await asyncio.sleep(rate_limit_delay - elapsed)
+                else:
+                    # Small yield to event loop if no rate limiting
+                    await asyncio.sleep(0.001)
 
         except asyncio.CancelledError:
             logger.info("fuzzing_loop_cancelled", session_id=session_id)

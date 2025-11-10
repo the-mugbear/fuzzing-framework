@@ -104,6 +104,15 @@ class FuzzSession(BaseModel):
     seed_corpus: List[str] = Field(default_factory=list)
     enabled_mutators: List[str] = Field(default_factory=list)
     timeout_per_test_ms: int = 5000
+    rate_limit_per_second: Optional[int] = Field(
+        default=None, description="Maximum test cases per second (None = unlimited)"
+    )
+    mutation_mode: Optional[str] = Field(
+        default=None, description="Mutation mode: structure_aware, byte_level, or hybrid"
+    )
+    structure_aware_weight: Optional[int] = Field(
+        default=None, description="Percentage for structure-aware mutations in hybrid mode (0-100)"
+    )
     max_iterations: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     started_at: Optional[datetime] = None
@@ -143,6 +152,15 @@ class FuzzConfig(BaseModel):
     execution_mode: ExecutionMode = Field(default=ExecutionMode.CORE)
     max_iterations: Optional[int] = None
     timeout_per_test_ms: int = 5000
+    rate_limit_per_second: Optional[int] = Field(
+        default=None, description="Maximum test cases per second (None = unlimited)"
+    )
+    mutation_mode: Optional[str] = Field(
+        default=None, description="Mutation mode: structure_aware, byte_level, or hybrid"
+    )
+    structure_aware_weight: Optional[int] = Field(
+        default=None, description="Percentage for structure-aware mutations in hybrid mode (0-100)"
+    )
     enable_state_tracking: bool = True
 
 
@@ -194,3 +212,42 @@ class OneOffTestResult(BaseModel):
     response: Optional[bytes] = None
     crash_report_id: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class PreviewField(BaseModel):
+    """Field information in a test case preview"""
+
+    name: str
+    value: Any
+    hex: str
+    type: str
+    mutable: bool = True
+    computed: bool = False
+    references: Optional[str] = None
+    mutated: bool = False
+
+
+class TestCasePreview(BaseModel):
+    """Preview of a generated test case"""
+
+    id: int
+    mode: str  # "baseline" | "mutated"
+    focus_field: Optional[str] = None
+    hex_dump: str
+    total_bytes: int
+    fields: List[PreviewField]
+
+
+class PreviewRequest(BaseModel):
+    """Request for test case previews"""
+
+    mode: str = "mutations"  # "seeds" | "mutations" | "field_focus"
+    count: int = Field(default=3, ge=1, le=10)
+    focus_field: Optional[str] = None
+
+
+class PreviewResponse(BaseModel):
+    """Response containing test case previews"""
+
+    protocol: str
+    previews: List[TestCasePreview]

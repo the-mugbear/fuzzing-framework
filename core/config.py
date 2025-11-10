@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     mutation_timeout_sec: int = 5
     max_concurrent_tests: int = 10
 
+    # Mutation strategy
+    mutation_mode: str = "hybrid"  # "structure_aware", "byte_level", "hybrid"
+    structure_aware_weight: int = 70  # Percentage for structure-aware (0-100)
+    fallback_on_parse_error: bool = True  # Fall back to byte-level if parsing fails
+
     # Agent settings
     agent_heartbeat_interval: int = 30
     agent_timeout_sec: int = 60

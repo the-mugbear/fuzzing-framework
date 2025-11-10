@@ -8,6 +8,7 @@ Provides REST API for:
 - Agent communication
 - Results and findings
 """
+import random
 from typing import List, Optional
 
 import structlog
@@ -22,6 +23,8 @@ from core.logging import setup_logging
 from core.corpus.store import CorpusStore
 from core.engine.mutators import MutationEngine
 from core.engine.orchestrator import orchestrator
+from core.engine.protocol_parser import ProtocolParser
+from core.engine.structure_mutators import StructureAwareMutator
 from core.models import (
     AgentTestResult,
     AgentWorkItem,
@@ -29,7 +32,11 @@ from core.models import (
     FuzzSession,
     OneOffTestRequest,
     OneOffTestResult,
+    PreviewField,
+    PreviewRequest,
+    PreviewResponse,
     ProtocolPlugin,
+    TestCasePreview,
 )
 from core.plugin_loader import plugin_manager
 
@@ -118,6 +125,150 @@ async def reload_plugin(plugin_name: str):
 async def list_mutators():
     """Expose available mutators for the UI"""
     return {"mutators": MutationEngine.available_mutators()}
+
+
+@app.post("/api/plugins/{plugin_name}/preview", response_model=PreviewResponse)
+async def preview_test_cases(plugin_name: str, request: PreviewRequest):
+    """
+    Generate test case previews using actual fuzzer logic.
+
+    This ensures UI shows exactly what the fuzzer will generate,
+    with proper handling of derived fields (size, checksums, etc.).
+    """
+    try:
+        plugin = plugin_manager.load_plugin(plugin_name)
+        data_model = plugin.data_model
+        blocks = data_model.get('blocks', [])
+        seeds = data_model.get('seeds', [])
+
+        parser = ProtocolParser(data_model)
+        previews = []
+
+        if request.mode == "seeds":
+            # Show actual seeds
+            for i, seed in enumerate(seeds[:request.count]):
+                preview = _build_preview(i, seed, parser, blocks, mode="baseline")
+                previews.append(preview)
+
+        elif request.mode == "mutations":
+            # Generate actual mutations using StructureAwareMutator
+            if not seeds:
+                raise HTTPException(status_code=400, detail="Protocol has no seeds defined")
+
+            mutator = StructureAwareMutator(data_model)
+
+            for i in range(request.count):
+                seed = random.choice(seeds)
+                mutated = mutator.mutate(seed)
+                preview = _build_preview(i, mutated, parser, blocks, mode="mutated")
+                previews.append(preview)
+
+        elif request.mode == "field_focus":
+            # Generate mutations focused on specific field
+            if not request.focus_field:
+                raise HTTPException(status_code=400, detail="focus_field required for field_focus mode")
+
+            if not seeds:
+                raise HTTPException(status_code=400, detail="Protocol has no seeds defined")
+
+            mutator = StructureAwareMutator(data_model)
+
+            for i in range(request.count):
+                seed = random.choice(seeds)
+                mutated = mutator.mutate(seed)
+                preview = _build_preview(
+                    i, mutated, parser, blocks,
+                    mode="mutated",
+                    focus_field=request.focus_field
+                )
+                previews.append(preview)
+
+        else:
+            raise HTTPException(status_code=400, detail=f"Invalid mode: {request.mode}")
+
+        return PreviewResponse(protocol=plugin_name, previews=previews)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("preview_generation_failed", plugin=plugin_name, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _build_preview(
+    preview_id: int,
+    data: bytes,
+    parser: ProtocolParser,
+    blocks: List[dict],
+    mode: str = "baseline",
+    focus_field: Optional[str] = None
+) -> TestCasePreview:
+    """
+    Build a test case preview from binary data.
+
+    Args:
+        preview_id: Preview identifier
+        data: Test case bytes
+        parser: Protocol parser instance
+        blocks: Block definitions from data_model
+        mode: "baseline" or "mutated"
+        focus_field: Optional field name that was mutated
+
+    Returns:
+        TestCasePreview with parsed fields
+    """
+    try:
+        # Parse the data into fields
+        fields_dict = parser.parse(data)
+    except Exception as e:
+        logger.warning("preview_parse_failed", error=str(e))
+        # If parsing fails, create minimal preview
+        fields_dict = {}
+
+    # Build field list with metadata
+    preview_fields = []
+
+    for block in blocks:
+        field_name = block['name']
+        field_value = fields_dict.get(field_name, block.get('default', ''))
+
+        # Convert value to hex
+        if isinstance(field_value, bytes):
+            hex_str = field_value.hex().upper()
+            display_value = field_value.decode('latin-1', errors='replace')
+        elif isinstance(field_value, int):
+            hex_str = f"{field_value:X}".zfill(2)
+            display_value = field_value
+        elif isinstance(field_value, str):
+            hex_str = field_value.encode('utf-8').hex().upper()
+            display_value = field_value
+        else:
+            hex_str = str(field_value)
+            display_value = field_value
+
+        preview_field = PreviewField(
+            name=field_name,
+            value=display_value,
+            hex=hex_str,
+            type=block.get('type', 'unknown'),
+            mutable=block.get('mutable', True),
+            computed=block.get('is_size_field', False),
+            references=block.get('size_of') if block.get('is_size_field') else None,
+            mutated=(field_name == focus_field) if focus_field else False
+        )
+        preview_fields.append(preview_field)
+
+    # Create hex dump
+    hex_dump = data.hex().upper()
+
+    return TestCasePreview(
+        id=preview_id,
+        mode=mode,
+        focus_field=focus_field,
+        hex_dump=hex_dump,
+        total_bytes=len(data),
+        fields=preview_fields
+    )
 
 
 # ========== Session Management Endpoints ==========

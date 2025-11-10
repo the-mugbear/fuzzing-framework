@@ -7,12 +7,15 @@ Implements various mutation strategies from the blueprint:
 - Arithmetic mutations
 - Interesting values (boundary values)
 - Havoc (random heavy mutations)
+- Structure-aware mutations (NEW - respects protocol grammar)
 """
 import random
 import struct
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import structlog
+
+from core.config import settings
 
 logger = structlog.get_logger()
 
@@ -208,11 +211,28 @@ class MutationEngine:
     """
     Orchestrates mutation strategies
 
-    Selects and applies appropriate mutators based on configuration
+    Supports hybrid mode combining structure-aware and byte-level mutations.
     """
 
-    def __init__(self, seed_corpus: List[bytes], enabled_mutators: Optional[List[str]] = None):
+    def __init__(
+        self,
+        seed_corpus: List[bytes],
+        enabled_mutators: Optional[List[str]] = None,
+        data_model: Optional[Dict[str, Any]] = None,
+        mutation_mode: Optional[str] = None,
+        structure_aware_weight: Optional[int] = None
+    ):
         self.seed_corpus = seed_corpus
+        self.data_model = data_model
+
+        # Use session-level config if provided, otherwise fall back to global settings
+        self.mutation_mode = mutation_mode if mutation_mode is not None else settings.mutation_mode
+        self.structure_aware_weight = (
+            structure_aware_weight if structure_aware_weight is not None
+            else settings.structure_aware_weight
+        )
+
+        # Byte-level mutators (original implementation)
         self.mutators = {
             "bitflip": BitFlipMutator(),
             "byteflip": ByteFlipMutator(),
@@ -231,9 +251,29 @@ class MutationEngine:
         }
         self.enabled_mutators = self._normalize_enabled(enabled_mutators)
 
+        # Structure-aware mutator (NEW)
+        self.structure_mutator = None
+        if data_model and self.mutation_mode in ["structure_aware", "hybrid"]:
+            try:
+                from core.engine.structure_mutators import StructureAwareMutator
+                self.structure_mutator = StructureAwareMutator(data_model)
+                logger.info(
+                    "structure_aware_mutation_enabled",
+                    mode=self.mutation_mode,
+                    weight=self.structure_aware_weight
+                )
+            except Exception as e:
+                logger.error("failed_to_load_structure_mutator", error=str(e))
+                self.structure_mutator = None
+
     def generate_test_case(self, base_seed: bytes, num_mutations: int = 1) -> bytes:
         """
-        Generate a new test case by mutating a seed
+        Generate a new test case by mutating a seed.
+
+        Supports three modes:
+        - structure_aware: Only use structure-aware mutations
+        - byte_level: Only use byte-level mutations (original behavior)
+        - hybrid: Mix both based on structure_aware_weight
 
         Args:
             base_seed: Seed to mutate
@@ -242,10 +282,29 @@ class MutationEngine:
         Returns:
             Mutated test case
         """
-        data = base_seed
+        # Determine which mutation approach to use
+        use_structure_aware = False
 
+        if self.mutation_mode == "structure_aware":
+            use_structure_aware = self.structure_mutator is not None
+        elif self.mutation_mode == "hybrid" and self.structure_mutator is not None:
+            # Weighted random choice
+            use_structure_aware = random.randint(1, 100) <= self.structure_aware_weight
+
+        # Apply mutations
+        if use_structure_aware:
+            # Structure-aware mutation
+            try:
+                return self.structure_mutator.mutate(base_seed)
+            except Exception as e:
+                logger.error("structure_mutation_failed", error=str(e))
+                if not settings.fallback_on_parse_error:
+                    return base_seed
+                # Fall through to byte-level
+
+        # Byte-level mutation (original behavior)
+        data = base_seed
         for _ in range(num_mutations):
-            # Select mutator based on weights
             mutator_name = random.choices(
                 self.enabled_mutators,
                 weights=[self.weights.get(name, 1) for name in self.enabled_mutators],
