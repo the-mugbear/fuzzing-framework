@@ -87,7 +87,7 @@ The repo ships targeted design notes, implementation summaries, and runbooks. St
 map. Highlights:
 - `QUICKSTART.md` – Step-by-step local vs Docker setup.
 - `CHEATSHEET.md` – One-page command/API reference.
-- `docs/FUZZING_GUIDE.md` – Campaign workflow and best practices.
+- `docs/FUZZING_GUIDE.md` – Campaign workflow, terminology, troubleshooting, and practical tips.
 - `PROTOCOL_TESTING.md` – Authoring/testing protocol plugins with behaviors and validators.
 - `ARCHITECTURE_IMPROVEMENTS_PLAN.md`, `STATEFUL_FUZZING_IMPLEMENTATION.md`, `UI_ENHANCEMENT_PROPOSAL.md`, etc. – In-depth
   design and status docs for major subsystems.

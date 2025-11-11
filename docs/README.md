@@ -8,7 +8,7 @@ Use this map to jump to the right reference for your task. Files live either at 
 | `README.md` | High-level overview, architecture summary, key workflows. | Start here before touching code. |
 | `QUICKSTART.md` | Step-by-step setup (Docker + local), session walkthrough. | Mirrors `make` targets and API curls. |
 | `CHEATSHEET.md` | One-page command + REST reference. | Includes preview/one-off endpoints. |
-| `docs/FUZZING_GUIDE.md` | Campaign workflow, terminology, practical tips. | Updated with stateful fuzzing basics. |
+| `docs/FUZZING_GUIDE.md` | Campaign workflow, terminology, troubleshooting, and practical tips. | Updated with stateful fuzzing basics. |
 | `AGENTS.md` | Repository guidelines + coding/testing standards. | Source of truth for contributors. |
 
 ## Architecture, Protocols & Roadmap

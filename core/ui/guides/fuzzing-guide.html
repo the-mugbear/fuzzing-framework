@@ -90,5 +90,41 @@
         <li><strong>Reproduce Outside the Lab:</strong> Replay crashes against staging systems to confirm impact.</li>
     </ul>
 </div>
+
+<h2>Troubleshooting Proprietary Protocols</h2>
+<div class="callout">
+    <p>When a fuzzing campaign produces unexpected behavior, hangs, or a low execution rate, the root cause is often a misunderstanding between the fuzzer and the target about the protocol's rules. This is especially common with proprietary, stateful protocols. Here’s a detailed guide to troubleshooting the entire communication flow.</p>
+</div>
+
+<h3>1. Understanding the Full Communication Lifecycle</h3>
+<p>A typical proprietary protocol session over TCP involves more than just sending a payload. It's a conversation with distinct phases. Mismanaging this lifecycle is the most common reason for a campaign failing.</p>
+<ol>
+    <li><strong>Connection Establishment (TCP Handshake)</strong>: The foundational TCP three-way handshake (SYN, SYN-ACK, ACK) must complete successfully.</li>
+    <li><strong>Protocol Handshake/Initialization</strong>: After the TCP connection is up, the application-layer protocol often performs its own handshake (e.g., exchanging version information).</li>
+    <li><strong>Data Exchange</strong>: The core of the communication, where the fuzzer sends mutated payloads.</li>
+    <li><strong>Keep-Alives</strong>: Some protocols require periodic "heartbeat" messages to keep the session alive.</li>
+    <li><strong>Graceful Teardown</strong>: Sessions may need to be closed with a specific message sequence (e.g., <code>LOGOUT</code>).</li>
+</ol>
+
+<h3>2. Is the Connection Per-Packet or Per-Session?</h3>
+<ul>
+    <li><strong>Per-Session (Most Common)</strong>: The fuzzer establishes <strong>one</strong> TCP connection and sends <strong>many</strong> test cases over it. This is efficient but requires careful state management. If one test case invalidates the state, all subsequent tests will likely fail.</li>
+    <li><strong>Per-Packet (Less Common for TCP)</strong>: The fuzzer establishes a <strong>new</strong> TCP connection for <strong>every single test case</strong>. This is slow but robust, as each test is isolated.</li>
+</ul>
+<p><strong>Should it be configurable?</strong> Yes. In this framework, this is implicitly managed by your protocol plugin. Defining a <code>state_model</code> tells the fuzzer it's a per-session protocol. Not defining one makes it behave more transactionally.</p>
+
+<h3>3. TCP Session Lifetime and Rate Considerations</h3>
+<p>The test case delivery rate does <strong>not</strong> directly determine when a TCP handshake occurs. A new handshake is only performed when a new connection is established. The TCP session is designed to be long-lived and is only terminated when the session ends, the target closes the connection, a state invalidation occurs, a stateful reset is triggered, or a network error occurs.</p>
+
+<h3>4. Practical Troubleshooting Steps</h3>
+<ol>
+    <li><strong>Capture Ground Truth</strong>: Before fuzzing, use <code>tcpdump</code> or Wireshark to capture a successful, manual interaction with the target using a known-good client. This is your "source of truth."</li>
+    <li><strong>Capture Fuzzer Traffic</strong>: Run a short fuzzing campaign and capture the traffic it generates.</li>
+    <li><strong>Compare the Captures</strong>: Open both captures in Wireshark and compare them side-by-side. Look for the first point of divergence. Does the fuzzer's handshake complete? Is the initialization sequence correct?</li>
+    <li><strong>Use the One-Off Endpoint</strong>: The <code>POST /api/tests/execute</code> endpoint is your best friend for debugging. Send your seeds one by one to see if they elicit the expected response.</li>
+    <li><strong>Review the Protocol Plugin</strong>: Check your <code>size_of</code> fields, <code>endian</code> settings, and <code>behavior</code> blocks. Use the Plugin Debugger in the UI to preview mutations.</li>
+</ol>
+<p>By systematically analyzing the entire communication chain, you can pinpoint the exact reason for the fuzzer's struggles. For more details, see the <a href="/core/ui/guides/protocol-authoring-guide.html">Comprehensive Protocol Authoring Guide</a>.</p>
+
 </body>
 </html>

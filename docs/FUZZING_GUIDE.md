@@ -115,7 +115,30 @@ Yes, ideally. While the fuzzer's core engine manages connections based on the st
 
 Forcing a per-packet behavior can be a powerful debugging tool. If a campaign works in per-packet mode but fails in per-session mode, you have confirmed the issue is related to state management within the session.
 
-### 3. Diving into the TCP Handshake
+### 3. TCP Session Lifetime and Rate Considerations
+
+A common point of confusion is the relationship between the test case delivery rate and the lifespan of the underlying TCP connection.
+
+**How long does the TCP session live?**
+
+The TCP session is designed to be **long-lived**. By default, the fuzzer attempts to keep a single TCP connection open for the entire duration of a fuzzing session. The connection is only terminated under specific circumstances:
+
+1.  **The Fuzzing Session Ends**: The user stops the session via the API or UI.
+2.  **The Target Closes the Connection**: The target server decides to close the connection (e.g., due to an idle timeout, an internal error, or after a graceful logout message).
+3.  **A State Invalidation Occurs**: In a stateful fuzzing session, if a test case receives a response that does not match any valid transition, or if the connection is otherwise determined to be in a bad state, the fuzzer will intentionally close the connection to force a clean restart.
+4.  **A Stateful Reset is Triggered**: The `StatefulFuzzingSession` periodically calls `reset_to_initial_state()`. This involves closing the current TCP connection and establishing a new one to ensure the fuzzer doesn't get stuck in one branch of the state machine. The frequency of this is controlled by parameters like `max_iterations`.
+5.  **A Network Error Occurs**: Standard network issues (e.g., a TCP RST packet is received, a router fails) will terminate the connection.
+
+**Does the test case rate affect the TCP handshake?**
+
+No, not directly. The rate at which test cases are sent (whether controlled by an agent's `--poll-interval` or the core engine's speed) does **not** determine when a TCP handshake occurs. A new handshake is only performed when a **new connection is established**.
+
+-   If you are sending 1,000 test cases per second over a stable, per-session connection, you will perform exactly **one** TCP handshake at the beginning.
+-   If your protocol is effectively per-packet and you send 10 test cases per second, you will perform **10** TCP handshakes per second.
+
+The test rate is a measure of application-level throughput, whereas the handshake is a function of network-level connection establishment. The two are decoupled; the fuzzer's goal is to minimize handshakes to maximize test case throughput, only re-establishing the connection when necessary to ensure the validity of the fuzzing state.
+
+### 4. Diving into the TCP Handshake
 
 While the fuzzer and the underlying OS handle the TCP handshake automatically, problems can still arise.
 
@@ -127,7 +150,7 @@ While the fuzzer and the underlying OS handle the TCP handshake automatically, p
     -   Missing Client Certificate Authentication.
     Currently, the fuzzer does not have native support for TLS. You would need to use an external tool or wrapper (like `stunnel`) to handle the TLS layer.
 
-### 4. Practical Troubleshooting Steps
+### 5. Practical Troubleshooting Steps
 
 When you suspect a protocol communication issue, follow this workflow:
 
