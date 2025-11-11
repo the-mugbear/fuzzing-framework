@@ -9,6 +9,7 @@ Provides REST API for:
 - Results and findings
 """
 import random
+from datetime import datetime
 from typing import List, Optional
 
 import structlog
@@ -35,6 +36,7 @@ from core.engine.structure_mutators import StructureAwareMutator
 from core.models import (
     AgentTestResult,
     AgentWorkItem,
+    ExecutionHistoryResponse,
     FuzzConfig,
     FuzzSession,
     OneOffTestRequest,
@@ -43,8 +45,11 @@ from core.models import (
     PreviewRequest,
     PreviewResponse,
     ProtocolPlugin,
+    ReplayRequest,
+    ReplayResponse,
     StateMachineInfo,
     StateTransition,
+    TestCaseExecutionRecord,
     TestCasePreview,
 )
 from core.plugin_loader import plugin_manager
@@ -557,6 +562,186 @@ async def get_session_state_coverage(session_id: str):
                 detail="Session is not using stateful fuzzing"
             )
     return coverage
+
+
+# ========== Test Case Correlation & Replay ==========
+
+
+@app.get("/api/sessions/{session_id}/execution_history", response_model=ExecutionHistoryResponse)
+async def get_execution_history(
+    session_id: str,
+    limit: int = 100,
+    offset: int = 0,
+    since: Optional[str] = None,
+    until: Optional[str] = None
+):
+    """
+    Get execution history for test case correlation.
+
+    Query parameters:
+    - limit: Number of records to return (default 100, max 1000)
+    - offset: Skip N records for pagination
+    - since: ISO 8601 timestamp - filter records after this time
+    - until: ISO 8601 timestamp - filter records before this time
+
+    Returns recent test case executions with full details for correlation.
+    """
+    # Check session exists
+    session = orchestrator.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Parse datetime filters
+    since_dt = None
+    until_dt = None
+
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid 'since' timestamp: {since}")
+
+    if until:
+        try:
+            until_dt = datetime.fromisoformat(until.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid 'until' timestamp: {until}")
+
+    # Enforce max limit
+    if limit > 1000:
+        limit = 1000
+
+    # Get execution history
+    executions = orchestrator.get_execution_history(
+        session_id,
+        limit=limit,
+        offset=offset,
+        since=since_dt,
+        until=until_dt
+    )
+
+    # Get total count (unfiltered)
+    all_executions = orchestrator.execution_history.get(session_id, [])
+    total_count = len(all_executions)
+
+    return ExecutionHistoryResponse(
+        session_id=session_id,
+        total_count=total_count,
+        returned_count=len(executions),
+        executions=executions
+    )
+
+
+@app.get("/api/sessions/{session_id}/execution/at_time", response_model=TestCaseExecutionRecord)
+async def get_execution_at_time(session_id: str, timestamp: str):
+    """
+    Find which test case was executing at a specific timestamp.
+
+    This is the key correlation endpoint - use it to answer:
+    "What was the fuzzer sending when I saw the target crash at 10:23:45?"
+
+    Query parameter:
+    - timestamp: ISO 8601 timestamp (e.g., "2025-11-10T10:23:45Z")
+
+    Returns the test case that was being executed at that moment.
+    """
+    # Check session exists
+    session = orchestrator.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Parse timestamp
+    try:
+        timestamp_dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid timestamp format: {timestamp}. Use ISO 8601 format (e.g., 2025-11-10T10:23:45Z)")
+
+    # Find execution at this time
+    execution = orchestrator.find_execution_at_time(session_id, timestamp_dt)
+
+    if not execution:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No execution found at {timestamp}. The timestamp may be outside the recorded range, or the execution may have been rotated out of history."
+        )
+
+    return execution
+
+
+@app.get("/api/sessions/{session_id}/execution/{sequence_number}", response_model=TestCaseExecutionRecord)
+async def get_execution_by_sequence(session_id: str, sequence_number: int):
+    """
+    Get a specific test case execution by sequence number.
+
+    Use this to retrieve full details of test case #N, including:
+    - Complete payload (base64 encoded)
+    - Timestamps, duration, result
+    - Protocol state and message type
+    - Response preview
+    """
+    # Check session exists
+    session = orchestrator.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Find execution
+    execution = orchestrator.find_execution_by_sequence(session_id, sequence_number)
+
+    if not execution:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Execution #{sequence_number} not found. It may have been rotated out of history (keeping last 5000)."
+        )
+
+    return execution
+
+
+@app.post("/api/sessions/{session_id}/execution/replay", response_model=ReplayResponse)
+async def replay_executions(session_id: str, request: ReplayRequest):
+    """
+    Replay test cases by sequence number.
+
+    This re-sends the exact same payloads to the target, useful for:
+    - Confirming a suspected crash-inducing test case
+    - Investigating a range of test cases (time band replay)
+    - Manual observation with slowed-down replay
+
+    Request body:
+    - sequence_numbers: List of sequence numbers to replay (e.g., [845, 846, 847])
+    - delay_ms: Milliseconds to wait between replays (default 0)
+
+    Example: Replay test cases 845-850 with 1 second between each:
+    {
+      "sequence_numbers": [845, 846, 847, 848, 849, 850],
+      "delay_ms": 1000
+    }
+    """
+    # Check session exists
+    session = orchestrator.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Validate request
+    if not request.sequence_numbers:
+        raise HTTPException(status_code=400, detail="sequence_numbers cannot be empty")
+
+    if len(request.sequence_numbers) > 100:
+        raise HTTPException(status_code=400, detail="Cannot replay more than 100 test cases at once")
+
+    if request.delay_ms < 0:
+        raise HTTPException(status_code=400, detail="delay_ms cannot be negative")
+
+    # Replay executions
+    results = await orchestrator.replay_executions(
+        session_id,
+        request.sequence_numbers,
+        delay_ms=request.delay_ms
+    )
+
+    return ReplayResponse(
+        replayed_count=len(results),
+        results=results
+    )
 
 
 # ========== Ad-hoc Testing ==========

@@ -2,6 +2,8 @@
 Fuzzing orchestrator - coordinates the fuzzing campaign
 """
 import asyncio
+import base64
+import hashlib
 import time
 import uuid
 from datetime import datetime
@@ -25,6 +27,7 @@ from core.models import (
     OneOffTestRequest,
     OneOffTestResult,
     TestCase,
+    TestCaseExecutionRecord,
     TestCaseResult,
 )
 from core.plugin_loader import plugin_manager
@@ -47,6 +50,8 @@ class FuzzOrchestrator:
         self.pending_tests: Dict[str, TestCase] = {}
         self.behavior_processors: Dict[str, Any] = {}
         self.stateful_sessions: Dict[str, StatefulFuzzingSession] = {}  # Track stateful sessions
+        self.execution_history: Dict[str, List[Any]] = {}  # Track test case executions for correlation
+        self.execution_history_maxlen = 5000  # Keep last 5000 executions per session
 
     async def create_session(self, config: FuzzConfig) -> FuzzSession:
         """
@@ -281,8 +286,31 @@ class FuzzOrchestrator:
 
                 # Execute test case
                 if session.execution_mode == ExecutionMode.CORE:
+                    # Capture state info before execution
+                    message_type_for_record = None
+                    state_at_send_for_record = None
+                    if use_stateful_fuzzing:
+                        message_type_for_record = stateful_session.identify_message_type(final_data)
+                        state_at_send_for_record = stateful_session.current_state
+
+                    # Record timestamps for correlation
+                    timestamp_sent = datetime.utcnow()
                     result, response = await self._execute_test_case(session, test_case)
+                    timestamp_response = datetime.utcnow()
+
                     await self._finalize_test_case(session, test_case, result)
+
+                    # Record execution for correlation/replay
+                    self._record_execution(
+                        session,
+                        test_case,
+                        timestamp_sent,
+                        timestamp_response,
+                        result,
+                        response,
+                        message_type=message_type_for_record,
+                        state_at_send=state_at_send_for_record
+                    )
 
                     # Update state if using stateful fuzzing
                     if use_stateful_fuzzing:
@@ -511,6 +539,57 @@ class FuzzOrchestrator:
 
         return result, locals().get("response")
 
+    def _record_execution(
+        self,
+        session: FuzzSession,
+        test_case: TestCase,
+        timestamp_sent: datetime,
+        timestamp_response: datetime,
+        result: TestCaseResult,
+        response: Optional[bytes],
+        message_type: Optional[str] = None,
+        state_at_send: Optional[str] = None
+    ) -> TestCaseExecutionRecord:
+        """Record a test case execution for correlation"""
+
+        # Get sequence number
+        sequence_num = session.total_tests
+
+        # Calculate duration
+        duration_ms = (timestamp_response - timestamp_sent).total_seconds() * 1000
+
+        # Create execution record
+        execution_record = TestCaseExecutionRecord(
+            test_case_id=test_case.id,
+            session_id=session.id,
+            sequence_number=sequence_num,
+            timestamp_sent=timestamp_sent,
+            timestamp_response=timestamp_response,
+            duration_ms=duration_ms,
+            payload_size=len(test_case.data),
+            payload_hash=hashlib.sha256(test_case.data).hexdigest(),
+            payload_preview=test_case.data[:64].hex(),
+            protocol=session.protocol,
+            message_type=message_type,
+            state_at_send=state_at_send,
+            result=result,
+            response_size=len(response) if response else None,
+            response_preview=response[:64].hex() if response else None,
+            raw_payload_b64=base64.b64encode(test_case.data).decode('utf-8')
+        )
+
+        # Add to history (keep last N)
+        if session.id not in self.execution_history:
+            self.execution_history[session.id] = []
+
+        self.execution_history[session.id].append(execution_record)
+
+        # Trim to max length
+        if len(self.execution_history[session.id]) > self.execution_history_maxlen:
+            self.execution_history[session.id] = self.execution_history[session.id][-self.execution_history_maxlen:]
+
+        return execution_record
+
     async def _handle_crash(
         self,
         session: FuzzSession,
@@ -629,6 +708,128 @@ class FuzzOrchestrator:
             return None
 
         return stateful_session.get_coverage_stats()
+
+    def get_execution_history(
+        self,
+        session_id: str,
+        limit: int = 100,
+        offset: int = 0,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None
+    ) -> List[TestCaseExecutionRecord]:
+        """Get execution history for a session"""
+
+        if session_id not in self.execution_history:
+            return []
+
+        history = self.execution_history[session_id]
+
+        # Apply time filters
+        if since or until:
+            history = [
+                rec for rec in history
+                if (not since or rec.timestamp_sent >= since) and
+                   (not until or rec.timestamp_sent <= until)
+            ]
+
+        # Apply pagination
+        return history[offset:offset + limit]
+
+    def find_execution_by_sequence(self, session_id: str, sequence_number: int) -> Optional[TestCaseExecutionRecord]:
+        """Find execution by sequence number"""
+
+        if session_id not in self.execution_history:
+            return None
+
+        for record in self.execution_history[session_id]:
+            if record.sequence_number == sequence_number:
+                return record
+
+        return None
+
+    def find_execution_at_time(self, session_id: str, timestamp: datetime) -> Optional[TestCaseExecutionRecord]:
+        """Find execution that was running at given timestamp"""
+
+        if session_id not in self.execution_history:
+            return None
+
+        # Find record where timestamp falls between sent and response
+        # Handle timezone-aware vs naive datetime comparison
+        for record in self.execution_history[session_id]:
+            # Make record timestamps timezone-aware if they're naive
+            ts_sent = record.timestamp_sent
+            ts_response = record.timestamp_response or record.timestamp_sent
+
+            # If incoming timestamp is aware and record timestamps are naive, make them aware (UTC)
+            if timestamp.tzinfo is not None and ts_sent.tzinfo is None:
+                from datetime import timezone
+                ts_sent = ts_sent.replace(tzinfo=timezone.utc)
+                ts_response = ts_response.replace(tzinfo=timezone.utc)
+            # If incoming timestamp is naive and record timestamps are aware, make incoming aware
+            elif timestamp.tzinfo is None and ts_sent.tzinfo is not None:
+                from datetime import timezone
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
+
+            if ts_sent <= timestamp <= ts_response:
+                return record
+
+        return None
+
+    async def replay_executions(
+        self,
+        session_id: str,
+        sequence_numbers: List[int],
+        delay_ms: int = 0
+    ) -> List[TestCaseExecutionRecord]:
+        """Replay test cases by sequence number"""
+
+        session = self.sessions.get(session_id)
+        if not session:
+            return []
+
+        results = []
+
+        for seq_num in sequence_numbers:
+            # Find original execution
+            original = self.find_execution_by_sequence(session_id, seq_num)
+            if not original:
+                continue
+
+            # Decode payload
+            payload = base64.b64decode(original.raw_payload_b64)
+
+            # Create new test case
+            test_case = TestCase(
+                id=str(uuid.uuid4()),
+                session_id=session_id,
+                data=payload,
+                seed_id=None  # Replay, not from seed
+            )
+
+            # Execute
+            timestamp_sent = datetime.utcnow()
+            result, response = await self._execute_test_case(session, test_case)
+            timestamp_response = datetime.utcnow()
+
+            # Record the replay
+            replay_record = self._record_execution(
+                session,
+                test_case,
+                timestamp_sent,
+                timestamp_response,
+                result,
+                response,
+                message_type=original.message_type,
+                state_at_send=original.state_at_send
+            )
+
+            results.append(replay_record)
+
+            # Apply delay if specified
+            if delay_ms > 0 and seq_num != sequence_numbers[-1]:
+                await asyncio.sleep(delay_ms / 1000.0)
+
+        return results
 
 
 # Global orchestrator instance

@@ -1,9 +1,10 @@
 """
 My Custom Protocol Plugin
 Implements fuzzing for MyProtocol v1.0
+LIVE RELOAD TEST - This should appear immediately!
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 # Required: Data Model
 data_model = {

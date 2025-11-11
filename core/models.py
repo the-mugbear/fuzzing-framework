@@ -258,7 +258,7 @@ class StateTransition(BaseModel):
 
     from_state: str = Field(alias="from")
     to_state: str = Field(alias="to")
-    message_type: str
+    message_type: Optional[str] = None
     trigger: Optional[str] = None
     expected_response: Optional[str] = None
 
@@ -279,3 +279,56 @@ class PreviewResponse(BaseModel):
     protocol: str
     previews: List[TestCasePreview]
     state_machine: Optional[StateMachineInfo] = None
+
+
+class TestCaseExecutionRecord(BaseModel):
+    """Detailed execution record for correlation and replay"""
+
+    test_case_id: str
+    session_id: str
+    sequence_number: int  # Monotonic counter within session
+    timestamp_sent: datetime
+    timestamp_response: Optional[datetime] = None
+    duration_ms: float
+
+    # Payload information
+    payload_size: int
+    payload_hash: str  # SHA256 for deduplication
+    payload_preview: str  # First 64 bytes in hex for display
+
+    # Protocol information
+    protocol: str
+    message_type: Optional[str] = None  # From stateful fuzzer
+    state_at_send: Optional[str] = None  # Protocol state when sent
+
+    # Execution results
+    result: TestCaseResult
+    response_size: Optional[int] = None
+    response_preview: Optional[str] = None  # First 64 bytes of response in hex
+    error_message: Optional[str] = None
+
+    # For replay - base64 encoded
+    raw_payload_b64: str  # Base64 encoded payload for JSON transport
+
+
+class ExecutionHistoryResponse(BaseModel):
+    """Response containing execution history"""
+
+    session_id: str
+    total_count: int  # Total executions in session
+    returned_count: int  # Number returned in this response
+    executions: List[TestCaseExecutionRecord]
+
+
+class ReplayRequest(BaseModel):
+    """Request to replay a test case"""
+
+    sequence_numbers: List[int] = Field(description="Sequence numbers to replay")
+    delay_ms: int = Field(default=0, description="Delay between replays in milliseconds")
+
+
+class ReplayResponse(BaseModel):
+    """Response from replay operation"""
+
+    replayed_count: int
+    results: List[TestCaseExecutionRecord]

@@ -1,33 +1,32 @@
 """
-Simple TCP test server for fuzzing
+Simple TCP echo server for fuzzing/debugging
 
-Implements a basic protocol with intentional vulnerabilities for testing:
-- Buffer overflow on large payloads
-- Crash on specific magic values
-- Memory leak on repeated connections
+The server now echoes exactly what it receives without enforcing protocol
+validations so contributors can observe the raw payloads being transmitted.
 """
 import socket
-import struct
 import sys
 import threading
 
 
-class SimpleTCPServer:
-    """
-    Test server implementing SimpleTCP protocol
+COLORS = {
+    "reset": "\033[0m",
+    "blue": "\033[94m",
+    "green": "\033[92m",
+    "yellow": "\033[93m",
+    "red": "\033[91m",
+    "magenta": "\033[95m",
+}
 
-    Protocol format:
-    - 4 bytes: Magic "STCP"
-    - 4 bytes: Length (big-endian uint32)
-    - 1 byte: Command (0x01=AUTH, 0x02=DATA, 0x03=QUIT)
-    - N bytes: Payload
-    """
+class SimpleTCPServer:
+    """Minimal TCP echo utility for inspecting fuzz payloads"""
 
     def __init__(self, host: str = "0.0.0.0", port: int = 9999):
         self.host = host
         self.port = port
         self.running = False
         self.server_socket = None
+        self._color_enabled = sys.stdout.isatty()
 
     def start(self):
         """Start the server"""
@@ -37,13 +36,14 @@ class SimpleTCPServer:
         self.server_socket.listen(5)
         self.running = True
 
-        print(f"[*] SimpleTCP Server listening on {self.host}:{self.port}")
+        self._print_banner()
+        self._log("info", f"Listening on {self.host}:{self.port}")
 
         try:
             while self.running:
                 try:
                     client_sock, addr = self.server_socket.accept()
-                    print(f"[+] Connection from {addr}")
+                    self._log("success", f"Connection from {addr[0]}:{addr[1]}")
                     # Handle in thread for concurrent connections
                     thread = threading.Thread(target=self.handle_client, args=(client_sock,))
                     thread.daemon = True
@@ -52,9 +52,9 @@ class SimpleTCPServer:
                     continue
                 except Exception as e:
                     if self.running:
-                        print(f"[-] Accept error: {e}")
+                        self._log("error", f"Accept error: {e}")
         except KeyboardInterrupt:
-            print("\n[*] Shutting down...")
+            self._log("info", "Shutting down...")
         finally:
             self.stop()
 
@@ -67,76 +67,66 @@ class SimpleTCPServer:
     def handle_client(self, client_sock: socket.socket):
         """Handle a client connection"""
         try:
-            # Receive data
-            data = client_sock.recv(4096)
-            if len(data) < 9:
-                client_sock.close()
-                return
+            chunk_idx = 1
+            while True:
+                data = client_sock.recv(4096)
+                if not data:
+                    if chunk_idx == 1:
+                        self._log("debug", "Client closed without sending data")
+                    break
 
-            # Parse protocol
-            magic = data[:4]
-            if magic != b"STCP":
-                print(f"[-] Invalid magic: {magic}")
-                client_sock.sendall(b"STCP\x00\x00\x00\x01\xFFERROR")
-                client_sock.close()
-                return
+                preview = data[:32]
+                preview_display = preview.hex()
+                if len(data) > len(preview):
+                    preview_display += "..."
 
-            length = struct.unpack(">I", data[4:8])[0]
-            command = data[8]
-            payload = data[9 : 9 + length] if len(data) > 9 else b""
+                self._log(
+                    "info",
+                    f"Chunk {chunk_idx}: {len(data)} bytes received",
+                )
+                self._log("debug", f"Payload preview: {preview_display}")
 
-            print(f"[+] Command: {command:#x}, Length: {length}, Payload: {len(payload)} bytes")
+                # echo
+                client_sock.sendall(data)
+                chunk_idx += 1
 
-            # Process command
-            if command == 0x01:  # AUTH
-                response = self.handle_auth(payload)
-            elif command == 0x02:  # DATA
-                response = self.handle_data(payload)
-            elif command == 0x03:  # QUIT
-                response = b"STCP\x00\x00\x00\x02\x03OK"
-                client_sock.sendall(response)
-                client_sock.close()
-                return
-            else:
-                response = b"STCP\x00\x00\x00\x01\xFFERROR"
-
-            client_sock.sendall(response)
             client_sock.close()
 
         except Exception as e:
-            print(f"[-] Error handling client: {e}")
+            self._log("error", f"Error handling client: {e}")
             try:
                 client_sock.close()
             except:
                 pass
 
-    def handle_auth(self, payload: bytes) -> bytes:
-        """Handle AUTH command"""
-        # Intentional vulnerability: buffer overflow on large payload
-        if len(payload) > 1024:
-            print("[!] VULNERABILITY: Buffer overflow detected!")
-            # Simulate crash (would be real overflow in C/C++)
-            raise Exception("Buffer overflow")
+    def _print_banner(self) -> None:
+        border = "=" * 60
+        self._log_raw(border, color="blue")
+        title = " SimpleTCP Test Server "
+        padded_title = title.center(len(border), "=")
+        self._log_raw(padded_title, color="magenta")
+        self._log_raw(border, color="blue")
 
-        if payload == b"CRASH":
-            # Intentional crash trigger
-            print("[!] VULNERABILITY: Crash trigger activated!")
-            raise Exception("Intentional crash")
+    def _log(self, level: str, message: str) -> None:
+        level = level.lower()
+        color = {
+            "info": "blue",
+            "success": "green",
+            "warning": "yellow",
+            "error": "red",
+            "debug": "magenta",
+        }.get(level, "reset")
+        label = level.upper().ljust(7)
+        prefix = self._colorize(f"[{label}]", color)
+        print(f"{prefix} {message}")
 
-        # Normal response
-        return b"STCP\x00\x00\x00\x05\x01AUTH_OK"
+    def _log_raw(self, message: str, color: str = "reset") -> None:
+        print(self._colorize(message, color))
 
-    def handle_data(self, payload: bytes) -> bytes:
-        """Handle DATA command"""
-        # Intentional vulnerability: specific byte pattern causes crash
-        if b"\xde\xad\xbe\xef" in payload:
-            print("[!] VULNERABILITY: Magic bytes detected!")
-            raise Exception("Magic bytes crash")
-
-        # Normal response: echo back length
-        response_payload = f"DATA_OK:{len(payload)}".encode()
-        response = b"STCP" + struct.pack(">I", len(response_payload)) + b"\x02" + response_payload
-        return response
+    def _colorize(self, message: str, color: str) -> str:
+        if not self._color_enabled or color not in COLORS:
+            return message
+        return f"{COLORS[color]}{message}{COLORS['reset']}"
 
 
 def main():
