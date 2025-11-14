@@ -1,44 +1,23 @@
 # Documentation Index
 
-Use this map to jump to the right reference for your task. Files live either at the repo root or under `docs/`.
+This file provides a curated list of the most important documentation in the repository.
 
-## Getting Started & Operations
-| File | Focus | Notes |
-| --- | --- | --- |
-| `README.md` | High-level overview, architecture summary, key workflows. | Start here before touching code. |
-| `QUICKSTART.md` | Step-by-step setup (Docker + local), session walkthrough. | Mirrors `make` targets and API curls. |
-| `CHEATSHEET.md` | One-page command + REST reference. | Includes preview/one-off endpoints. |
-| `docs/FUZZING_GUIDE.md` | Campaign workflow, terminology, troubleshooting, and practical tips. | Updated with stateful fuzzing basics. |
-| `AGENTS.md` | Repository guidelines + coding/testing standards. | Source of truth for contributors. |
+## For All Users
 
-## Architecture, Protocols & Roadmap
-| File | Focus | Notes |
-| --- | --- | --- |
-| `blueprint.md` | Original architectural blueprint + PRE/oracle vision. | Deep background/context. |
-| `rfc.md` | Prioritized engineering RFC (Core, Agent, PRE, milestones). | Defines goals/non-goals. |
-| `roadmap.md` | Near/mid/long-term initiatives. | Tracks stateful fuzzing, triage, PRE, etc. |
-| `ARCHITECTURE_IMPROVEMENTS_PLAN.md` | Gap analysis for stateful fuzzing + triage. | Proposed upgrades + code refs. |
-| `STATEFUL_FUZZING_IMPLEMENTATION.md` | Phase 1 delivery details for state-aware engine. | Includes API/stats additions. |
-| `STATE_VISUALIZATION_IMPLEMENTATION.md` | UI work for visualizing state machines and previews. | Complements stateful fuzzing docs. |
-| `PROTOCOL_TESTING.md` | Authoring + validating protocol plugins (data/state models, behaviors). | Includes examples + debugging flow. |
+| File | Description |
+| --- | --- |
+| [README.md](../README.md) | High-level overview of the project, its architecture, and key features. **Start here.** |
+| [QUICKSTART.md](../QUICKSTART.md) | A step-by-step guide to get the fuzzer running in 5 minutes using Docker or a local setup. |
+| [FUZZING_GUIDE.md](FUZZING_GUIDE.md) | A practical guide to fuzzing concepts, campaign strategy, and troubleshooting. |
 
-## Implementation Reports & Enhancements
-| File | Focus | Notes |
-| --- | --- | --- |
-| `MVP_SUMMARY.md` | Full MVP component rundown (Core, agent, UI, corpus). | Confirms delivered scope. |
-| `COMPLETION_REPORT.md` | End-to-end summary of protocol debugger enhancements. | Links to supporting docs/tests. |
-| `IMPLEMENTATION_SUMMARY.md` | Deep dive on preview endpoint + UI wiring. | Phase 1 write-up. |
-| `MUTATION_TYPES_ENHANCEMENT.md` | Phase 2 for preview explorer (mutation badges/descriptions). | Pair with `COMPLETION_REPORT`. |
-| `UI_ENHANCEMENT_PROPOSAL.md` | Forward-looking UI improvements backlog. | Source plan for recent work. |
-| `UI_ENHANCEMENTS.md` | Shipped UI changes + screenshots/notes. | Handy for release highlights. |
-| `STATEFUL_FUZZING_IMPLEMENTATION.md` | (Also listed above) Implementation report with coverage metrics. | Reference from architecture + reports. |
+## For Developers & Contributors
 
-## Contributor & Tooling Guides
-| File | Focus | Notes |
-| --- | --- | --- |
-| `CLAUDE.md` | Instructions for Claude Code / AI assistants. | Mirrors repo conventions. |
-| `PROTOCOL_TESTING.md` | (See above) – doubles as a contributor playbook for plugin authors. |  |
-| `docs/PROTOCOL_TESTING.md` | Additional protocol debugging reference hosted with the UI. | Served via `/docs`. |
-
-Need to add or modify documentation? Update the relevant file above and keep this index current so future contributors can
-discover the latest guidance quickly.
+| File | Description |
+| --- | --- |
+| [PROTOCOL_TESTING.md](PROTOCOL_TESTING.md) | A complete, in-depth guide to creating, testing, and validating custom protocol plugins. |
+| [01_overview.md](developer/01_overview.md) | A technical overview of the fuzzer's architecture and key components. |
+| [02_test_case_generation_and_mutation.md](developer/02_test_case_generation_and_mutation.md) | A deep dive into how test cases and mutations are generated. |
+| [03_protocol_parsing_and_plugins.md](developer/03_protocol_parsing_and_plugins.md) | Explains how the fuzzer understands protocol structures through plugins. |
+| [04_stateful_fuzzing.md](developer/04_stateful_fuzzing.md) | Describes the stateful fuzzing engine and how it follows a protocol's state machine. |
+| [05_corpus_and_agents.md](developer/05_corpus_and_agents.md) | Details on how the fuzzer manages its test case corpus and uses distributed agents. |
+| [06_advanced_logic.md](developer/06_advanced_logic.md) | Explains advanced features like automatic size calculation and declarative response handling. |

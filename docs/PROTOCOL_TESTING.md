@@ -16,6 +16,10 @@ Complete guide for creating, testing, and validating custom protocol plugins for
 
 ## Overview
 
+This guide is for developers who want to extend the fuzzer to support new, custom protocols. It provides a complete walkthrough of how to create a protocol plugin, test it, and use it to find bugs.
+
+This guide assumes you have a basic understanding of Python and the protocol you want to test. If you are new to fuzzing in general, we recommend reading the [Fuzzing Guide](FUZZING_GUIDE.md) first to familiarize yourself with the core concepts.
+
 This guide walks you through the complete process of:
 1. Creating a protocol plugin
 2. Testing it with a real target
@@ -27,11 +31,13 @@ This guide walks you through the complete process of:
 
 ### Step 1: Understand Your Protocol
 
-Before writing code, document:
-- **Message structure**: What fields exist? What are their types and sizes?
-- **State machine**: Does the protocol have states? What transitions exist?
-- **Valid examples**: Collect 3-5 valid protocol messages
-- **Error conditions**: What responses indicate errors?
+Before writing code, it's crucial to have a clear picture of how your protocol works. The more accurately you can describe your protocol to the fuzzer, the more effective it will be at finding deep and interesting bugs.
+
+Document the following:
+- **Message structure**: What fields exist? What are their types and sizes? Is the byte order (endianness) big or little?
+- **State machine**: Does the protocol have states (e.g., must a client log in before sending data)? What messages trigger transitions between states?
+- **Valid examples**: Collect 3-5 valid, real-world protocol messages. These will be the "seeds" for the fuzzer.
+- **Error conditions**: What do server responses look like when something goes wrong?
 
 **Example analysis for a financial protocol**:
 ```
@@ -80,7 +86,7 @@ data_model = {
             "type": "bytes",
             "size": 4,
             "default": b"BANK",
-            "mutable": False,  # Prevent fuzzer from changing this
+            "mutable": False,  # Crucial! Prevents the fuzzer from changing the magic bytes, which would cause most servers to reject the message immediately.
             "description": "Protocol magic header"
         },
 
@@ -114,8 +120,8 @@ data_model = {
             "name": "length",
             "type": "uint32",
             "endian": "big",
-            "is_size_field": True,
-            "size_of": "payload",
+            "is_size_field": True,     # Tells the fuzzer that this field's value depends on the size of another field.
+            "size_of": "payload",      # Specifically, this field should contain the length of the 'payload' field. The fuzzer will automatically calculate and update this.
             "description": "Payload length in bytes"
         },
 
@@ -144,10 +150,13 @@ data_model = {
     ]
 }
 
-### Step 3: Add Field Behaviors (Optional but Recommended)
+### Step 3: Add Field Behaviors and Response Handlers (Optional but Recommended)
 
-Use the `behavior` key when a block must follow deterministic rules even while other bytes are fuzzed. Behaviors run before each test case is transmitted in both core and agent modes.
+**Behaviors** are used when a field must follow deterministic rules, even while other bytes are being fuzzed. For example, a sequence number that must increment with each packet. Behaviors run just before each test case is sent.
 
+If the server's response contains data that you need to use in your next message (like a session token or a challenge-response value), you will need to use **`response_model`** and **`response_handlers`**. These are advanced features that allow you to build complex, multi-stage interactions. For a detailed explanation, see the [Advanced Logic Guide](06_advanced_logic.md).
+
+Here is an example of a `behavior` block for a sequence number:
 ```python
 {
     "name": "sequence",
@@ -323,6 +332,7 @@ Create `test_protocol.py`:
 """Test protocol message generation"""
 
 import sys
+# This line allows the script to import modules from the project's root directory.
 sys.path.insert(0, '.')
 
 from core.plugin_loader import plugin_manager
@@ -396,6 +406,7 @@ Create `test_target.py`:
 
 import socket
 import sys
+# This line allows the script to import modules from the project's root directory.
 sys.path.insert(0, '.')
 
 from core.plugin_loader import plugin_manager
@@ -451,6 +462,16 @@ for i, seed in enumerate(protocol.data_model['seeds'], 1):
 
 print("\n✓ All seeds tested")
 ```
+
+### Feature Showcase Reference Target
+
+Working on the bundled `feature_showcase` plugin? This server is a working example of a protocol that uses a session token, making it the perfect way to see `response_model` and `response_handlers` in action. Start the richer target that emits structured responses so you can inspect the handshake/session-token workflow:
+
+```bash
+python tests/feature_showcase_server.py --host 0.0.0.0 --port 9001
+```
+
+The server parses `HANDSHAKE_REQUEST` messages, returns a `session_token` via the `response_model`, and expects later `DATA_STREAM`/`TERMINATE` messages to echo that token. Watching its logs while fuzzing makes the `response_handlers` pipeline easy to understand.
 
 Run it:
 ```bash
@@ -630,10 +651,12 @@ def validate_response(response: bytes) -> bool:
 
 ### Strategy 4: State Machine Validation
 
-Enforces protocol state transitions:
+Enforces protocol state transitions.
+
+**Note:** The following example uses a global variable for simplicity. In a real-world scenario, you would not use a global variable. Instead, you would leverage the fuzzer's built-in stateful fuzzing engine by defining a `state_model` in your plugin, as described in the [Stateful Fuzzing Basics](FUZZING_GUIDE.md#stateful-fuzzing-basics) section of the Fuzzing Guide.
 
 ```python
-# Global state (in production, use session-based state)
+# Global state (for demonstration only; do not use in production)
 current_state = "DISCONNECTED"
 
 def validate_response(response: bytes) -> bool:

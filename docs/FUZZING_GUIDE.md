@@ -6,30 +6,35 @@ A practical reference to help you speak the same language as the fuzzer, structu
 
 | Term | Meaning |
 | --- | --- |
-| **Seed** | A valid byte sequence that bootstraps the mutation engine. Stored in `data/corpus/seeds`. |
-| **Corpus** | All seeds plus interesting mutations and crash reproducers saved during a run. |
+| **Seed** | A valid byte sequence that bootstraps the mutation engine. Think of seeds as the starting points for exploration; the fuzzer slightly changes them to discover new paths in the target application. Stored in `data/corpus/seeds`. |
+| **Corpus** | The entire collection of test cases the fuzzer knows about. It includes the initial seeds you provide, interesting variations the fuzzer discovers on its own, and any test cases that have caused crashes. |
 | **Session** | A fuzzing campaign bound to a protocol, host, port, execution mode, and mutator selection. |
-| **Mutator** | Algorithm that transforms a seed (e.g., `bitflip`, `havoc`, `splice`). Choose them via `enabled_mutators`. |
-| **Behavior** | Declarative rule attached to a protocol block (e.g., “increment sequence”, “add constant”). Behaviors run before every send to keep deterministic fields valid. |
-| **Agent Mode** | Test cases are executed by remote agents that talk to the target and stream results back to the core. |
-| **One-off Test** | Single payload execution via `POST /api/tests/execute`—use it for quick validation or reproduction. |
+| **Mutator** | An algorithm that transforms a seed (e.g., `bitflip`, `havoc`, `splice`). You can choose which ones to use via the `enabled_mutators` setting. |
+| **Behavior** | A rule that automatically updates a field before a message is sent. This is crucial for fields that must change in a predictable way, like an incrementing sequence number or a recalculated checksum. Behaviors ensure these 'protocol glue' fields are correct, allowing the fuzzer to focus on the more interesting parts of the message. |
+| **Agent Mode** | Test cases are executed by remote 'worker' agents that communicate with the target and stream results back to the core fuzzer. |
+| **One-off Test** | A single payload execution via `POST /api/tests/execute`. This is useful for quickly validating a potential bug or reproducing a crash without starting a full fuzzing session. |
 
 ## Building an Effective Campaign
+
+A fuzzing campaign is a structured effort to find bugs in a target application. A successful campaign requires a bit of setup to ensure the fuzzer is testing the right things in the right way.
 
 1. **Instrument the Target**
    - Run the sample target (`make run-target` or `docker compose up target`) and tail its logs so you can see each fuzz case.
    - For custom binaries, expose structured logs or even a basic metrics endpoint—fuzzing is faster when you can spot crashes immediately.
 
 2. **Author/Review the Protocol Plugin**
+   - The protocol plugin is a Python file where you teach the fuzzer the 'language' of the protocol you want to test.
    - Define immutable headers (`mutable: false`) so core signatures stay intact.
    - Model state transitions and supply at least 3 realistic seeds.
    - Add `behavior` blocks for deterministic fields:
      ```python
+     # This field will start at 0 and increment by 1 with each message.
      {
          "name": "sequence",
          "type": "uint16",
          "behavior": {"operation": "increment", "initial": 0, "step": 1}
      }
+     # This field will always be the constant value 0x55.
      {
          "name": "checksum",
          "type": "uint8",
@@ -53,12 +58,14 @@ A practical reference to help you speak the same language as the fuzzer, structu
 
 ## Stateful Fuzzing Basics
 
+Many protocols are 'stateful,' meaning the server expects messages in a specific order (e.g., you must `LOGIN` before you can `SEND_DATA`). The fuzzer's stateful mode is designed to handle this by following a 'map' of the protocol's states and transitions that you provide in the plugin.
+
 State models are now first-class: when a plugin exposes `state_model`, the orchestrator instantiates
 `StatefulFuzzingSession` to keep sequences valid.
 
 1. **Define transitions intentionally** – Include `initial_state`, `states`, and `transitions` with
-   `message_type` labels that match the command block's `values` map. Optional `expected_response`
-   strings help the runtime validate replies before advancing.
+   `message_type` labels that match the command block's `values` map. The optional `expected_response`
+   string is highly recommended; it allows the fuzzer to confirm that the target has successfully moved to the next state before proceeding, making the fuzzing process much more efficient.
 2. **Seed per message type** – Provide at least one seed for every `message_type` so the engine can
    pick the right template when it needs to send CONNECT vs AUTH vs DATA.
 3. **Monitor coverage** – Hit `GET /api/sessions/{id}/state_coverage` (or watch the UI state diagram)
@@ -83,6 +90,11 @@ Keep this guide open while fuzzing—the workflow (instrument → model → run 
 ## Troubleshooting Proprietary Protocols
 
 When a fuzzing campaign produces unexpected behavior, hangs, or a low execution rate, the root cause is often a misunderstanding between the fuzzer and the target about the protocol's rules. This is especially common with proprietary, stateful protocols. Here’s a detailed guide to troubleshooting the entire communication flow.
+
+> **Troubleshooting in a Nutshell:**
+> 1.  **Is the network connection working?** Use `ping` and `nc` to check basic connectivity to the target host and port.
+> 2.  **Is the fuzzer speaking the right protocol at the start?** Compare a `tcpdump` of the fuzzer's traffic with a `tcpdump` of a normal, working client. The initial messages should be identical.
+> 3.  **Is the problem state-related?** If the first few packets in a session work but then errors start, the issue is likely in your `state_model` or the fuzzer is sending a "poison" packet that invalidates the session.
 
 ### 1. Understanding the Full Communication Lifecycle
 

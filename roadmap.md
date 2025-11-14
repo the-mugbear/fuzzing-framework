@@ -1,53 +1,49 @@
 # Project Roadmap
 
-This document outlines the roadmap for improving the fuzzing tool. The items are categorized by priority, from critical near-term features to long-term enhancements.
+This document outlines the development roadmap for the fuzzing framework. The items are categorized by their current status and priority.
 
-## Near-Term Priorities (Critical for Effectiveness)
+## Near-Term Priorities (Next 1-3 Months)
+### 1. Enhanced Mutators
 
-### 1. Stateful Protocol Fuzzing
+- **Length-Value Mismatch Mutator**: A new structure-aware mutator that intentionally creates mismatches between a length field and the actual data size (e.g., `length + 1`, `length - 1`). This is highly effective at finding buffer overflows.
+- **Smarter Arithmetic and Interesting Value Mutators**: Enhance the existing `ArithmeticMutator` and `InterestingValueMutator` to be structure-aware. They will identify and target specific integer fields from the `data_model`, respecting their size and endianness.
 
-**Problem:** The current fuzzing engine is stateless. It sends mutated data without respecting the logical order of a protocol's state machine (e.g., sending data before authentication). This makes it highly inefficient against most real-world network protocols.
+### 2. Improved Crash Triage
 
-**Solution:**
-- Modify the core fuzzing engine (`FuzzOrchestrator`) to read and interpret the `state_model` defined in protocol plugins.
-- Implement logic to traverse the protocol's state machine, sending valid sequences of messages.
-- Focus mutations on the data *within* messages appropriate for the current state, rather than mutating the message sequence itself.
+- **Automatic Input Minimization**: When a crash occurs with a large input, it can be difficult to identify the root cause. This feature will add a tool to automatically "shrink" the crashing test case to the smallest possible version that still triggers the bug, making debugging much faster.
 
-## Mid-Term Goals (Major Enhancements)
+### 3. Streamlined Plugin Authoring
 
-### 2. Feedback-Driven (Grey-Box) Fuzzing
+- **Live Plugin Validator in the UI**: An interactive UI page where a developer can paste their `data_model` and a raw packet (in hex) to see a live, color-coded breakdown of how the fuzzer parses it. This will dramatically speed up the process of creating and debugging new protocol plugins.
 
-**Problem:** The fuzzer currently operates in a "black-box" mode, with no insight into the target application's internal state. This is inefficient, as it cannot intelligently prioritize inputs that explore new functionality.
+## Mid-Term Goals (3-6 Months)
+### 1. Advanced Mutators
 
-**Solution:**
-- Integrate a feedback mechanism based on code coverage.
-- **Instrumentation:** Require the target application to be compiled with instrumentation (e.g., using compiler wrappers like `afl-gcc`/`afl-clang` or LLVM Sanitizers).
-- **Agent Enhancement:** The agent will be responsible for running the instrumented target and collecting the coverage data (e.g., from a shared memory map).
-- **Engine Enhancement:** The fuzzing engine will use this coverage feedback to identify "interesting" test cases (those that discover new code paths) and save them to the corpus, prioritizing them for future mutations.
+- **Dictionary/Keyword Mutator**: A new mutator for text-based protocols that replaces known keywords (e.g., `GET`, `USER`) with other keywords or common "garbage" strings. This will require adding a `dictionary` field to the protocol plugin schema.
+- **Delimiter Mutator**: A mutator that focuses on manipulating delimiters (e.g., newlines, commas) in protocols that use them, to find parsing and off-by-one errors.
 
-### 3. Advanced Crash Triage
+### 2. Advanced Crash Triage
 
-**Problem:** Finding a crash is only the first step. Analyzing and managing crashes is a major bottleneck for developers.
+- **Automatic Crash Deduplication**: Implement algorithms to group similar crashes based on their call stack or crash location. This will help developers quickly identify unique bugs and avoid redundant analysis.
 
-**Solution:**
-- **Crash Deduplication:** Implement algorithms to group crashes that have the same root cause, reducing redundant analysis work.
-- **Test Case Minimization:** Add a tool to automatically shrink a crashing test case to the smallest possible version that still triggers the bug.
-- **Exploitability Analysis:** Integrate with tools (like `!exploitable` for Windows or similar Linux GDB scripts) to help classify the security severity of a crash.
+### 3. Fuzzing Strategy Enhancements
 
-## Long-Term Vision (Future Development)
+- **Adaptive Mutation Strategy**: The fuzzer will track which mutation strategies are most effective at finding new paths or crashes and automatically adjust its parameters (like `structure_aware_weight`) during a session to focus on the most productive techniques.
 
-### 4. Corpus Management & Optimization
+### 4. Accelerated Plugin Authoring
 
-**Problem:** Over long-running fuzzing campaigns, the input corpus can grow large with redundant test cases, slowing down the fuzzer.
+- **PCAP to Plugin Converter**: A powerful tool that can analyze a `.pcap` file of captured network traffic and automatically generate a draft of the `data_model` for a new protocol plugin.
 
-**Solution:**
-- Implement corpus distillation and minimization tools. These tools periodically review the corpus and remove inputs that do not contribute unique code coverage, keeping the corpus small and fast.
+## Long-Term Vision (6+ Months)
+### 1. Coverage-Guided (Grey-Box) Fuzzing
 
-### 5. Automated Protocol Discovery
+- **Description**: This remains a top long-term goal. It involves instrumenting the target application to get feedback on which code paths are executed by each test case. The fuzzer will then use this feedback to prioritize mutations that explore new and interesting parts of the code, providing a massive leap in fuzzing effectiveness.
+- **Implementation**: This is a major undertaking that will require compiler wrappers, agent enhancements to collect coverage data, and significant changes to the core engine to manage the feedback loop.
 
-**Problem:** The current model requires a user to manually define the protocol structure and state machine.
+### 2. Corpus Management and Optimization
 
-**Solution:**
-- Explore techniques for automated protocol learning. This could involve:
-  - Observing and analyzing valid network traffic between a client and server.
-  - Using machine learning to infer message formats, fields, and state transitions.
+- **Description**: As fuzzing campaigns run, the input corpus can grow large with redundant test cases. This feature will introduce tools to "distill" the corpus by removing inputs that do not contribute unique code coverage, keeping the fuzzer fast and efficient. This is typically implemented alongside coverage-guided fuzzing.
+
+### 3. Automated Protocol Discovery
+
+- **Description**: The ultimate goal is to move towards a system that requires less manual effort to define protocols. This would involve researching and implementing techniques for automated protocol learning by observing and analyzing valid network traffic to infer message formats, fields, and state transitions.

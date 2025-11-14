@@ -1,0 +1,139 @@
+.editable-field-table {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.editable-field-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.editable-field-table th {
+  background: rgba(15, 23, 42, 0.6);
+  padding: 12px 8px;
+  text-align: left;
+  font-weight: 600;
+  color: #93c5fd;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.editable-field-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.editable-field-table tr.hovered {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.editable-field-table tr.computed {
+  background: rgba(45, 212, 191, 0.05);
+}
+
+.editable-field-table tr.immutable {
+  opacity: 0.7;
+}
+
+.badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.computed-badge {
+  background: rgba(45, 212, 191, 0.2);
+  color: #5eead4;
+}
+
+.immutable-badge {
+  background: rgba(148, 163, 184, 0.2);
+  color: #cbd5e1;
+}
+
+.type-code {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 0.85rem;
+  color: #a5b4fc;
+  background: rgba(15, 23, 42, 0.4);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.field-value {
+  font-family: 'Roboto Mono', monospace;
+}
+
+.hex-value {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 0.8rem;
+  color: #93c5fd;
+}
+
+.field-edit-input {
+  width: 100%;
+  padding: 4px 8px;
+  background: rgba(2, 6, 23, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: white;
+  font-family: 'Roboto Mono', monospace;
+}
+
+.field-edit-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.edit-btn,
+.save-btn,
+.cancel-btn {
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: opacity 0.2s;
+}
+
+.edit-btn {
+  background: rgba(59, 130, 246, 0.2);
+  color: #93c5fd;
+}
+
+.edit-btn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.3);
+}
+
+.edit-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.save-btn {
+  background: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+  margin-right: 4px;
+}
+
+.save-btn:hover {
+  background: rgba(16, 185, 129, 0.3);
+}
+
+.cancel-btn {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+}
+
+.cancel-btn:hover {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+.edit-actions {
+  display: flex;
+  gap: 4px;
+}

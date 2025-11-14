@@ -3,9 +3,9 @@ Fuzzing orchestrator - coordinates the fuzzing campaign
 """
 import asyncio
 import base64
-import hashlib
 import time
 import uuid
+from collections import deque
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -14,12 +14,15 @@ import structlog
 from core.agents.manager import agent_manager
 from core.config import settings
 from core.corpus.store import CorpusStore
+from core.plugin_loader import decode_seeds_from_json, denormalize_data_model_from_json
+from core.engine.crash_handler import CrashReporter
+from core.engine.history_store import ExecutionHistoryStore
 from core.engine.mutators import MutationEngine
+from core.engine.response_planner import ResponsePlanner
 from core.engine.stateful_fuzzer import StatefulFuzzingSession
 from core.models import (
     AgentTestResult,
     AgentWorkItem,
-    CrashReport,
     ExecutionMode,
     FuzzConfig,
     FuzzSession,
@@ -50,8 +53,12 @@ class FuzzOrchestrator:
         self.pending_tests: Dict[str, TestCase] = {}
         self.behavior_processors: Dict[str, Any] = {}
         self.stateful_sessions: Dict[str, StatefulFuzzingSession] = {}  # Track stateful sessions
-        self.execution_history: Dict[str, List[Any]] = {}  # Track test case executions for correlation
-        self.execution_history_maxlen = 5000  # Keep last 5000 executions per session
+        self.response_planners: Dict[str, ResponsePlanner] = {}
+        self.followup_queues: Dict[str, deque] = {}
+        self.session_data_models: Dict[str, Dict[str, Any]] = {}
+        self.session_response_models: Dict[str, Dict[str, Any]] = {}
+        self.history_store = ExecutionHistoryStore()
+        self.crash_reporter = CrashReporter(self.corpus_store)
 
     async def create_session(self, config: FuzzConfig) -> FuzzSession:
         """
@@ -73,17 +80,29 @@ class FuzzOrchestrator:
             logger.error("failed_to_load_protocol", protocol=config.protocol, error=str(e))
             raise
 
+        resolved_data_model = denormalize_data_model_from_json(protocol.data_model)
+        resolved_response_model = (
+            denormalize_data_model_from_json(protocol.response_model)
+            if protocol.response_model
+            else None
+        )
+        self.session_data_models[session_id] = resolved_data_model
+        if resolved_response_model:
+            self.session_response_models[session_id] = resolved_response_model
+
         # Initialize seed corpus from plugin
         seed_corpus = []
         if "seeds" in protocol.data_model:
-            for seed in protocol.data_model["seeds"]:
+            # Decode seeds from base64 (they're stored as base64 strings for JSON safety)
+            seeds_bytes = decode_seeds_from_json(protocol.data_model["seeds"])
+            for seed in seeds_bytes:
                 seed_id = self.corpus_store.add_seed(
                     seed, metadata={"protocol": config.protocol, "source": "plugin"}
                 )
                 seed_corpus.append(seed_id)
 
         enabled_mutators = self._resolve_mutators(config)
-        behavior_processor = build_behavior_processor(protocol.data_model)
+        behavior_processor = build_behavior_processor(resolved_data_model)
 
         session = FuzzSession(
             id=session_id,
@@ -105,6 +124,15 @@ class FuzzOrchestrator:
         self.sessions[session_id] = session
         if behavior_processor.has_behaviors():
             self.behavior_processors[session_id] = behavior_processor
+
+        if protocol.response_handlers:
+            planner = ResponsePlanner(
+                resolved_data_model,
+                resolved_response_model,
+                protocol.response_handlers,
+            )
+            self.response_planners[session_id] = planner
+            self.followup_queues.setdefault(session_id, deque())
         logger.info("session_created", session_id=session_id, protocol=config.protocol)
         return session
 
@@ -113,6 +141,25 @@ class FuzzOrchestrator:
         session = self.sessions.get(session_id)
         if not session:
             logger.error("session_not_found", session_id=session_id)
+            return False
+
+        # Check if another session is already running
+        running_sessions = [
+            s for s in self.sessions.values()
+            if s.status == FuzzSessionStatus.RUNNING and s.id != session_id
+        ]
+        if running_sessions:
+            running_session_ids = ", ".join([s.id[:8] for s in running_sessions])
+            error_msg = (
+                f"Cannot start session: another session is already running ({running_session_ids}...). "
+                f"Only one session can run at a time. Please stop the running session first."
+            )
+            session.error_message = error_msg
+            logger.warning(
+                "cannot_start_multiple_sessions",
+                session_id=session_id,
+                running_sessions=running_session_ids
+            )
             return False
 
         if session.status == FuzzSessionStatus.RUNNING:
@@ -163,6 +210,10 @@ class FuzzOrchestrator:
         self._discard_pending_tests(session_id)
         self.behavior_processors.pop(session_id, None)
         self.stateful_sessions.pop(session_id, None)  # Clean up stateful session
+        self.response_planners.pop(session_id, None)
+        self.followup_queues.pop(session_id, None)
+        self.session_data_models.pop(session_id, None)
+        self.session_response_models.pop(session_id, None)
 
         logger.info("session_stopped", session_id=session_id)
         return True
@@ -188,6 +239,11 @@ class FuzzOrchestrator:
         except Exception as e:
             logger.warning("failed_to_load_protocol_for_mutations", error=str(e))
 
+        data_model = self.session_data_models.get(session_id)
+        if protocol and not data_model:
+            data_model = denormalize_data_model_from_json(protocol.data_model)
+            self.session_data_models[session_id] = data_model
+
         # Load seeds
         seeds = [self.corpus_store.get_seed(sid) for sid in session.seed_corpus]
         seeds = [s for s in seeds if s is not None]
@@ -198,7 +254,6 @@ class FuzzOrchestrator:
             return
 
         # Initialize mutation engine with selected mutators and protocol data_model
-        data_model = protocol.data_model if protocol else None
         mutation_engine = MutationEngine(
             seeds,
             enabled_mutators=session.enabled_mutators,
@@ -217,7 +272,7 @@ class FuzzOrchestrator:
                 use_stateful_fuzzing = True
                 stateful_session = StatefulFuzzingSession(
                     protocol.state_model,
-                    protocol.data_model,
+                    data_model or denormalize_data_model_from_json(protocol.data_model),
                     progression_weight=0.8  # 80% follow happy path
                 )
                 # Store stateful session for metrics access
@@ -247,41 +302,63 @@ class FuzzOrchestrator:
                 # Record test start time for rate limiting
                 loop_start = time.time()
 
-                # Generate test case based on fuzzing mode
-                if use_stateful_fuzzing:
-                    # Stateful fuzzing: select message for current state
-                    message_type = stateful_session.get_message_type_for_state()
+                followup_item = None
+                queue = self.followup_queues.get(session_id)
+                if queue:
+                    try:
+                        followup_item = queue.popleft()
+                    except IndexError:
+                        followup_item = None
 
-                    if message_type is None:
-                        # Terminal state - reset
-                        logger.debug("terminal_state_reached", iteration=iteration)
-                        stateful_session.reset_to_initial_state()
+                if followup_item:
+                    final_data = self._apply_behaviors(session, followup_item["payload"])
+                    seed_reference = None
+                    logger.info(
+                        "followup_dispatched",
+                        session_id=session_id,
+                        handler=followup_item.get("handler"),
+                    )
+                else:
+                    # Generate test case based on fuzzing mode
+                    if use_stateful_fuzzing:
+                        # Stateful fuzzing: select message for current state
                         message_type = stateful_session.get_message_type_for_state()
 
-                    # Find seed matching this message type
-                    base_seed = stateful_session.find_seed_for_message_type(message_type, seeds)
+                        if message_type is None:
+                            # Terminal state - reset
+                            logger.debug("terminal_state_reached", iteration=iteration)
+                            stateful_session.reset_to_initial_state()
+                            message_type = stateful_session.get_message_type_for_state()
 
-                    if base_seed is None:
-                        # No seed found for this message type, use fallback
-                        logger.warning(
-                            "no_seed_for_message_type",
-                            message_type=message_type,
-                            using_random_seed=True
-                        )
+                        # Find seed matching this message type
+                        base_seed = stateful_session.find_seed_for_message_type(message_type, seeds)
+
+                        if base_seed is None:
+                            # No seed found for this message type, use fallback
+                            logger.warning(
+                                "no_seed_for_message_type",
+                                message_type=message_type,
+                                using_random_seed=True
+                            )
+                            base_seed = seeds[iteration % len(seeds)]
+                    else:
+                        # Stateless fuzzing: random seed selection (existing behavior)
                         base_seed = seeds[iteration % len(seeds)]
-                else:
-                    # Stateless fuzzing: random seed selection (existing behavior)
-                    base_seed = seeds[iteration % len(seeds)]
 
-                # Mutate the selected seed
-                test_case_data = mutation_engine.generate_test_case(base_seed)
-                final_data = self._apply_behaviors(session, test_case_data)
+                    # Mutate the selected seed
+                    test_case_data = mutation_engine.generate_test_case(base_seed)
+                    final_data = self._apply_behaviors(session, test_case_data)
+                    seed_reference = (
+                        session.seed_corpus[iteration % len(session.seed_corpus)]
+                        if session.seed_corpus
+                        else None
+                    )
 
                 test_case = TestCase(
                     id=str(uuid.uuid4()),
                     session_id=session_id,
                     data=final_data,
-                    seed_id=session.seed_corpus[iteration % len(session.seed_corpus)],
+                    seed_id=seed_reference,
                 )
 
                 # Execute test case
@@ -311,6 +388,8 @@ class FuzzOrchestrator:
                         message_type=message_type_for_record,
                         state_at_send=state_at_send_for_record
                     )
+
+                    self._evaluate_response_followups(session_id, response)
 
                     # Update state if using stateful fuzzing
                     if use_stateful_fuzzing:
@@ -382,11 +461,17 @@ class FuzzOrchestrator:
 
         if result == TestCaseResult.CRASH:
             session.crashes += 1
-            await self._handle_crash(
+            crash_report = self.crash_reporter.report(
                 session,
                 test_case,
                 cpu_usage=metrics.get("cpu_usage"),
                 memory_usage=metrics.get("memory_usage_mb"),
+            )
+            logger.warning(
+                "crash_detected",
+                session_id=session.id,
+                finding_id=crash_report.id,
+                test_case_id=test_case.id,
             )
         elif result == TestCaseResult.HANG:
             session.hangs += 1
@@ -422,6 +507,8 @@ class FuzzOrchestrator:
             },
         )
 
+        self._evaluate_response_followups(payload.session_id, payload.response)
+
         await agent_manager.complete_work(payload.test_case_id)
 
         return {"status": "recorded", "result": payload.result}
@@ -447,7 +534,7 @@ class FuzzOrchestrator:
         )
         try:
             plugin = plugin_manager.load_plugin(request.protocol)
-            processor = build_behavior_processor(plugin.data_model)
+            processor = build_behavior_processor(denormalize_data_model_from_json(plugin.data_model))
             if processor.has_behaviors():
                 session_stub.behavior_state = processor.initialize_state()
                 test_case.data = processor.apply(test_case.data, session_stub.behavior_state)
@@ -468,23 +555,24 @@ class FuzzOrchestrator:
     ) -> tuple[TestCaseResult, Optional[bytes]]:
         """
         Execute a test case against the target by actually sending data
+        Uses async socket operations to avoid blocking the event loop
         """
-        import socket
         start_time = time.time()
+        response = None
 
         try:
-            # Connect to target
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(settings.mutation_timeout_sec)
-
+            # Connect to target using async sockets
             try:
-                sock.connect((session.target_host, session.target_port))
-            except ConnectionRefusedError:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(session.target_host, session.target_port),
+                    timeout=settings.mutation_timeout_sec
+                )
+            except (ConnectionRefusedError, OSError) as e:
                 logger.error("target_connection_refused",
                            host=session.target_host,
-                           port=session.target_port)
+                           port=session.target_port,
+                           error=str(e))
                 # Set session error message for the first connection failure
-                # Note: total_tests hasn't been incremented yet, so check <= 0
                 if not session.error_message:
                     error_msg = (
                         f"Connection refused to {session.target_host}:{session.target_port}. "
@@ -498,46 +586,57 @@ class FuzzOrchestrator:
                                  error_message=error_msg)
                 test_case.result = TestCaseResult.CRASH
                 test_case.execution_time_ms = (time.time() - start_time) * 1000
-                return TestCaseResult.CRASH
+                return TestCaseResult.CRASH, None
 
-            # Send test data
-            sock.sendall(test_case.data)
-
-            # Try to receive response (with timeout)
             try:
-                response = sock.recv(4096)
+                # Send test data
+                writer.write(test_case.data)
+                await writer.drain()
 
-                # Check if response is valid using protocol validator
-                validator = plugin_manager.get_validator(session.protocol)
-                if validator:
-                    try:
-                        is_valid = validator(response)
-                        if not is_valid:
+                # Try to receive response (with timeout)
+                try:
+                    response = await asyncio.wait_for(
+                        reader.read(4096),
+                        timeout=settings.mutation_timeout_sec
+                    )
+
+                    # Check if response is valid using protocol validator
+                    validator = plugin_manager.get_validator(session.protocol)
+                    if validator:
+                        try:
+                            is_valid = validator(response)
+                            if not is_valid:
+                                result = TestCaseResult.LOGICAL_FAILURE
+                            else:
+                                result = TestCaseResult.PASS
+                        except Exception as e:
+                            logger.warning("validator_exception", error=str(e))
                             result = TestCaseResult.LOGICAL_FAILURE
-                        else:
-                            result = TestCaseResult.PASS
-                    except Exception as e:
-                        logger.warning("validator_exception", error=str(e))
-                        result = TestCaseResult.LOGICAL_FAILURE
-                else:
-                    result = TestCaseResult.PASS
+                    else:
+                        result = TestCaseResult.PASS
 
-            except socket.timeout:
-                logger.debug("target_timeout", host=session.target_host, port=session.target_port)
-                result = TestCaseResult.HANG
+                except asyncio.TimeoutError:
+                    logger.debug("target_timeout", host=session.target_host, port=session.target_port)
+                    result = TestCaseResult.HANG
+                    response = None
 
-            sock.close()
+            finally:
+                # Clean up connection
+                writer.close()
+                await writer.wait_closed()
 
-        except socket.timeout:
+        except asyncio.TimeoutError:
             result = TestCaseResult.HANG
+            response = None
         except Exception as e:
             logger.error("execution_error", error=str(e), test_case_id=test_case.id)
             result = TestCaseResult.CRASH
+            response = None
 
         test_case.result = result
         test_case.execution_time_ms = (time.time() - start_time) * 1000
 
-        return result, locals().get("response")
+        return result, response
 
     def _record_execution(
         self,
@@ -551,72 +650,15 @@ class FuzzOrchestrator:
         state_at_send: Optional[str] = None
     ) -> TestCaseExecutionRecord:
         """Record a test case execution for correlation"""
-
-        # Get sequence number
-        sequence_num = session.total_tests
-
-        # Calculate duration
-        duration_ms = (timestamp_response - timestamp_sent).total_seconds() * 1000
-
-        # Create execution record
-        execution_record = TestCaseExecutionRecord(
-            test_case_id=test_case.id,
-            session_id=session.id,
-            sequence_number=sequence_num,
-            timestamp_sent=timestamp_sent,
-            timestamp_response=timestamp_response,
-            duration_ms=duration_ms,
-            payload_size=len(test_case.data),
-            payload_hash=hashlib.sha256(test_case.data).hexdigest(),
-            payload_preview=test_case.data[:64].hex(),
-            protocol=session.protocol,
+        return self.history_store.record(
+            session,
+            test_case,
+            timestamp_sent,
+            timestamp_response,
+            result,
+            response,
             message_type=message_type,
             state_at_send=state_at_send,
-            result=result,
-            response_size=len(response) if response else None,
-            response_preview=response[:64].hex() if response else None,
-            raw_payload_b64=base64.b64encode(test_case.data).decode('utf-8')
-        )
-
-        # Add to history (keep last N)
-        if session.id not in self.execution_history:
-            self.execution_history[session.id] = []
-
-        self.execution_history[session.id].append(execution_record)
-
-        # Trim to max length
-        if len(self.execution_history[session.id]) > self.execution_history_maxlen:
-            self.execution_history[session.id] = self.execution_history[session.id][-self.execution_history_maxlen:]
-
-        return execution_record
-
-    async def _handle_crash(
-        self,
-        session: FuzzSession,
-        test_case: TestCase,
-        cpu_usage: Optional[float] = None,
-        memory_usage: Optional[float] = None,
-    ):
-        """Handle a crash finding"""
-        crash_report = CrashReport(
-            id=str(uuid.uuid4()),
-            session_id=session.id,
-            test_case_id=test_case.id,
-            result_type=test_case.result,
-            reproducer_data=test_case.data,
-            severity="medium",  # Will be triaged properly in full version
-            cpu_usage=cpu_usage,
-            memory_usage_mb=memory_usage,
-        )
-
-        # Save to corpus store
-        self.corpus_store.save_finding(crash_report, test_case.data)
-
-        logger.warning(
-            "crash_detected",
-            session_id=session.id,
-            finding_id=crash_report.id,
-            test_case_id=test_case.id,
         )
 
     def _resolve_mutators(self, config: FuzzConfig) -> List[str]:
@@ -640,6 +682,27 @@ class FuzzOrchestrator:
                 enabled.append(name)
 
         return enabled or MutationEngine.available_mutators()
+
+    def _evaluate_response_followups(self, session_id: str, response: Optional[bytes]) -> None:
+        if not response:
+            return
+
+        planner = self.response_planners.get(session_id)
+        if not planner:
+            return
+
+        followups = planner.plan(response)
+        if not followups:
+            return
+
+        queue = self.followup_queues.setdefault(session_id, deque())
+        for followup in followups:
+            queue.append(followup)
+            logger.info(
+                "response_followup_queued",
+                session_id=session_id,
+                handler=followup.get("handler"),
+            )
 
     def _discard_pending_tests(self, session_id: str) -> None:
         """Remove pending tests for a session"""
@@ -718,62 +781,23 @@ class FuzzOrchestrator:
         until: Optional[datetime] = None
     ) -> List[TestCaseExecutionRecord]:
         """Get execution history for a session"""
-
-        if session_id not in self.execution_history:
-            return []
-
-        history = self.execution_history[session_id]
-
-        # Apply time filters
-        if since or until:
-            history = [
-                rec for rec in history
-                if (not since or rec.timestamp_sent >= since) and
-                   (not until or rec.timestamp_sent <= until)
-            ]
-
-        # Apply pagination
-        return history[offset:offset + limit]
+        return self.history_store.list(
+            session_id,
+            limit=limit,
+            offset=offset,
+            since=since,
+            until=until,
+        )
 
     def find_execution_by_sequence(self, session_id: str, sequence_number: int) -> Optional[TestCaseExecutionRecord]:
         """Find execution by sequence number"""
 
-        if session_id not in self.execution_history:
-            return None
-
-        for record in self.execution_history[session_id]:
-            if record.sequence_number == sequence_number:
-                return record
-
-        return None
+        return self.history_store.find_by_sequence(session_id, sequence_number)
 
     def find_execution_at_time(self, session_id: str, timestamp: datetime) -> Optional[TestCaseExecutionRecord]:
         """Find execution that was running at given timestamp"""
 
-        if session_id not in self.execution_history:
-            return None
-
-        # Find record where timestamp falls between sent and response
-        # Handle timezone-aware vs naive datetime comparison
-        for record in self.execution_history[session_id]:
-            # Make record timestamps timezone-aware if they're naive
-            ts_sent = record.timestamp_sent
-            ts_response = record.timestamp_response or record.timestamp_sent
-
-            # If incoming timestamp is aware and record timestamps are naive, make them aware (UTC)
-            if timestamp.tzinfo is not None and ts_sent.tzinfo is None:
-                from datetime import timezone
-                ts_sent = ts_sent.replace(tzinfo=timezone.utc)
-                ts_response = ts_response.replace(tzinfo=timezone.utc)
-            # If incoming timestamp is naive and record timestamps are aware, make incoming aware
-            elif timestamp.tzinfo is None and ts_sent.tzinfo is not None:
-                from datetime import timezone
-                timestamp = timestamp.replace(tzinfo=timezone.utc)
-
-            if ts_sent <= timestamp <= ts_response:
-                return record
-
-        return None
+        return self.history_store.find_at_time(session_id, timestamp)
 
     async def replay_executions(
         self,

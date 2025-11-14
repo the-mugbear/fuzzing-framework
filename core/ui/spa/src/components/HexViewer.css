@@ -1,0 +1,77 @@
+.hex-viewer {
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  background: #1a1a1a;
+  color: #e0e0e0;
+  padding: 12px;
+  border-radius: 4px;
+  overflow-x: auto;
+  line-height: 1.6;
+}
+
+.hex-line {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 2px;
+}
+
+.hex-offset {
+  color: #888;
+  user-select: none;
+  min-width: 50px;
+}
+
+.hex-bytes {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.hex-byte {
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 2px;
+  transition: background-color 0.1s;
+}
+
+.hex-byte:hover,
+.hex-byte.hovered {
+  background-color: #444 !important;
+  outline: 1px solid #666;
+}
+
+.hex-byte.highlighted {
+  opacity: 0.8;
+}
+
+.hex-ascii {
+  display: flex;
+  margin-left: auto;
+  padding-left: 16px;
+  border-left: 1px solid #444;
+}
+
+.ascii-char {
+  width: 10px;
+  text-align: center;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 2px;
+  transition: background-color 0.1s;
+}
+
+.ascii-char:hover,
+.ascii-char.hovered {
+  background-color: #444 !important;
+  outline: 1px solid #666;
+}
+
+.ascii-char.highlighted {
+  opacity: 0.8;
+}
+
+.hex-empty {
+  color: #888;
+  text-align: center;
+  padding: 20px;
+}

@@ -1,6 +1,8 @@
 """
 Dynamic protocol plugin loader
 """
+import base64
+import copy
 import importlib.util
 import sys
 from pathlib import Path
@@ -10,6 +12,7 @@ import structlog
 
 from core.config import settings
 from core.models import ProtocolPlugin
+from core.engine.seed_synthesizer import synthesize_seeds_for_protocol
 
 logger = structlog.get_logger()
 
@@ -18,6 +21,123 @@ class PluginLoadError(Exception):
     """Raised when plugin fails to load"""
 
     pass
+
+
+def normalize_seeds_for_json(seeds: List) -> List[str]:
+    """
+    Convert seed bytes to base64 strings for safe JSON serialization.
+
+    Args:
+        seeds: List of seeds (can be bytes or already base64 strings)
+
+    Returns:
+        List of base64-encoded strings
+    """
+    normalized = []
+    for seed in seeds:
+        if isinstance(seed, bytes):
+            # Convert bytes to base64 for JSON serialization
+            normalized.append(base64.b64encode(seed).decode('ascii'))
+        elif isinstance(seed, str):
+            # Already a string (might be base64 or regular string)
+            # Try to verify it's valid base64, if not, encode it
+            try:
+                base64.b64decode(seed)
+                normalized.append(seed)
+            except Exception:
+                # Not base64, encode as UTF-8 bytes then base64
+                normalized.append(base64.b64encode(seed.encode()).decode('ascii'))
+        else:
+            logger.warning("unexpected_seed_type", type=type(seed))
+    return normalized
+
+
+def decode_seeds_from_json(seeds: List[str]) -> List[bytes]:
+    """
+    Decode base64 seed strings back to bytes.
+
+    Args:
+        seeds: List of base64-encoded seed strings
+
+    Returns:
+        List of seed bytes
+    """
+    decoded = []
+    for seed in seeds:
+        if isinstance(seed, bytes):
+            # Already bytes, use as-is
+            decoded.append(seed)
+        elif isinstance(seed, str):
+            # Decode from base64
+            try:
+                decoded.append(base64.b64decode(seed))
+            except Exception as e:
+                logger.warning("failed_to_decode_seed", error=str(e))
+    return decoded
+
+
+def normalize_data_model_for_json(data_model: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Convert all bytes in data_model to base64 strings for JSON serialization.
+
+    Args:
+        data_model: Protocol data model dictionary
+
+    Returns:
+        Data model with bytes converted to base64 strings
+    """
+    if data_model is None:
+        return {}
+    def convert_bytes(obj):
+        if isinstance(obj, bytes):
+            return base64.b64encode(obj).decode('ascii')
+        elif isinstance(obj, dict):
+            return {k: convert_bytes(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_bytes(item) for item in obj]
+        return obj
+
+    return convert_bytes(data_model)
+
+
+def denormalize_data_model_from_json(data_model: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Convert base64 strings back to bytes in data_model.
+
+    This is the reverse of normalize_data_model_for_json. Use this before
+    passing data_model to ProtocolParser or other components that need raw bytes.
+
+    Args:
+        data_model: Protocol data model dictionary with base64-encoded bytes
+
+    Returns:
+        Data model with base64 strings converted back to bytes
+    """
+    if not data_model:
+        return {}
+
+    result = data_model.copy()
+
+    # Decode seeds
+    if 'seeds' in result and isinstance(result['seeds'], list):
+        result['seeds'] = decode_seeds_from_json(result['seeds'])
+
+    # Decode default values in blocks
+    if 'blocks' in result:
+        new_blocks = []
+        for block in result['blocks']:
+            new_block = block.copy()
+            # Only decode 'default' if the field type is 'bytes'
+            if 'default' in new_block and new_block.get('type') == 'bytes':
+                if isinstance(new_block['default'], str):
+                    try:
+                        new_block['default'] = base64.b64decode(new_block['default'])
+                    except Exception:
+                        pass  # Keep as string if decode fails
+            new_blocks.append(new_block)
+        result['blocks'] = new_blocks
+
+    return result
 
 
 class PluginManager:
@@ -77,9 +197,40 @@ class PluginManager:
             if not hasattr(module, "state_model"):
                 raise PluginLoadError(f"Plugin {plugin_name} missing 'state_model'")
 
+            data_model = module.data_model
+            state_model = module.state_model
+            response_model = getattr(module, "response_model", None)
+            response_handlers = copy.deepcopy(getattr(module, "response_handlers", []))
+
+            # Auto-generate seeds if not provided
+            if 'seeds' not in data_model or not data_model['seeds']:
+                logger.info("auto_generating_seeds", plugin=plugin_name)
+                try:
+                    synthesized_seeds = synthesize_seeds_for_protocol(data_model, state_model)
+                    data_model['seeds'] = synthesized_seeds
+                    logger.info(
+                        "seeds_auto_generated",
+                        plugin=plugin_name,
+                        count=len(synthesized_seeds)
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "seed_synthesis_failed",
+                        plugin=plugin_name,
+                        error=str(e)
+                    )
+                    # Don't fail plugin load if synthesis fails
+                    data_model['seeds'] = []
+
+            # Normalize data_model to convert bytes to base64 for JSON safety
+            # This must be done before caching/returning
+            data_model_json_safe = normalize_data_model_for_json(data_model)
+
             plugin_data = {
-                "data_model": module.data_model,
-                "state_model": module.state_model,
+                "data_model": data_model_json_safe,  # Base64-encoded for JSON safety
+                "state_model": state_model,
+                "response_model": normalize_data_model_for_json(response_model) if response_model else None,
+                "response_handlers": response_handlers,
                 "validate_response": getattr(module, "validate_response", None),
                 "description": getattr(module, "__doc__", None),
                 "version": getattr(module, "__version__", "1.0.0"),
@@ -101,6 +252,8 @@ class PluginManager:
             name=name,
             data_model=data["data_model"],
             state_model=data["state_model"],
+            response_model=data.get("response_model"),
+            response_handlers=data.get("response_handlers", []),
             description=data.get("description"),
             version=data.get("version", "1.0.0"),
         )

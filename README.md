@@ -6,17 +6,12 @@ Protocol plugins describe both data/state models so the runtime can generate rea
 behaviors (sequence numbers, checksums), and now follow state machines end-to-end.
 
 ## Highlights
-- **State-aware fuzzing** – `core/engine/stateful_fuzzer.py` keeps sessions on valid transitions, periodically resets to
-  explore alternatives, and records state coverage.
-- **Declarative protocol behaviors** – `core/protocol_behavior.py` increments counters or patches checksums just before
-  transmit, keeping targets happy without custom mutators.
-- **Hybrid mutation engine** – Byte-level (`bitflip`, `havoc`, `splice`, …) and structure-aware mutations share the
-  workload with tunable weights per session.
-- **Agents with health telemetry** – `agent/main.py` polls `/api/agents/{id}/next-case`, executes payloads (optionally via
-  `--launch-cmd`), and emits CPU/memory/active-test metrics via heartbeats.
-- **One-off tests & previews** – `POST /api/tests/execute` reproduces bugs without a full session, while
-  `POST /api/plugins/{name}/preview` feeds the UI real parser/mutator output so derived fields stay accurate.
-- **Corpus & crash triage** – Seeds, findings, and logs live under `data/` with JSON+MessagePack reports for replay.
+- **State-aware fuzzing** – The fuzzer can follow a protocol's rules, like ensuring a `LOGIN` message is sent before a `SEND_DATA` message. It learns these rules from a `state_model` you define in a plugin, allowing it to test stateful interactions effectively.
+- **Declarative protocol behaviors** – Automatically handles fields that change in predictable ways, like incrementing sequence numbers or recalculating checksums. This keeps messages valid without you needing to write custom code.
+- **Hybrid mutation engine** – Combines simple, fast byte-level mutations (like flipping bits) with intelligent, structure-aware mutations that respect the protocol's grammar. The balance between these two strategies is tunable for each session.
+- **Agents with health telemetry** – You can distribute the fuzzing workload across multiple 'agents' (workers), which can run on different machines. These agents execute test cases and report back health metrics like CPU and memory usage.
+- **One-off tests & previews** – A powerful debugging feature that lets you send a single, specific test case to the target to reproduce a bug. The previewer also shows how the fuzzer will parse and mutate your messages before you even start a session.
+- **Corpus & crash triage** – Every crash is automatically saved with the exact input that caused it, making bugs easy to reproduce and analyze. The collection of all known test cases is kept in the 'corpus'.
 
 ## Repository Layout
 | Path | Purpose |
@@ -49,7 +44,14 @@ make docker-logs    # Tail compose logs
 2. **Start the Core** – `make run-core` (or `make docker-up`). The UI and REST API live at `http://localhost:8000`.
 3. **Register an agent (optional)** – `python -m agent.main --core-url ... --target-host ... --poll-interval 1.0`. Core
    mode works out of the box; set `execution_mode = "agent"` in `FuzzConfig` to offload work.
-4. **Create a session** – Via UI or API:
+4. **Create a session** – Via UI or API. The API endpoint accepts a JSON payload with several options:
+   - `protocol`: The name of the protocol plugin to use (e.g., `"simple_tcp"`).
+   - `target_host`: The hostname or IP address of the target application.
+   - `target_port`: The port number of the target application.
+   - `enabled_mutators`: A list of which mutation algorithms to use (e.g., `["bitflip", "havoc"]`).
+   - `execution_mode`: `"core"` to run locally or `"agent"` to distribute to workers.
+   - `max_iterations`: The number of test cases to run before the session stops.
+
    ```bash
    curl -X POST http://localhost:8000/api/sessions \
      -H 'Content-Type: application/json' \
@@ -66,31 +68,38 @@ make docker-logs    # Tail compose logs
    `input.bin`, `report.json`, and `report.msgpack` for replay.
 
 ## Key Workflows & APIs
-- **Mutator selection** – Query `GET /api/mutators`, then pin `enabled_mutators` per session. Hybrid mode weight is set by
-  `structure_aware_weight` (0–100) and defaults to 70%.
-- **Declarative behaviors** – Attach `behavior` blocks to fixed-width fields inside plugins. Supported operations:
-  `increment` (with `initial`, `step`, `wrap`) and `add_constant` (useful for checksums/opcodes). Runtime state is stored
-  per session and applied in both core + agent modes.
-- **Stateful fuzzing** – Provide a `state_model` with `initial_state`, `states`, and `transitions`. The orchestrator will
-  instantiate `StatefulFuzzingSession`, restrict mutations to valid messages for the current state, inspect responses, and
-  periodically reset to explore alternate paths.
-- **Preview + debugger** – `POST /api/plugins/{plugin}/preview` accepts `{ "mode": "seeds"|"mutations", "count": N }`
-  and returns parsed field metadata, computed references, and hex dumps directly from the parser/mutator pipeline. The UI
-  uses this to keep derived fields trustworthy.
-- **One-off executions** – `POST /api/tests/execute` with a base64 payload to validate reproducers without starting a
-  session (core mode only). Responses include verdict, runtime, and captured bytes.
-- **Logging & troubleshooting** – Structured logs mirror to stdout and `logs/` (core API, agent). Agent telemetry lines
-  `agent_task_enqueued`, `agent_task_assigned`, and `result_submitted` provide breadcrumbs across phases.
+
+### Mutator Selection
+- **List available mutators**: `GET /api/mutators`
+- **Control mutators per session**: Use the `enabled_mutators` array when creating a session.
+- **Hybrid Mode**: The balance between byte-level and structure-aware mutations is controlled by `structure_aware_weight` (a percentage from 0 to 100, default is 70).
+
+### Declarative Behaviors
+- Attach a `behavior` block to any fixed-width field in a plugin's `data_model`.
+- **Supported operations**:
+    - `increment`: Automatically increments a field's value with each message. Configurable with `initial`, `step`, and `wrap` values.
+    - `add_constant`: Adds a constant value to a field. Useful for checksums or opcodes.
+
+### Stateful Fuzzing
+- To enable, provide a `state_model` in your protocol plugin with an `initial_state`, a list of `states`, and a list of `transitions`.
+- The fuzzer will then automatically follow the state machine, sending valid message sequences.
+
+### Preview and Debugging
+- **Preview mutations**: `POST /api/plugins/{plugin}/preview` shows how the fuzzer will parse and mutate messages, which is invaluable for debugging a new plugin.
+- **One-off execution**: `POST /api/tests/execute` lets you send a single, specific payload to the target to validate a finding or test a hypothesis without a full session.
+
+### Logging and Troubleshooting
+- All components produce structured logs to `stdout` and to the `logs/` directory.
+- Look for `agent_task_enqueued`, `agent_task_assigned`, and `result_submitted` log entries to trace a test case through the distributed system.
 
 ## Documentation Index
-The repo ships targeted design notes, implementation summaries, and runbooks. Start with `docs/README.md` for a curated
-map. Highlights:
-- `QUICKSTART.md` – Step-by-step local vs Docker setup.
-- `CHEATSHEET.md` – One-page command/API reference.
-- `docs/FUZZING_GUIDE.md` – Campaign workflow, terminology, troubleshooting, and practical tips.
-- `PROTOCOL_TESTING.md` – Authoring/testing protocol plugins with behaviors and validators.
-- `ARCHITECTURE_IMPROVEMENTS_PLAN.md`, `STATEFUL_FUZZING_IMPLEMENTATION.md`, `UI_ENHANCEMENT_PROPOSAL.md`, etc. – In-depth
-  design and status docs for major subsystems.
+The repository contains a suite of documentation to help you get started and dive deep into the fuzzer's architecture. For a complete and curated list of documents, please see the **[Documentation Index](docs/README.md)**.
+
+Key documents include:
+- [QUICKSTART.md](QUICKSTART.md): A step-by-step guide to get the fuzzer running in 5 minutes.
+- [docs/FUZZING_GUIDE.md](docs/FUZZING_GUIDE.md): A practical guide to fuzzing concepts, campaign strategy, and troubleshooting.
+- [docs/PROTOCOL_TESTING.md](docs/PROTOCOL_TESTING.md): A complete, in-depth guide to creating, testing, and validating custom protocol plugins.
+- [docs/developer/](docs/developer/): A collection of deep-dive documents explaining the architecture of each of the fuzzer's subsystems.
 
 ## Project Status
 MVP features (Core API, agent, UI, mutation engine, sample protocol/target, Docker workflow) are complete and tested.

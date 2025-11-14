@@ -1,4 +1,4 @@
-.PHONY: help install dev test clean docker-build docker-up docker-down run-core run-agent run-target
+.PHONY: help install dev test clean docker-build docker-up docker-down run-core run-agent run-target ui-install ui-build ui-dev
 
 help:
 	@echo "Fuzzer MVP - Available Commands"
@@ -6,6 +6,9 @@ help:
 	@echo "Development:"
 	@echo "  make install       - Install dependencies"
 	@echo "  make dev           - Install development dependencies"
+	@echo "  make ui-install    - Install UI dependencies"
+	@echo "  make ui-build      - Build the React SPA"
+	@echo "  make ui-dev        - Run the UI dev server"
 	@echo "  make run-core      - Run Core API server"
 	@echo "  make run-agent     - Run agent"
 	@echo "  make run-target    - Run test target server"
@@ -30,6 +33,15 @@ install:
 dev:
 	pip install -r requirements.txt
 	pip install pytest pytest-asyncio black ruff
+
+ui-install:
+	cd core/ui/spa && npm install
+
+ui-build:
+	cd core/ui/spa && npm run build
+
+ui-dev:
+	cd core/ui/spa && npm run dev
 
 run-core:
 	python -m core.api.server

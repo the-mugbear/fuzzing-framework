@@ -258,16 +258,29 @@ class ProtocolParser:
 
         # Update length fields
         for block in self.blocks:
-            if block.get('is_size_field'):
-                target_field = block.get('size_of')
-                if target_field and target_field in fields:
-                    # Calculate size of target field
-                    target_value = fields[target_field]
-                    if isinstance(target_value, bytes):
-                        fields[block['name']] = len(target_value)
-                    elif isinstance(target_value, str):
-                        encoding = self._get_block(target_field).get('encoding', 'utf-8')
-                        fields[block['name']] = len(target_value.encode(encoding))
+            if not block.get('is_size_field'):
+                continue
+
+            targets = self._normalize_size_of_targets(block.get('size_of'))
+            if not targets:
+                continue
+
+            total_size = 0
+            for target_field in targets:
+                target_block = self._get_block(target_field)
+                if not target_block:
+                    continue
+
+                target_value = fields.get(target_field)
+                if target_value is None:
+                    if 'default' in target_block:
+                        target_value = target_block['default']
+                    else:
+                        target_value = self._get_default_value(target_block.get('type', ''))
+
+                total_size += self._calculate_field_length(target_block, target_value)
+
+            fields[block['name']] = total_size
 
         # TODO: Update checksum fields (when behavior system is integrated)
 
@@ -300,10 +313,27 @@ class ProtocolParser:
             return ''
         return None
 
+    def build_default_fields(self) -> Dict[str, Any]:
+        """Build a base field dictionary using block defaults."""
+        defaults: Dict[str, Any] = {}
+        for block in self.blocks:
+            field_name = block.get('name')
+            if not field_name:
+                continue
+            default = block.get('default')
+            if default is None:
+                default = self._get_default_value(block.get('type', ''))
+            defaults[field_name] = self._clone_default(default)
+        return defaults
+
     def _find_length_field_for(self, target_field: str) -> Optional[dict]:
         """Find the length field that specifies size of target_field"""
         for block in self.blocks:
-            if block.get('is_size_field') and block.get('size_of') == target_field:
+            if not block.get('is_size_field'):
+                continue
+
+            targets = self._normalize_size_of_targets(block.get('size_of'))
+            if len(targets) == 1 and targets[0] == target_field:
                 return block
         return None
 
@@ -313,3 +343,62 @@ class ProtocolParser:
             if block['name'] == field_name:
                 return block
         return {}
+
+    def _normalize_size_of_targets(self, size_of: Any) -> List[str]:
+        """Normalize size_of definition to a list of field names"""
+        if isinstance(size_of, list):
+            return [target for target in size_of if isinstance(target, str)]
+        if isinstance(size_of, str):
+            return [size_of]
+        return []
+
+    def _calculate_field_length(self, block: dict, value: Any) -> int:
+        """Estimate the serialized length of a block"""
+        if not block:
+            return 0
+
+        fixed_size = block.get('size')
+        if isinstance(fixed_size, int):
+            return fixed_size
+
+        field_type = (block.get('type') or '').lower()
+
+        if field_type == 'bytes':
+            if value is None:
+                return 0
+            if isinstance(value, (bytes, bytearray)):
+                return len(value)
+            try:
+                return len(bytes(value))
+            except TypeError:
+                return len(str(value).encode(block.get('encoding', 'utf-8')))
+
+        if field_type == 'string':
+            if value is None:
+                return 0
+            if isinstance(value, bytes):
+                # Treat already encoded strings as-is
+                return len(value)
+            text = value if isinstance(value, str) else str(value)
+            encoding = block.get('encoding', 'utf-8')
+            return len(text.encode(encoding))
+
+        if field_type.startswith('uint') or field_type.startswith('int'):
+            type_name = block.get('type', 'uint8')
+            return self._get_integer_info(type_name, block.get('endian', 'big'))['size']
+
+        if isinstance(value, bytes):
+            return len(value)
+        if isinstance(value, str):
+            return len(value.encode(block.get('encoding', 'utf-8')))
+        return 0
+
+    @staticmethod
+    def _clone_default(value: Any) -> Any:
+        if isinstance(value, (bytes, bytearray)):
+            return bytes(value)
+        if isinstance(value, list):
+            return list(value)
+        if isinstance(value, dict):
+            return dict(value)
+        return value

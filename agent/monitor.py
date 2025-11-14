@@ -246,8 +246,19 @@ class TargetExecutor:
 
     def _ensure_target_process(self) -> None:
         """Launch the target process if a command was provided"""
-        if not self.launch_cmd or self._process_handle:
+        if not self.launch_cmd:
             return
+
+        # If we already have a handle, ensure the process is still alive.
+        if self._process_handle:
+            if self._process_handle.is_running():
+                return
+            logger.warning(
+                "target_process_not_running",
+                pid=self._process_handle.pid if self._process_handle else None,
+                action="restart",
+            )
+            self._cleanup_process_handles()
 
         creationflags = 0
         kwargs = {"shell": True}
@@ -260,6 +271,11 @@ class TargetExecutor:
         self._popen = subprocess.Popen(self.launch_cmd, **kwargs)
         self._process_handle = psutil.Process(self._popen.pid)
         logger.info("launched_target_process", pid=self._popen.pid)
+
+    def _cleanup_process_handles(self) -> None:
+        """Reset cached process handles without sending signals"""
+        self._popen = None
+        self._process_handle = None
 
     async def shutdown(self) -> None:
         """Terminate launched target processes"""
@@ -275,5 +291,4 @@ class TargetExecutor:
         except Exception as exc:
             logger.warning("failed_to_shutdown_target", error=str(exc))
         finally:
-            self._popen = None
-            self._process_handle = None
+            self._cleanup_process_handles()

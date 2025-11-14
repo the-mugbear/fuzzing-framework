@@ -47,11 +47,15 @@ data_model = {
         },
     ],
     # Seed corpus (base test cases)
+    # NOTE: Seeds are now OPTIONAL! If omitted, they will be auto-generated
+    # from the data_model blocks above. Manual seeds are still supported for
+    # custom test cases or specific edge cases.
     "seeds": [
-        b"STCP\x00\x00\x00\x05\x01HELLO",  # AUTH
-        b"STCP\x00\x00\x00\x04\x02TEST",  # DATA
-        b"STCP\x00\x00\x00\x00\x03",  # QUIT
+        b"STCP\x00\x00\x00\x05\x01HELLO",  # AUTH - manual seed example
+        b"STCP\x00\x00\x00\x04\x02TEST",  # DATA - manual seed example
+        b"STCP\x00\x00\x00\x00\x03",  # QUIT - manual seed example
     ],
+    # To use auto-generated seeds only, simply omit the "seeds" key or set it to []
 }
 
 # State model defines protocol state machine

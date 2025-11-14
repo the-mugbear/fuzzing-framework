@@ -20,9 +20,9 @@ docker-compose up -d
 ```
 
 This starts:
-- **Core API** at http://localhost:8000 (includes Web UI)
-- **Test Target** at localhost:9999
-- **Agent** (connecting to Core and Target)
+- **Core API**: The "brain" of the fuzzer, which manages sessions, mutations, and serves the web UI. (http://localhost:8000)
+- **Test Target**: A simple server application for you to fuzz. (localhost:9999)
+- **Agent**: A "worker" process that executes test cases against the target and reports back to the Core API.
 
 ### Access the Web UI
 
@@ -82,9 +82,24 @@ In terminal 1:
 make run-target
 # or
 python tests/simple_tcp_server.py
+# or
+python tests/feature_showcase_server.py --port 9001
 ```
 
-You should see: `[*] SimpleTCP Server listening on 0.0.0.0:9999`
+You should see: `[*] SimpleTCP Server listening on 0.0.0.0:9999` (or the Feature Showcase banner if you chose the richer protocol).
+
+### 2b. Install & Build the Web UI
+
+This step uses Node.js and npm to build the React-based web interface. The `npm run build` command creates a production-ready version of the UI, which is then served by the Python-based Core API.
+
+First-time setup (installs JS deps and bakes the SPA assets served by FastAPI):
+
+```bash
+cd core/ui/spa
+npm install
+npm run build
+# or run `npm run dev` for Vite + hot reload at http://localhost:5173/ui
+```
 
 ### 3. Start the Core
 
@@ -99,6 +114,8 @@ You should see: `INFO: Uvicorn running on http://0.0.0.0:8000`
 
 ### 4. Start the Agent (Optional)
 
+Running an agent locally is a good way to test the distributed fuzzing workflow without needing a separate machine. It helps you verify that the Core API can correctly queue work and receive results from an agent.
+
 In terminal 3:
 ```bash
 make run-agent
@@ -108,7 +125,7 @@ python -m agent.main --core-url http://localhost:8000 --target-host localhost --
 
 ### 5. Access the Web UI
 
-Open http://localhost:8000 in your browser.
+Open http://localhost:8000/ui/ in your browser (the root URL redirects here).
 
 ## Testing the Setup
 
@@ -226,9 +243,11 @@ def validate_response(response: bytes) -> bool:
 
 Reload the Core or restart Docker to load the new plugin.
 
+This is a very basic example. For a complete walkthrough of how to create a powerful and effective protocol plugin, including how to define state machines and response handlers, please see the full [Protocol Testing Guide](docs/PROTOCOL_TESTING.md).
+
 ## Testing Your Protocol Plugin
 
-After creating a protocol plugin, verify it works correctly:
+After creating a protocol plugin, verify it works correctly. The following sections provide a brief overview. For a comprehensive guide with more examples and advanced techniques, please see the [Protocol Testing Guide](docs/PROTOCOL_TESTING.md).
 
 ### 1. Verify Plugin Loads
 
@@ -338,8 +357,8 @@ For comprehensive protocol testing documentation, see:
 - Check port 9999: `lsof -i :9999`
 
 ### No findings being generated
-- This is expected with the test target - it has intentional vulnerabilities but the MVP's simulated execution may not always trigger them
-- Try creating actual network connections to the target
+- This can be normal, especially with the simple test target. The default fuzzing strategies may not be lucky enough to hit the specific vulnerabilities in the target during a short run.
+- Try running the fuzzer for a longer period, or try creating a more complex protocol plugin with a wider variety of seeds.
 
 ## Architecture Overview
 

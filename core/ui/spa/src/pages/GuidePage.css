@@ -1,0 +1,27 @@
+.guide-container {
+  padding: 20px 5vw;
+  line-height: 1.7;
+}
+
+.guide-container h1,
+.guide-container h2 {
+  margin-bottom: 10px;
+  border-bottom: 1px solid #333;
+  padding-bottom: 10px;
+}
+
+.guide-container a {
+  color: #38bdf8;
+}
+
+.guide-container .terminology-table {
+  margin: 10px 0 30px;
+}
+
+.guide-container .callout {
+  background: #1a2332;
+  padding: 15px;
+  border-left: 4px solid #38bdf8;
+  border-radius: 4px;
+  margin: 20px 0;
+}

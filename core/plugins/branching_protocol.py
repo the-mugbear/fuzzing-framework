@@ -54,33 +54,6 @@ data_model = {
             "default": b""
         }
     ],
-
-    # Seeds covering different transition paths
-    "seeds": [
-        # Connection flow
-        b"BRCH\x00\x00\x00\x07\x01CONNECT",
-
-        # Authentication success path
-        b"BRCH\x00\x00\x00\x06\x02AUTHOK",
-
-        # Authentication failure path
-        b"BRCH\x00\x00\x00\x08\x03AUTHFAIL",
-
-        # Data operations from AUTHENTICATED state
-        b"BRCH\x00\x00\x00\x04\x05DATA",
-        b"BRCH\x00\x00\x00\x03\x06REQ",
-        b"BRCH\x00\x00\x00\x03\x07SUB",
-
-        # Keepalive from AUTHENTICATED state
-        b"BRCH\x00\x00\x00\x04\x08PING",
-
-        # Error and shutdown paths
-        b"BRCH\x00\x00\x00\x05\x09ERROR",
-        b"BRCH\x00\x00\x00\x04\x0ABYE!",
-
-        # Disconnect from multiple states
-        b"BRCH\x00\x00\x00\x04\x04DISC"
-    ]
 }
 
 # State Model with Branching Transitions

@@ -3,7 +3,7 @@ Core data models
 """
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field
 
 
@@ -34,6 +34,8 @@ class ProtocolPlugin(BaseModel):
     name: str
     data_model: Dict[str, Any]
     state_model: Dict[str, Any]
+    response_model: Optional[Dict[str, Any]] = None
+    response_handlers: List[Dict[str, Any]] = Field(default_factory=list)
     description: Optional[str] = None
     author: Optional[str] = None
     version: Optional[str] = "1.0.0"
@@ -223,7 +225,7 @@ class PreviewField(BaseModel):
     type: str
     mutable: bool = True
     computed: bool = False
-    references: Optional[str] = None
+    references: Optional[Union[str, List[str]]] = None
     mutated: bool = False
 
 
@@ -332,3 +334,117 @@ class ReplayResponse(BaseModel):
 
     replayed_count: int
     results: List[TestCaseExecutionRecord]
+
+
+# Protocol Development Tools Models
+
+
+class ParsedFieldInfo(BaseModel):
+    """Information about a parsed field"""
+
+    name: str
+    value: Any
+    type: str
+    offset: int
+    size: int
+    mutable: bool = True
+    description: Optional[str] = None
+    hex_value: str
+
+
+class ParseRequest(BaseModel):
+    """Request to parse a packet"""
+
+    protocol: str
+    hex_data: str  # Hex string (with or without spaces)
+
+
+class ParseResponse(BaseModel):
+    """Response from packet parsing"""
+
+    success: bool
+    fields: List[ParsedFieldInfo] = Field(default_factory=list)
+    raw_hex: str
+    total_bytes: int
+    warnings: List[str] = Field(default_factory=list)
+    error: Optional[str] = None
+
+
+class ValidationIssue(BaseModel):
+    """A single validation issue"""
+
+    severity: str  # "error" | "warning" | "info"
+    category: str  # "syntax" | "model" | "seed" | "state"
+    message: str
+    line: Optional[int] = None
+    field: Optional[str] = None
+
+
+class ValidationRequest(BaseModel):
+    """Request to validate plugin code"""
+
+    plugin_code: str
+
+
+class ValidationResult(BaseModel):
+    """Result of plugin validation"""
+
+    valid: bool
+    plugin_name: Optional[str] = None
+    issues: List[ValidationIssue] = Field(default_factory=list)
+    summary: str
+
+
+# ==============================================================================
+# State Machine Walker Models
+# ==============================================================================
+
+
+class WalkerInitRequest(BaseModel):
+    """Request to initialize a state walker session"""
+    protocol: str
+
+
+class TransitionInfo(BaseModel):
+    """Information about a state transition"""
+    from_state: str = Field(alias="from")
+    to_state: str = Field(alias="to")
+    message_type: str
+    expected_response: Optional[str] = None
+
+    class Config:
+        populate_by_name = True
+
+
+class WalkerStateResponse(BaseModel):
+    """Current state of the walker session"""
+    session_id: str
+    current_state: str
+    valid_transitions: List[TransitionInfo]
+    state_history: List[str]
+    transition_history: List[str]
+    state_coverage: Dict[str, int]
+    transition_coverage: Dict[str, int]
+
+
+class WalkerExecuteRequest(BaseModel):
+    """Request to execute a transition"""
+    session_id: str
+    transition_index: int  # Index into valid_transitions array
+    target_host: str = "target"
+    target_port: int = 9999
+
+
+class WalkerExecuteResponse(BaseModel):
+    """Result of executing a transition"""
+    success: bool
+    old_state: str
+    new_state: str
+    message_type: str
+    sent_hex: str
+    sent_bytes: int
+    response_hex: Optional[str] = None
+    response_bytes: int
+    duration_ms: float
+    error: Optional[str] = None
+    current_state: WalkerStateResponse

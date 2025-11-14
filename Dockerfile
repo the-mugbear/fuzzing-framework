@@ -1,3 +1,11 @@
+# Build frontend
+FROM node:18-bullseye AS ui-builder
+WORKDIR /ui
+COPY core/ui/spa/package*.json ./
+RUN npm install
+COPY core/ui/spa/ .
+RUN npm run build
+
 # Dockerfile for Fuzzer Core
 FROM python:3.11-slim
 
@@ -20,6 +28,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY core/ ./core/
 COPY agent/ ./agent/
 COPY tests/ ./tests/
+COPY --from=ui-builder /ui/dist ./core/ui/spa/dist/
 
 # Create directories for data persistence
 RUN mkdir -p /app/data/corpus /app/data/crashes /app/data/logs

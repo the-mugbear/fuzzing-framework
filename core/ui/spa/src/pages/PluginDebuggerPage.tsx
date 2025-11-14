@@ -1,0 +1,442 @@
+import { ReactNode, useEffect, useReducer, useState } from 'react';
+import StateMachineCard from '../components/StateMachineCard';
+import { useDebounce } from '../hooks/useDebounce';
+import { api } from '../services/api';
+import './PluginDebuggerPage.css';
+
+interface DataBlock {
+  name: string;
+  type: string;
+  description?: string;
+  default?: unknown;
+  mutable?: boolean;
+  behavior?: Record<string, unknown>;
+  size?: number;
+  size_of?: string;
+  is_size_field?: boolean;
+  references?: string | string[] | null;
+}
+
+interface PluginStateModel {
+  initial_state?: string;
+  states?: string[];
+  transitions?: Array<{
+    from: string;
+    to: string;
+    message_type?: string;
+    trigger?: string;
+    expected_response?: string;
+  }>;
+}
+
+interface PluginDetails {
+  name: string;
+  description?: string;
+  data_model: { blocks: DataBlock[] };
+  state_model?: PluginStateModel;
+}
+
+interface PreviewField {
+  name: string;
+  value: unknown;
+  hex: string;
+  type: string;
+  mutable: boolean;
+  computed: boolean;
+  mutated: boolean;
+  references?: string | string[] | null;
+}
+
+interface TestCasePreview {
+  id: number;
+  mode: string;
+  mutation_type?: string;
+  total_bytes: number;
+  hex_dump: string;
+  fields: PreviewField[];
+}
+
+interface PreviewResponse {
+  previews: TestCasePreview[];
+}
+
+interface DebuggerState {
+  plugins: string[];
+  selected: string;
+  details: PluginDetails | null;
+  loadingDetails: boolean;
+  error: string | null;
+  previews: TestCasePreview[];
+  previewLoading: boolean;
+  previewError: string | null;
+}
+
+const initialState: DebuggerState = {
+  plugins: [],
+  selected: '',
+  details: null,
+  loadingDetails: false,
+  error: null,
+  previews: [],
+  previewLoading: false,
+  previewError: null,
+};
+
+ type Action =
+  | { type: 'set_plugins'; payload: string[] }
+  | { type: 'set_selected'; payload: string }
+  | { type: 'loading_details' }
+  | { type: 'set_details'; payload: PluginDetails }
+  | { type: 'set_error'; payload: string | null }
+  | { type: 'loading_preview' }
+  | { type: 'set_preview'; payload: TestCasePreview[] }
+  | { type: 'set_preview_error'; payload: string | null };
+
+function reducer(state: DebuggerState, action: Action): DebuggerState {
+  switch (action.type) {
+    case 'set_plugins':
+      return { ...state, plugins: action.payload };
+    case 'set_selected':
+      return { ...state, selected: action.payload, previews: [] };
+    case 'loading_details':
+      return { ...state, loadingDetails: true, error: null };
+    case 'set_details':
+      return { ...state, loadingDetails: false, details: action.payload };
+    case 'set_error':
+      return { ...state, error: action.payload, loadingDetails: false };
+    case 'loading_preview':
+      return { ...state, previewLoading: true, previewError: null };
+    case 'set_preview':
+      return { ...state, previewLoading: false, previews: action.payload };
+    case 'set_preview_error':
+      return { ...state, previewLoading: false, previewError: action.payload };
+    default:
+      return state;
+  }
+}
+
+function PluginDebuggerPage() {
+  const [state, dispatch] = useReducer(reducer, initialState);
+  const [previewMode, setPreviewMode] = useState<'seeds' | 'mutations'>('seeds');
+  const [previewCount, setPreviewCount] = useState(3);
+  const [focusField, setFocusField] = useState('');
+  const debouncedFocus = useDebounce(focusField, 400);
+
+  useEffect(() => {
+    api<string[]>('/api/plugins')
+      .then((names) => {
+        dispatch({ type: 'set_plugins', payload: names });
+        if (names.length) {
+          dispatch({ type: 'set_selected', payload: names[0] });
+        }
+      })
+      .catch((err) => dispatch({ type: 'set_error', payload: err.message }));
+  }, []);
+
+  useEffect(() => {
+    if (!state.selected) return;
+    dispatch({ type: 'loading_details' });
+    api<PluginDetails>(`/api/plugins/${state.selected}`)
+      .then((details) => dispatch({ type: 'set_details', payload: details }))
+      .catch((err) => dispatch({ type: 'set_error', payload: err.message }));
+  }, [state.selected]);
+
+  useEffect(() => {
+    if (!state.selected) return;
+    generatePreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.selected, previewMode, previewCount, debouncedFocus]);
+
+  const generatePreview = async () => {
+    if (!state.selected) return;
+    dispatch({ type: 'loading_preview' });
+    try {
+      const body: Record<string, unknown> = {
+        mode: previewMode,
+        count: previewCount,
+      };
+      if (debouncedFocus.trim()) {
+        body['focus_field'] = debouncedFocus.trim();
+      }
+      const response = await api<PreviewResponse>(`/api/plugins/${state.selected}/preview`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      dispatch({ type: 'set_preview', payload: response.previews });
+    } catch (err) {
+      dispatch({ type: 'set_preview_error', payload: (err as Error).message });
+    }
+  };
+
+  return (
+    <div className="card">
+      <div className="plugin-header">
+        <div>
+          <p className="eyebrow">Structure Map</p>
+          <h2>Plugin Explorer</h2>
+          <p>Inspect block definitions, state machines, and documentation before launching campaigns.</p>
+        </div>
+        <select
+          value={state.selected}
+          onChange={(e) => dispatch({ type: 'set_selected', payload: e.target.value })}
+          disabled={!state.plugins.length}
+        >
+          {state.plugins.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </div>
+      {state.error && <p className="error">{state.error}</p>}
+      {state.details && (
+        <div className="plugin-details">
+          <div className="plugin-hero">
+            <div>
+              <h3>{state.details.name}</h3>
+              <p>{state.details.description || 'No description provided.'}</p>
+            </div>
+            <div className="plugin-meta">
+              <div>
+                <span>Blocks</span>
+                <strong>{state.details.data_model.blocks?.length ?? 0}</strong>
+              </div>
+              <div>
+                <span>States</span>
+                <strong>{state.details.state_model?.states?.length ?? 0}</strong>
+              </div>
+            </div>
+          </div>
+          <div className="block-inspector card">
+            <div className="block-inspector-header">
+              <h3>Block Inspector</h3>
+              <p>Compare mutability, derived relationships, and behaviors. Hover the info icon for a full summary.</p>
+            </div>
+            {state.details.data_model.blocks?.length ? (
+              <table className="blocks-table">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Type</th>
+                    <th>Mutability</th>
+                    <th>Behavior</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {state.details.data_model.blocks.map((block) => (
+                    <tr key={block.name}>
+                      <td>
+                        <div className="block-name">
+                          <strong>{block.name}</strong>
+                          <button
+                            type="button"
+                            className="tooltip-trigger"
+                            aria-label={`Details for ${block.name}`}
+                          >
+                            ⓘ
+                            <span className="tooltip-content">{renderBlockTooltip(block)}</span>
+                          </button>
+                        </div>
+                      </td>
+                      <td>{block.type}</td>
+                      <td>
+                        <span
+                          className={`mutability-pill ${block.mutable === false ? 'fixed' : 'mutable'}`}
+                        >
+                          {describeMutability(block)}
+                        </span>
+                      </td>
+                      <td>{describeBehavior(block)}</td>
+                      <td>{describeNotes(block)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="hint">No blocks defined for this plugin.</p>
+            )}
+          </div>
+          <StateMachineCard info={buildStateMachineInfo(state.details.state_model)} />
+        </div>
+      )}
+
+      <div className="preview-controls">
+        <div>
+          <p className="eyebrow">Test Case Explorer</p>
+          <h3>Generate Sample Frames</h3>
+        </div>
+        <div className="control-grid">
+          <label>
+            Mode
+            <select value={previewMode} onChange={(e) => setPreviewMode(e.target.value as 'seeds' | 'mutations')}>
+              <option value="seeds">Seeds</option>
+              <option value="mutations">Mutations</option>
+            </select>
+          </label>
+          <label>
+            Count ({previewCount})
+            <input
+              type="range"
+              min={1}
+              max={5}
+              value={previewCount}
+              onChange={(e) => setPreviewCount(Number(e.target.value))}
+            />
+          </label>
+          <label>
+            Focus Field
+            <input
+              placeholder="Optional field name"
+              value={focusField}
+              onChange={(e) => setFocusField(e.target.value)}
+            />
+          </label>
+          <button type="button" onClick={generatePreview} disabled={state.previewLoading}>
+            {state.previewLoading ? 'Generating…' : 'Generate Previews'}
+          </button>
+        </div>
+      </div>
+      {state.previewError && <p className="error">{state.previewError}</p>}
+      <div className="preview-grid">
+        {state.previews.map((preview) => (
+          <div key={`${preview.id}-${preview.mode}`} className="preview-card">
+            <div className="preview-meta">
+              <span>{preview.mode === 'baseline' ? 'Seed' : preview.mode}</span>
+              {preview.mutation_type && <span className="mutator-pill">{preview.mutation_type}</span>}
+              <span>{preview.total_bytes} bytes</span>
+            </div>
+            <pre className="hex-preview">{preview.hex_dump}</pre>
+            <table>
+              <thead>
+                <tr>
+                  <th>Field</th>
+                  <th>Value</th>
+                  <th>Hex</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.fields.map((field) => (
+                  <tr key={field.name}>
+                    <td>
+                      <strong>{field.name}</strong>
+                      {field.mutated && <span className="mutated-tag">mutated</span>}
+                      {field.computed && <span className="computed-tag">auto</span>}
+                    </td>
+                    <td>{String(field.value)}</td>
+                    <td>{field.hex}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+        {!state.previewLoading && state.previews.length === 0 && (
+          <p className="hint">No previews yet. Generate samples to visualize payloads.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default PluginDebuggerPage;
+
+function buildStateMachineInfo(stateModel?: PluginStateModel) {
+  if (!stateModel || !stateModel.states?.length) {
+    return { has_state_model: false };
+  }
+  return {
+    has_state_model: true,
+    states: stateModel.states,
+    initial_state: stateModel.initial_state,
+    transitions: stateModel.transitions?.map((transition) => ({
+      from_state: transition.from,
+      to_state: transition.to,
+      message_type: transition.message_type || transition.trigger,
+      expected_response: transition.expected_response,
+    })),
+  };
+}
+
+function renderDefault(defaultValue: unknown) {
+  if (typeof defaultValue === 'string') {
+    return defaultValue;
+  }
+  if (typeof defaultValue === 'number' || typeof defaultValue === 'boolean') {
+    return String(defaultValue);
+  }
+  if (Array.isArray(defaultValue)) {
+    return `[${defaultValue.join(', ')}]`;
+  }
+  if (defaultValue && typeof defaultValue === 'object') {
+    return JSON.stringify(defaultValue);
+  }
+  return '—';
+}
+
+function describeMutability(block: DataBlock) {
+  return block.mutable === false ? 'Fixed' : 'Mutable';
+}
+
+function describeBehavior(block: DataBlock) {
+  if (block.behavior && typeof block.behavior === 'object') {
+    const behavior = block.behavior as Record<string, unknown>;
+    const op = typeof behavior.operation === 'string' ? behavior.operation : undefined;
+    if (op === 'increment') {
+      const step = behavior.step ?? 1;
+      return `Increment (step ${step})`;
+    }
+    if (op === 'add_constant') {
+      const value = Number(behavior.value ?? behavior.constant ?? 0);
+      return `Add constant 0x${value.toString(16).toUpperCase()}`;
+    }
+    if (op) {
+      return op;
+    }
+  }
+  if (block.is_size_field || block.size_of) {
+    return 'Derived length';
+  }
+  return '—';
+}
+
+function describeNotes(block: DataBlock) {
+  const notes: string[] = [];
+  if (block.is_size_field && block.size_of) {
+    notes.push(`Declares size for ${block.size_of}`);
+  } else if (block.size_of) {
+    notes.push(`Sized by ${block.size_of}`);
+  }
+  if (block.references) {
+    const refs = Array.isArray(block.references) ? block.references.join(', ') : block.references;
+    notes.push(`References ${refs}`);
+  }
+  if (block.default !== undefined) {
+    notes.push(`Default ${renderDefault(block.default)}`);
+  }
+  if (!notes.length && block.description) {
+    notes.push(block.description);
+  }
+  return notes.length ? notes.join(' • ') : '—';
+}
+
+function renderBlockTooltip(block: DataBlock): ReactNode {
+  return (
+    <div>
+      <p>{block.description || 'No author notes provided.'}</p>
+      <ul>
+        <li>Type: {block.type}</li>
+        <li>Mutable: {describeMutability(block)}</li>
+        {block.size !== undefined && <li>Width: {block.size} byte(s)</li>}
+        {block.default !== undefined && <li>Default: {renderDefault(block.default)}</li>}
+        {block.behavior && <li>Behavior: {describeBehavior(block)}</li>}
+        {block.size_of && <li>Length relationship: {block.size_of}</li>}
+        {block.references && (
+          <li>
+            References: {Array.isArray(block.references) ? block.references.join(', ') : block.references}
+          </li>
+        )}
+      </ul>
+    </div>
+  );
+}

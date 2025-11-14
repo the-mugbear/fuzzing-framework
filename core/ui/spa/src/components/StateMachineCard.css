@@ -1,0 +1,35 @@
+.state-machine-card {
+  margin-top: 24px;
+  padding: 20px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(2, 6, 23, 0.6);
+}
+
+.state-grid {
+  margin: 16px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.state-pill {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.6);
+  font-size: 0.85rem;
+}
+
+.transition-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.transition-table th,
+.transition-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: left;
+}

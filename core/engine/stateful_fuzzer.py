@@ -52,7 +52,8 @@ class StatefulFuzzingSession:
         # Parser for message analysis
         self.parser = ProtocolParser(data_model)
 
-        # Build message type to command mapping
+        # Build message type to command/message mapping
+        self.message_type_field: Optional[str] = None
         self._build_message_type_mapping()
 
         logger.info(
@@ -73,21 +74,30 @@ class StatefulFuzzingSession:
         """
         self.message_type_to_command: Dict[str, int] = {}
 
-        # Find command block in data model
-        command_block = None
-        for block in self.data_model.get("blocks", []):
-            if block.get("name") == "command" and "values" in block:
-                command_block = block
-                break
+        preferred_fields = ("command", "message_type")
+        fallback_block = None
 
-        if command_block:
-            # Invert the values dict: "CONNECT" -> 0x01
-            for cmd_value, cmd_name in command_block["values"].items():
+        for block in self.data_model.get("blocks", []):
+            if "values" not in block:
+                continue
+            if block.get("name") in preferred_fields:
+                self.message_type_field = block["name"]
+                fallback_block = block
+                break
+            if fallback_block is None:
+                fallback_block = block
+
+        if fallback_block and self.message_type_field is None:
+            self.message_type_field = fallback_block.get("name")
+
+        if fallback_block and self.message_type_field:
+            for cmd_value, cmd_name in fallback_block["values"].items():
                 self.message_type_to_command[cmd_name] = cmd_value
 
             logger.debug(
                 "message_type_mapping_built",
-                mapping=self.message_type_to_command
+                field=self.message_type_field,
+                mapping=self.message_type_to_command,
             )
 
     def get_valid_transitions(self) -> List[dict]:
@@ -182,7 +192,7 @@ class StatefulFuzzingSession:
         # Get command value for this message type
         command_value = self.message_type_to_command.get(message_type)
 
-        if command_value is None:
+        if command_value is None or not self.message_type_field:
             logger.warning(
                 "unknown_message_type",
                 message_type=message_type,
@@ -194,7 +204,7 @@ class StatefulFuzzingSession:
         for seed in seeds:
             try:
                 fields = self.parser.parse(seed)
-                if fields.get("command") == command_value:
+                if fields.get(self.message_type_field) == command_value:
                     logger.debug(
                         "found_seed_for_type",
                         message_type=message_type,
@@ -225,7 +235,10 @@ class StatefulFuzzingSession:
         """
         try:
             fields = self.parser.parse(message)
-            command_value = fields.get("command")
+            if not self.message_type_field:
+                return None
+
+            command_value = fields.get(self.message_type_field)
 
             if command_value is None:
                 return None

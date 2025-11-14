@@ -171,4 +171,40 @@ def validate_response(response):
 
 ---
 
+---
+
+## 11. Persistence Layer
+
+The persistence layer is responsible for storing all test case execution records, providing durability for fuzzing sessions and enabling detailed post-mortem analysis, correlation, and test case replay.
+
+### 11.1. Implementation
+
+The initial in-memory persistence model has been replaced by a more robust SQLite-based solution, managed by the `ExecutionHistoryStore` component located in `core/engine/history_store.py`.
+
+Key characteristics of the implementation include:
+
+- **SQLite Backend:** A single SQLite database file (`data/correlation.db`) is used as the persistent store.
+- **Asynchronous Writes:** To avoid blocking the high-throughput fuzzing loop, database writes are handled asynchronously. Execution records are placed in a non-blocking in-memory queue. A background writer task consumes records from this queue and performs batched writes to the database.
+- **In-Memory Caching:** A `deque` is used to maintain a memory cache of the most recent test executions. This allows the UI to query for recent tests quickly without needing to hit the database, ensuring a responsive user experience.
+
+### 11.2. Schema
+
+The primary table is `executions`, which stores a comprehensive record for each test case:
+
+- **Identifiers:** `session_id`, `sequence_number`, `test_case_id`
+- **Timestamps:** `timestamp_sent`, `timestamp_response` for correlation and performance measurement.
+- **Payload Data:** Size, hash, a preview, and the raw payload blob.
+- **Protocol Context:** Protocol name, message type, and the state of the state machine at the time of sending.
+- **Results:** The test case result (`PASS`, `CRASH`, `HANG`, etc.), response size, and a preview of the response.
+
+### 11.3. Current Status & Known Issues
+
+The SQLite persistence layer is functional but has several known issues in its current implementation:
+
+- **Agent Executions Not Recorded:** Test cases that are dispatched to and executed by an agent are not currently recorded in the database. This is a critical gap that prevents the history of agent-based sessions from being analyzed or replayed.
+- **Response Data Not Stored:** The `response_data` column in the `executions` table is not populated, meaning the full raw response from the target is not being saved.
+- **No Retry on Write Failure:** If a batch write to the database fails, the records in that batch are currently dropped. A retry mechanism or dead-letter queue should be implemented to prevent data loss.
+
+---
+
 *End of RFC*

@@ -194,10 +194,12 @@ class SpliceMutator(Mutator):
         if not self.corpus or len(self.corpus) < 2:
             return data
 
-        # Pick another seed
-        other = random.choice([s for s in self.corpus if s != data])
-        if not other:
-            return data
+        other = random.choice(self.corpus)
+        if other == data:
+            alternatives = [s for s in self.corpus if s != data]
+            if not alternatives:
+                return data
+            other = random.choice(alternatives)
 
         # Find splice points
         split1 = random.randint(0, len(data))
