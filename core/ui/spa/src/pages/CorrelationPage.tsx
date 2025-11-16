@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import StatusBadge from '../components/StatusBadge';
 import Modal from '../components/Modal';
@@ -25,6 +25,8 @@ interface TestCaseExecutionRecord {
   payload_preview: string;
   response_preview?: string | null;
   raw_payload_b64: string;
+  mutation_strategy?: string | null;
+  mutators_applied?: string[];
 }
 
 interface ExecutionHistoryResponse {
@@ -37,6 +39,31 @@ interface ExecutionHistoryResponse {
 interface ReplayResponse {
   replayed_count: number;
   results: TestCaseExecutionRecord[];
+}
+
+interface SessionStatsResponse {
+  session_id: string;
+  status: string;
+  total_tests: number;
+  crashes: number;
+  hangs: number;
+  anomalies: number;
+  findings_count: number;
+  runtime_seconds: number;
+  state_coverage?: StateCoverageStats;
+}
+
+interface StateCoverageStats {
+  current_state?: string;
+  state_coverage?: Record<string, number>;
+  transition_coverage?: Record<string, number>;
+  states_visited?: number;
+  states_total?: number;
+  state_coverage_pct?: number;
+  transitions_taken?: number;
+  transitions_total?: number;
+  transition_coverage_pct?: number;
+  total_transitions_executed?: number;
 }
 
 function CorrelationPage() {
@@ -56,6 +83,33 @@ function CorrelationPage() {
   const [replayLog, setReplayLog] = useState<string[]>([]);
   const [sequenceRangeStart, setSequenceRangeStart] = useState('');
   const [sequenceRangeEnd, setSequenceRangeEnd] = useState('');
+  const [stats, setStats] = useState<SessionStatsResponse | null>(null);
+  const [statsError, setStatsError] = useState<string | null>(null);
+  const [coverage, setCoverage] = useState<StateCoverageStats | null>(null);
+  const [coverageError, setCoverageError] = useState<string | null>(null);
+  const [reportPending, setReportPending] = useState(false);
+
+  const fetchCoverage = useCallback(() => {
+    if (!selectedSessionId) {
+      setCoverage(null);
+      return;
+    }
+    api<StateCoverageStats>(`/api/sessions/${selectedSessionId}/state_coverage`)
+      .then((data) => {
+        setCoverage(data);
+        setCoverageError(null);
+      })
+      .catch((err) => {
+        const msg = (err as Error).message;
+        if (msg.toLowerCase().includes('stateful')) {
+          setCoverage(null);
+          setCoverageError(null);
+        } else {
+          setCoverage(null);
+          setCoverageError(msg);
+        }
+      });
+  }, [selectedSessionId]);
 
   useEffect(() => {
     api<FuzzSessionSummary[]>('/api/sessions')
@@ -74,7 +128,122 @@ function CorrelationPage() {
       .catch((err) => setError(err.message));
   }, [location.search, selectedSessionId]);
 
+  useEffect(() => {
+    if (!selectedSessionId) {
+      setStats(null);
+      return;
+    }
+    api<SessionStatsResponse>(`/api/sessions/${selectedSessionId}/stats`)
+      .then((data) => {
+        setStats(data);
+        setStatsError(null);
+      })
+      .catch((err) => {
+        setStats(null);
+        setStatsError((err as Error).message);
+      });
+  }, [selectedSessionId]);
+
+  useEffect(() => {
+    fetchCoverage();
+  }, [fetchCoverage]);
+
   const selectedSession = useMemo(() => sessions.find((s) => s.id === selectedSessionId), [sessions, selectedSessionId]);
+
+  const mutationInsights = useMemo(() => {
+    if (!history || history.executions.length === 0) {
+      return null;
+    }
+    const verdicts: Record<string, number> = {};
+    const mutatorMap = new Map<string, { total: number; crashes: number; hangs: number; states: Set<string> }>();
+    const recentStates = new Set<string>();
+
+    history.executions.forEach((execution) => {
+      verdicts[execution.result] = (verdicts[execution.result] || 0) + 1;
+      if (execution.state_at_send) {
+        recentStates.add(execution.state_at_send);
+      }
+      const applied = execution.mutators_applied && execution.mutators_applied.length > 0 ? execution.mutators_applied : ['untracked'];
+      applied.forEach((mutatorName) => {
+        const existing = mutatorMap.get(mutatorName) || {
+          total: 0,
+          crashes: 0,
+          hangs: 0,
+          states: new Set<string>(),
+        };
+        existing.total += 1;
+        if (execution.result === 'crash') {
+          existing.crashes += 1;
+        }
+        if (execution.result === 'hang') {
+          existing.hangs += 1;
+        }
+        if (execution.state_at_send) {
+          existing.states.add(execution.state_at_send);
+        }
+        mutatorMap.set(mutatorName, existing);
+      });
+    });
+
+    const mutatorRows = Array.from(mutatorMap.entries())
+      .map(([name, entry]) => ({
+        name,
+        total: entry.total,
+        crashes: entry.crashes,
+        hangs: entry.hangs,
+        states: entry.states.size,
+      }))
+      .sort((a, b) => {
+        if (b.crashes !== a.crashes) return b.crashes - a.crashes;
+        if (b.total !== a.total) return b.total - a.total;
+        return a.name.localeCompare(b.name);
+      })
+      .slice(0, 4);
+
+    return {
+      verdicts,
+      mutators: mutatorRows,
+      recentStates: recentStates.size,
+    };
+  }, [history]);
+
+  const stateCoverageEntries = useMemo(() => {
+    if (!coverage?.state_coverage) {
+      return [];
+    }
+    return Object.entries(coverage.state_coverage).sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0].localeCompare(b[0]);
+    });
+  }, [coverage]);
+
+  const transitionEntries = useMemo(() => {
+    if (!coverage?.transition_coverage) {
+      return [];
+    }
+    return Object.entries(coverage.transition_coverage)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6);
+  }, [coverage]);
+
+  const formatRuntime = (seconds: number) => {
+    if (!seconds) return '—';
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    if (hrs > 0) {
+      return `${hrs}h ${mins}m`;
+    }
+    if (mins > 0) {
+      return `${mins}m ${secs}s`;
+    }
+    return `${secs}s`;
+  };
+
+  const formatResultLabel = (label: string) =>
+    label
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (match) => match.toUpperCase());
 
   useEffect(() => {
     if (!selectedSessionId) {
@@ -113,6 +282,7 @@ function CorrelationPage() {
           setTimeSuggestions([]);
         }
         setError(null);
+        fetchCoverage();
       })
       .catch((err) => {
         setError(err.message);
@@ -199,6 +369,41 @@ function CorrelationPage() {
     }
   };
 
+  const handleDownloadReport = async () => {
+    if (!selectedSessionId) {
+      return;
+    }
+    setReportPending(true);
+    try {
+      const [statsPayload, historyPayload, coveragePayload] = await Promise.all([
+        api<SessionStatsResponse>(`/api/sessions/${selectedSessionId}/stats`),
+        api<ExecutionHistoryResponse>(`/api/sessions/${selectedSessionId}/execution_history?limit=500`),
+        api<StateCoverageStats>(`/api/sessions/${selectedSessionId}/state_coverage`).catch(() => null),
+      ]);
+      const report = {
+        generated_at: new Date().toISOString(),
+        session: selectedSession,
+        stats: statsPayload,
+        coverage: coveragePayload,
+        executions: historyPayload.executions,
+      };
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `session-${selectedSessionId.slice(0, 8)}-report.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setReplayLog((prev) => [`Exported session report (${historyPayload.executions.length} executions)`, ...prev]);
+    } catch (err) {
+      setReplayLog((prev) => [`Report export failed: ${(err as Error).message}`, ...prev]);
+    } finally {
+      setReportPending(false);
+    }
+  };
+
   const handleRangeReplay = async (event: FormEvent) => {
     event.preventDefault();
     if (!rangeStart || !rangeEnd || !selectedSessionId) {
@@ -242,7 +447,10 @@ function CorrelationPage() {
             ))}
           </select>
           <button type="button" onClick={fetchHistory} disabled={loadingHistory}>
-            Refresh
+            {loadingHistory ? 'Loading…' : 'Refresh'}
+          </button>
+          <button type="button" className="ghost" onClick={handleDownloadReport} disabled={reportPending}>
+            {reportPending ? 'Building…' : 'Export Report'}
           </button>
         </div>
       </div>
@@ -265,6 +473,138 @@ function CorrelationPage() {
           </div>
         </div>
       )}
+
+      {statsError && <p className="error insights-error">{statsError}</p>}
+
+      {stats && (
+        <div className="session-kpis">
+          <div>
+            <span>Total Tests</span>
+            <strong>{stats.total_tests.toLocaleString()}</strong>
+          </div>
+          <div>
+            <span>Crashes</span>
+            <strong>{stats.crashes.toLocaleString()}</strong>
+          </div>
+          <div>
+            <span>Hangs</span>
+            <strong>{stats.hangs.toLocaleString()}</strong>
+          </div>
+          <div>
+            <span>Anomalies</span>
+            <strong>{stats.anomalies.toLocaleString()}</strong>
+          </div>
+          <div>
+            <span>Findings</span>
+            <strong>{stats.findings_count.toLocaleString()}</strong>
+          </div>
+          <div>
+            <span>Runtime</span>
+            <strong>{formatRuntime(stats.runtime_seconds)}</strong>
+          </div>
+        </div>
+      )}
+
+      {(coverage || mutationInsights) && (
+        <div className="insights-grid">
+          {coverage && (
+            <section className="insight-card">
+              <header>
+                <p className="eyebrow">State Coverage</p>
+                <h3>State machine progress</h3>
+                {coverage.current_state && <p>Current state: {coverage.current_state}</p>}
+              </header>
+              <div className="coverage-stats">
+                <div>
+                  <span>States</span>
+                  <strong>
+                    {coverage.states_visited ?? 0}/{coverage.states_total ?? 0}
+                  </strong>
+                  <small>{Math.round(coverage.state_coverage_pct || 0)}% covered</small>
+                </div>
+                <div>
+                  <span>Transitions</span>
+                  <strong>
+                    {coverage.transitions_taken ?? 0}/{coverage.transitions_total ?? 0}
+                  </strong>
+                  <small>{Math.round(coverage.transition_coverage_pct || 0)}% exercised</small>
+                </div>
+                <div>
+                  <span>Total Transitions</span>
+                  <strong>{coverage.total_transitions_executed ?? 0}</strong>
+                  <small>Across current session</small>
+                </div>
+              </div>
+              {stateCoverageEntries.length > 0 && (
+                <div>
+                  <p className="state-list-title">States hit (last snapshot)</p>
+                  <ul className="state-coverage-list">
+                    {stateCoverageEntries.map(([state, count]) => (
+                      <li key={state} className={count === 0 ? 'muted' : ''}>
+                        <span>{state}</span>
+                        <strong>{count}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {transitionEntries.length > 0 && (
+                <div className="transition-coverage">
+                  <p className="state-list-title">Top transitions</p>
+                  <ul>
+                    {transitionEntries.map(([transition, count]) => (
+                      <li key={transition}>
+                        <span>{transition}</span>
+                        <strong>{count}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </section>
+          )}
+
+          {mutationInsights && (
+            <section className="insight-card">
+              <header>
+                <p className="eyebrow">Mutation Insights</p>
+                <h3>Recent efficacy</h3>
+                <p>Last {history?.returned_count ?? 0} executions touched {mutationInsights.recentStates} states.</p>
+              </header>
+              <div className="verdict-grid">
+                {Object.entries(mutationInsights.verdicts).map(([result, count]) => (
+                  <div key={result}>
+                    <span>{formatResultLabel(result)}</span>
+                    <strong>{count}</strong>
+                  </div>
+                ))}
+              </div>
+              {mutationInsights.mutators.length > 0 && (
+                <div>
+                  <p className="state-list-title">Top mutators</p>
+                  <ul className="mutator-insight-list">
+                    {mutationInsights.mutators.map((mutator) => (
+                      <li key={mutator.name}>
+                        <div>
+                          <strong>{mutator.name}</strong>
+                          <small>{mutator.total} executions</small>
+                        </div>
+                        <div className="mutator-meta">
+                          <span>Crashes {mutator.crashes}</span>
+                          <span>Hangs {mutator.hangs}</span>
+                          <span>States {mutator.states}</span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </section>
+          )}
+        </div>
+      )}
+
+      {coverageError && <p className="error insights-error">{coverageError}</p>}
 
       <div className="search-grid">
         <form onSubmit={handleSequenceSearch}>
@@ -350,6 +690,7 @@ function CorrelationPage() {
                 <th>Sent</th>
                 <th>Message</th>
                 <th>State</th>
+                <th>Mutators</th>
                 <th>Result</th>
                 <th>Duration</th>
               </tr>
@@ -361,6 +702,11 @@ function CorrelationPage() {
                   <td>{new Date(execution.timestamp_sent).toLocaleString()}</td>
                   <td>{execution.message_type || '—'}</td>
                   <td>{execution.state_at_send || '—'}</td>
+                  <td>
+                    {execution.mutators_applied && execution.mutators_applied.length > 0
+                      ? execution.mutators_applied.slice(0, 3).join(', ')
+                      : '—'}
+                  </td>
                   <td>
                     <StatusBadge value={execution.result} />
                   </td>
@@ -392,6 +738,18 @@ function CorrelationPage() {
               </button>
             </div>
             <div className="detail-body">
+              <div>
+                <span>Mutation Strategy</span>
+                <p className="mutator-inline">{selectedExecution.mutation_strategy || '—'}</p>
+              </div>
+              <div>
+                <span>Mutators</span>
+                <p className="mutator-inline">
+                  {selectedExecution.mutators_applied && selectedExecution.mutators_applied.length > 0
+                    ? selectedExecution.mutators_applied.join(', ')
+                    : '—'}
+                </p>
+              </div>
               <div>
                 <span>Payload Preview</span>
                 <pre>{selectedExecution.payload_preview}</pre>

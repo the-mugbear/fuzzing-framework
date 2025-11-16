@@ -209,6 +209,9 @@ class FuzzOrchestrator:
         await agent_manager.clear_session(session_id)
         self._discard_pending_tests(session_id)
         self.behavior_processors.pop(session_id, None)
+        stateful_session = self.stateful_sessions.get(session_id)
+        if session and stateful_session:
+            session.coverage_snapshot = stateful_session.get_coverage_stats()
         self.stateful_sessions.pop(session_id, None)  # Clean up stateful session
         self.response_planners.pop(session_id, None)
         self.followup_queues.pop(session_id, None)
@@ -310,9 +313,12 @@ class FuzzOrchestrator:
                     except IndexError:
                         followup_item = None
 
+                mutation_meta = {"strategy": None, "mutators": []}
+
                 if followup_item:
                     final_data = self._apply_behaviors(session, followup_item["payload"])
                     seed_reference = None
+                    mutation_meta = {"strategy": "response_followup", "mutators": ["followup"]}
                     logger.info(
                         "followup_dispatched",
                         session_id=session_id,
@@ -347,6 +353,7 @@ class FuzzOrchestrator:
 
                     # Mutate the selected seed
                     test_case_data = mutation_engine.generate_test_case(base_seed)
+                    mutation_meta = mutation_engine.get_last_metadata()
                     final_data = self._apply_behaviors(session, test_case_data)
                     seed_reference = (
                         session.seed_corpus[iteration % len(session.seed_corpus)]
@@ -359,6 +366,8 @@ class FuzzOrchestrator:
                     session_id=session_id,
                     data=final_data,
                     seed_id=seed_reference,
+                    mutation_strategy=mutation_meta.get("strategy"),
+                    mutators_applied=mutation_meta.get("mutators", []),
                 )
 
                 # Execute test case
@@ -386,7 +395,9 @@ class FuzzOrchestrator:
                         result,
                         response,
                         message_type=message_type_for_record,
-                        state_at_send=state_at_send_for_record
+                        state_at_send=state_at_send_for_record,
+                        mutation_strategy=test_case.mutation_strategy,
+                        mutators_applied=test_case.mutators_applied,
                     )
 
                     self._evaluate_response_followups(session_id, response)
@@ -432,6 +443,8 @@ class FuzzOrchestrator:
             if session.execution_mode == ExecutionMode.AGENT:
                 await agent_manager.clear_session(session_id)
             self._discard_pending_tests(session_id)
+            if stateful_session:
+                session.coverage_snapshot = stateful_session.get_coverage_stats()
 
     async def _dispatch_to_agent(self, session: FuzzSession, test_case: TestCase) -> None:
         """Send a test case to the agent queue"""
@@ -647,7 +660,9 @@ class FuzzOrchestrator:
         result: TestCaseResult,
         response: Optional[bytes],
         message_type: Optional[str] = None,
-        state_at_send: Optional[str] = None
+        state_at_send: Optional[str] = None,
+        mutation_strategy: Optional[str] = None,
+        mutators_applied: Optional[List[str]] = None,
     ) -> TestCaseExecutionRecord:
         """Record a test case execution for correlation"""
         return self.history_store.record(
@@ -659,6 +674,8 @@ class FuzzOrchestrator:
             response,
             message_type=message_type,
             state_at_send=state_at_send,
+            mutation_strategy=mutation_strategy,
+            mutators_applied=mutators_applied,
         )
 
     def _resolve_mutators(self, config: FuzzConfig) -> List[str]:
@@ -766,11 +783,18 @@ class FuzzOrchestrator:
         Returns:
             State coverage stats or None if not stateful
         """
+        session = self.sessions.get(session_id)
         stateful_session = self.stateful_sessions.get(session_id)
-        if not stateful_session:
-            return None
+        if stateful_session:
+            coverage = stateful_session.get_coverage_stats()
+            if session:
+                session.coverage_snapshot = coverage
+            return coverage
 
-        return stateful_session.get_coverage_stats()
+        if session and session.coverage_snapshot:
+            return session.coverage_snapshot
+
+        return None
 
     def get_execution_history(
         self,
@@ -827,7 +851,9 @@ class FuzzOrchestrator:
                 id=str(uuid.uuid4()),
                 session_id=session_id,
                 data=payload,
-                seed_id=None  # Replay, not from seed
+                seed_id=None,  # Replay, not from seed
+                mutation_strategy=original.mutation_strategy,
+                mutators_applied=list(original.mutators_applied or []),
             )
 
             # Execute
@@ -844,7 +870,9 @@ class FuzzOrchestrator:
                 result,
                 response,
                 message_type=original.message_type,
-                state_at_send=original.state_at_send
+                state_at_send=original.state_at_send,
+                mutation_strategy=test_case.mutation_strategy,
+                mutators_applied=test_case.mutators_applied,
             )
 
             results.append(replay_record)

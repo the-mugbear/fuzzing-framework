@@ -29,10 +29,18 @@ interface PluginStateModel {
   }>;
 }
 
+interface ResponseHandler {
+  name: string;
+  match: Record<string, unknown>;
+  set_fields: Record<string, unknown>;
+}
+
 interface PluginDetails {
   name: string;
   description?: string;
   data_model: { blocks: DataBlock[] };
+  response_model?: { blocks: DataBlock[] };
+  response_handlers?: ResponseHandler[];
   state_model?: PluginStateModel;
 }
 
@@ -209,54 +217,67 @@ function PluginDebuggerPage() {
           </div>
           <div className="block-inspector card">
             <div className="block-inspector-header">
-              <h3>Block Inspector</h3>
-              <p>Compare mutability, derived relationships, and behaviors. Hover the info icon for a full summary.</p>
+              <h3>Request Model (data_model)</h3>
+              <p>Message structure sent to the target. Dependencies show field relationships and response-driven updates.</p>
             </div>
             {state.details.data_model.blocks?.length ? (
-              <table className="blocks-table">
-                <thead>
-                  <tr>
-                    <th>Field</th>
-                    <th>Type</th>
-                    <th>Mutability</th>
-                    <th>Behavior</th>
-                    <th>Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {state.details.data_model.blocks.map((block) => (
-                    <tr key={block.name}>
-                      <td>
-                        <div className="block-name">
-                          <strong>{block.name}</strong>
-                          <button
-                            type="button"
-                            className="tooltip-trigger"
-                            aria-label={`Details for ${block.name}`}
-                          >
-                            ⓘ
-                            <span className="tooltip-content">{renderBlockTooltip(block)}</span>
-                          </button>
-                        </div>
-                      </td>
-                      <td>{block.type}</td>
-                      <td>
-                        <span
-                          className={`mutability-pill ${block.mutable === false ? 'fixed' : 'mutable'}`}
-                        >
-                          {describeMutability(block)}
-                        </span>
-                      </td>
-                      <td>{describeBehavior(block)}</td>
-                      <td>{describeNotes(block)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              renderBlockInspectorTable(state.details.data_model.blocks, state.details.response_handlers, false)
             ) : (
               <p className="hint">No blocks defined for this plugin.</p>
             )}
           </div>
+
+          {state.details.response_model && (
+            <div className="block-inspector card">
+              <div className="block-inspector-header">
+                <h3>Response Model (response_model)</h3>
+                <p>Expected structure of responses from the target. Used for parsing and response-driven mutations.</p>
+              </div>
+              {state.details.response_model.blocks?.length ? (
+                renderBlockInspectorTable(state.details.response_model.blocks, undefined, true)
+              ) : (
+                <p className="hint">No response model blocks defined.</p>
+              )}
+            </div>
+          )}
+
+          {state.details.response_handlers && state.details.response_handlers.length > 0 && (
+            <div className="block-inspector card">
+              <div className="block-inspector-header">
+                <h3>Response Handlers</h3>
+                <p>Declarative rules for updating request fields based on response values.</p>
+              </div>
+              <div className="response-handlers-list">
+                {state.details.response_handlers.map((handler) => (
+                  <div key={handler.name} className="response-handler-card">
+                    <h4>{handler.name}</h4>
+                    <div className="handler-details">
+                      <div className="handler-section">
+                        <span className="section-label">Match Conditions:</span>
+                        <pre className="handler-code">{JSON.stringify(handler.match, null, 2)}</pre>
+                      </div>
+                      <div className="handler-section">
+                        <span className="section-label">Set Fields:</span>
+                        <div className="set-fields-list">
+                          {Object.entries(handler.set_fields).map(([field, value]) => (
+                            <div key={field} className="field-mapping">
+                              <span className="target-field">{field}</span>
+                              <span className="mapping-arrow">←</span>
+                              <span className="source-value">
+                                {typeof value === 'object' && value !== null && 'copy_from_response' in value
+                                  ? `response.${(value as Record<string, unknown>).copy_from_response}`
+                                  : JSON.stringify(value)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <StateMachineCard info={buildStateMachineInfo(state.details.state_model)} />
         </div>
       )}
@@ -379,25 +400,28 @@ function describeMutability(block: DataBlock) {
 }
 
 function describeBehavior(block: DataBlock) {
+  const behaviors: string[] = [];
+
   if (block.behavior && typeof block.behavior === 'object') {
     const behavior = block.behavior as Record<string, unknown>;
     const op = typeof behavior.operation === 'string' ? behavior.operation : undefined;
     if (op === 'increment') {
       const step = behavior.step ?? 1;
-      return `Increment (step ${step})`;
-    }
-    if (op === 'add_constant') {
+      behaviors.push(`Increment (step ${step})`);
+    } else if (op === 'add_constant') {
       const value = Number(behavior.value ?? behavior.constant ?? 0);
-      return `Add constant 0x${value.toString(16).toUpperCase()}`;
-    }
-    if (op) {
-      return op;
+      behaviors.push(`Add constant 0x${value.toString(16).toUpperCase()}`);
+    } else if (op) {
+      behaviors.push(op);
     }
   }
-  if (block.is_size_field || block.size_of) {
-    return 'Derived length';
+
+  if (block.is_size_field && block.size_of) {
+    const targets = Array.isArray(block.size_of) ? block.size_of.join(', ') : block.size_of;
+    behaviors.push(`Size of: ${targets}`);
   }
-  return '—';
+
+  return behaviors.length ? behaviors.join(' • ') : '—';
 }
 
 function describeNotes(block: DataBlock) {
@@ -438,5 +462,110 @@ function renderBlockTooltip(block: DataBlock): ReactNode {
         )}
       </ul>
     </div>
+  );
+}
+
+function findResponseDependencies(
+  fieldName: string,
+  responseHandlers?: ResponseHandler[]
+): string[] {
+  if (!responseHandlers) return [];
+
+  const dependencies: string[] = [];
+  responseHandlers.forEach((handler) => {
+    const setFields = handler.set_fields || {};
+    Object.entries(setFields).forEach(([targetField, value]) => {
+      if (targetField === fieldName && typeof value === 'object') {
+        const valueObj = value as Record<string, unknown>;
+        if (valueObj.copy_from_response && typeof valueObj.copy_from_response === 'string') {
+          dependencies.push(`← ${valueObj.copy_from_response} (${handler.name})`);
+        }
+      }
+    });
+  });
+
+  return dependencies;
+}
+
+function renderBlockInspectorTable(
+  blocks: DataBlock[],
+  responseHandlers?: ResponseHandler[],
+  isResponseModel: boolean = false
+) {
+  return (
+    <table className="blocks-table">
+      <thead>
+        <tr>
+          <th>Field</th>
+          <th>Type</th>
+          <th>Mutability</th>
+          <th>Behavior</th>
+          <th>Dependencies</th>
+        </tr>
+      </thead>
+      <tbody>
+        {blocks.map((block) => {
+          const responseDeps = !isResponseModel ? findResponseDependencies(block.name, responseHandlers) : [];
+          const sizeTarget = block.is_size_field && block.size_of
+            ? (Array.isArray(block.size_of) ? block.size_of : [block.size_of])
+            : [];
+          const references = block.references
+            ? (Array.isArray(block.references) ? block.references : [block.references])
+            : [];
+
+          const allDeps = [...sizeTarget, ...references, ...responseDeps];
+
+          return (
+            <tr key={block.name}>
+              <td>
+                <div className="block-name">
+                  <strong>{block.name}</strong>
+                  <button
+                    type="button"
+                    className="tooltip-trigger"
+                    aria-label={`Details for ${block.name}`}
+                  >
+                    ⓘ
+                    <span className="tooltip-content">{renderBlockTooltip(block)}</span>
+                  </button>
+                </div>
+              </td>
+              <td>{block.type}</td>
+              <td>
+                <span
+                  className={`mutability-pill ${block.mutable === false ? 'fixed' : 'mutable'}`}
+                >
+                  {describeMutability(block)}
+                </span>
+              </td>
+              <td>{describeBehavior(block)}</td>
+              <td>
+                {allDeps.length > 0 ? (
+                  <div className="dependencies-list">
+                    {sizeTarget.map((target) => (
+                      <span key={target} className="dep-tag size-dep" title="Size field for">
+                        → {target}
+                      </span>
+                    ))}
+                    {references.map((ref) => (
+                      <span key={ref} className="dep-tag ref-dep" title="References">
+                        ⚡ {ref}
+                      </span>
+                    ))}
+                    {responseDeps.map((dep, i) => (
+                      <span key={i} className="dep-tag response-dep" title="Copied from response">
+                        {dep}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  '—'
+                )}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }

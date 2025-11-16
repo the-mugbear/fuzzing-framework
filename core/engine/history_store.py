@@ -2,6 +2,7 @@
 import asyncio
 import base64
 import hashlib
+import json
 import sqlite3
 from collections import deque
 from datetime import datetime
@@ -60,6 +61,8 @@ class ExecutionHistoryStore:
                     protocol TEXT NOT NULL,
                     message_type TEXT,
                     state_at_send TEXT,
+                    mutation_strategy TEXT,
+                    mutators_applied TEXT,
 
                     -- Execution results
                     result TEXT NOT NULL,
@@ -84,6 +87,15 @@ class ExecutionHistoryStore:
                 CREATE INDEX IF NOT EXISTS idx_test_case
                 ON executions(test_case_id)
             """)
+
+            for column, ddl in [
+                ("mutation_strategy", "ALTER TABLE executions ADD COLUMN mutation_strategy TEXT"),
+                ("mutators_applied", "ALTER TABLE executions ADD COLUMN mutators_applied TEXT"),
+            ]:
+                try:
+                    conn.execute(ddl)
+                except sqlite3.OperationalError:
+                    logger.debug("history_column_exists", column=column)
 
             conn.commit()
             logger.info("database_schema_initialized", db_path=self.db_path)
@@ -159,8 +171,9 @@ class ExecutionHistoryStore:
                     timestamp_sent, timestamp_response, duration_ms,
                     payload_size, payload_hash, payload_preview, raw_payload,
                     protocol, message_type, state_at_send,
+                    mutation_strategy, mutators_applied,
                     result, response_size, response_preview, response_data
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -177,6 +190,8 @@ class ExecutionHistoryStore:
                         rec.protocol,
                         rec.message_type,
                         rec.state_at_send,
+                        rec.mutation_strategy,
+                        json.dumps(rec.mutators_applied or []),
                         rec.result.value,
                         rec.response_size,
                         rec.response_preview,
@@ -229,6 +244,8 @@ class ExecutionHistoryStore:
             response_size=len(response) if response is not None else None,
             response_preview=response[:64].hex() if response is not None else None,
             raw_payload_b64=base64.b64encode(test_case.data).decode("utf-8"),
+            mutation_strategy=test_case.mutation_strategy,
+            mutators_applied=list(test_case.mutators_applied or []),
         )
 
         # Update memory cache
@@ -321,6 +338,8 @@ class ExecutionHistoryStore:
                         protocol=row["protocol"],
                         message_type=row["message_type"],
                         state_at_send=row["state_at_send"],
+                        mutation_strategy=row["mutation_strategy"],
+                        mutators_applied=json.loads(row["mutators_applied"] or "[]"),
                         result=TestCaseResult(row["result"]),
                         response_size=row["response_size"],
                         response_preview=row["response_preview"],
@@ -382,6 +401,8 @@ class ExecutionHistoryStore:
                 protocol=row["protocol"],
                 message_type=row["message_type"],
                 state_at_send=row["state_at_send"],
+                mutation_strategy=row["mutation_strategy"],
+                mutators_applied=json.loads(row["mutators_applied"] or "[]"),
                 result=TestCaseResult(row["result"]),
                 response_size=row["response_size"],
                 response_preview=row["response_preview"],
@@ -430,6 +451,8 @@ class ExecutionHistoryStore:
                 protocol=row["protocol"],
                 message_type=row["message_type"],
                 state_at_send=row["state_at_send"],
+                mutation_strategy=row["mutation_strategy"],
+                mutators_applied=json.loads(row["mutators_applied"] or "[]"),
                 result=TestCaseResult(row["result"]),
                 response_size=row["response_size"],
                 response_preview=row["response_preview"],

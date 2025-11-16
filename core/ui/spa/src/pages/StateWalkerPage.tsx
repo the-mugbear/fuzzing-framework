@@ -9,6 +9,23 @@ interface TransitionInfo {
   expected_response?: string;
 }
 
+interface ExecutionRecord {
+  execution_number: number;
+  success: boolean;
+  old_state: string;
+  new_state: string;
+  message_type: string;
+  sent_hex: string;
+  sent_bytes: number;
+  sent_parsed?: Record<string, any>;
+  response_hex?: string;
+  response_bytes: number;
+  response_parsed?: Record<string, any>;
+  duration_ms: number;
+  error?: string;
+  timestamp: string;
+}
+
 interface WalkerState {
   session_id: string;
   current_state: string;
@@ -17,6 +34,7 @@ interface WalkerState {
   transition_history: string[];
   state_coverage: Record<string, number>;
   transition_coverage: Record<string, number>;
+  execution_history: ExecutionRecord[];
 }
 
 interface ExecuteResponse {
@@ -26,8 +44,10 @@ interface ExecuteResponse {
   message_type: string;
   sent_hex: string;
   sent_bytes: number;
+  sent_parsed?: Record<string, any>;
   response_hex?: string;
   response_bytes: number;
+  response_parsed?: Record<string, any>;
   duration_ms: number;
   error?: string;
   current_state: WalkerState;
@@ -43,6 +63,7 @@ function StateWalkerPage() {
   const [lastExecution, setLastExecution] = useState<ExecuteResponse | null>(null);
   const [targetHost, setTargetHost] = useState('target');
   const [targetPort, setTargetPort] = useState(9999);
+  const [expandedExecutions, setExpandedExecutions] = useState<Set<number>>(new Set());
 
   // Load available protocols
   useEffect(() => {
@@ -127,6 +148,118 @@ function StateWalkerPage() {
   const getCoveragePercentage = (coverage: Record<string, number>, total: number): number => {
     const visited = Object.keys(coverage).length;
     return total > 0 ? Math.round((visited / total) * 100) : 0;
+  };
+
+  const formatFieldValue = (fieldValue: any) => {
+    let displayValue: React.ReactNode;
+    let valueClass = '';
+    let fieldType = 'unknown';
+
+    // Handle the new structured format from backend
+    if (typeof fieldValue === 'object' && fieldValue !== null) {
+      fieldType = fieldValue.type || 'unknown';
+
+      if (fieldType.startsWith('uint') || fieldType.startsWith('int')) {
+        // Integer field: show decimal and hex
+        const numValue = fieldValue.value || 0;
+        displayValue = `${numValue} (0x${numValue.toString(16).toUpperCase()})`;
+        valueClass = 'value-number';
+      } else if (fieldType === 'string') {
+        // String field: show decoded value and optionally hex
+        const decoded = fieldValue.decoded || '';
+        const hex = fieldValue.hex;
+        if (hex) {
+          displayValue = (
+            <>
+              <div className="string-decoded">"{decoded}"</div>
+              <div className="string-hex">{hex}</div>
+            </>
+          );
+        } else {
+          displayValue = `"${decoded}"`;
+        }
+        valueClass = 'value-string';
+      } else if (fieldType === 'bytes') {
+        // Bytes field: show hex and optionally decoded text
+        const hex = fieldValue.hex || '';
+        const decoded = fieldValue.decoded;
+        if (decoded) {
+          displayValue = (
+            <>
+              <div className="bytes-decoded">"{decoded}"</div>
+              <div className="bytes-hex">{hex}</div>
+            </>
+          );
+        } else {
+          displayValue = hex;
+        }
+        valueClass = 'value-hex';
+      } else {
+        // Fallback
+        displayValue = JSON.stringify(fieldValue);
+      }
+    } else {
+      // Fallback for simple values
+      displayValue = String(fieldValue);
+    }
+
+    return { displayValue, valueClass, fieldType };
+  };
+
+  const renderCombinedParsedFields = (
+    sentParsed: Record<string, any> | undefined,
+    responseParsed: Record<string, any> | undefined
+  ) => {
+    // Collect all unique field names from both sent and response
+    const sentFields = sentParsed ? Object.keys(sentParsed) : [];
+    const responseFields = responseParsed ? Object.keys(responseParsed) : [];
+    const allFields = Array.from(new Set([...sentFields, ...responseFields]));
+
+    if (allFields.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="parsed-fields-combined">
+        <h4>Message Comparison</h4>
+        <table className="fields-table-combined">
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>Sent</th>
+              <th>Received</th>
+            </tr>
+          </thead>
+          <tbody>
+            {allFields.map((fieldName) => {
+              const sentValue = sentParsed?.[fieldName];
+              const responseValue = responseParsed?.[fieldName];
+
+              const sentFormatted = sentValue ? formatFieldValue(sentValue) : null;
+              const responseFormatted = responseValue ? formatFieldValue(responseValue) : null;
+
+              return (
+                <tr key={fieldName}>
+                  <td className="field-name">{fieldName}</td>
+                  <td
+                    className={`field-value ${sentFormatted?.valueClass || ''}`}
+                    title={sentFormatted?.fieldType || ''}
+                  >
+                    {sentValue ? <code>{sentFormatted?.displayValue}</code> : <span className="no-value">—</span>}
+                  </td>
+                  <td
+                    className={`field-value ${responseFormatted?.valueClass || ''}`}
+                    title={responseFormatted?.fieldType || ''}
+                  >
+                    {responseValue ? <code>{responseFormatted?.displayValue}</code> : <span className="no-value">—</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
   };
 
   return (
@@ -239,21 +372,23 @@ function StateWalkerPage() {
               </div>
             </div>
 
-            {walkerState.state_history.length > 0 && (
-              <div className="state-path">
-                <label>State Path:</label>
-                <div className="path-chain">
-                  {walkerState.state_history.map((state, i) => (
+            <div className="state-path">
+              <label>State Path:</label>
+              <div className="path-chain">
+                {walkerState.state_history.length > 0 ? (
+                  walkerState.state_history.map((state, i) => (
                     <span key={i} className="path-item">
                       {state}
                       {i < walkerState.state_history.length - 1 && (
                         <span className="path-arrow">→</span>
                       )}
                     </span>
-                  ))}
-                </div>
+                  ))
+                ) : (
+                  <span className="path-item current">{walkerState.current_state}</span>
+                )}
               </div>
-            )}
+            </div>
           </div>
 
           <div className="walker-section card">
@@ -296,36 +431,76 @@ function StateWalkerPage() {
             )}
           </div>
 
-          {lastExecution && (
-            <div className="walker-section card execution-result">
-              <h3>Last Execution Result</h3>
-              <div className="execution-summary">
-                <div className={`execution-status ${lastExecution.success ? 'success' : 'failure'}`}>
-                  {lastExecution.success ? '✓ Success' : '✗ Failed'}
-                  {lastExecution.error && <span className="error-detail">: {lastExecution.error}</span>}
-                </div>
-                <div className="execution-transition">
-                  <span className="old-state">{lastExecution.old_state}</span>
-                  <span className="arrow">→</span>
-                  <span className="new-state">{lastExecution.new_state}</span>
-                  <span className="message-type">via {lastExecution.message_type}</span>
-                </div>
+          {walkerState && walkerState.execution_history && walkerState.execution_history.length > 0 && (
+            <div className="walker-section card">
+              <div className="execution-history-header">
+                <h3>Execution History ({walkerState.execution_history.length})</h3>
+                <p>Review the complete conversation to verify stateful protocol behavior</p>
               </div>
+              <div className="execution-history-list">
+                {[...walkerState.execution_history].reverse().map((execution) => {
+                  const isExpanded = expandedExecutions.has(execution.execution_number);
+                  return (
+                    <div key={execution.execution_number} className="execution-record">
+                      <div
+                        className="execution-record-header"
+                        onClick={() => {
+                          const newExpanded = new Set(expandedExecutions);
+                          if (isExpanded) {
+                            newExpanded.delete(execution.execution_number);
+                          } else {
+                            newExpanded.add(execution.execution_number);
+                          }
+                          setExpandedExecutions(newExpanded);
+                        }}
+                      >
+                        <div className="execution-record-title">
+                          <span className="execution-number">#{execution.execution_number}</span>
+                          <span className={`execution-status ${execution.success ? 'success' : 'failure'}`}>
+                            {execution.success ? '✓' : '✗'}
+                          </span>
+                          <div className="execution-transition">
+                            <span className="old-state">{execution.old_state}</span>
+                            <span className="arrow">→</span>
+                            <span className="new-state">{execution.new_state}</span>
+                            <span className="message-type">{execution.message_type}</span>
+                          </div>
+                        </div>
+                        <span className="expand-icon">{isExpanded ? '▼' : '▶'}</span>
+                      </div>
 
-              <div className="execution-details">
-                <div className="detail-group">
-                  <label>Sent ({lastExecution.sent_bytes} bytes)</label>
-                  <pre className="hex-display">{lastExecution.sent_hex}</pre>
-                </div>
-                {lastExecution.response_hex && (
-                  <div className="detail-group">
-                    <label>Received ({lastExecution.response_bytes} bytes)</label>
-                    <pre className="hex-display">{lastExecution.response_hex}</pre>
-                  </div>
-                )}
-                <div className="detail-meta">
-                  <span>Duration: {lastExecution.duration_ms.toFixed(2)} ms</span>
-                </div>
+                      {isExpanded && (
+                        <div className="execution-record-body">
+                          {execution.error && (
+                            <div className="execution-error">Error: {execution.error}</div>
+                          )}
+
+                          <div className="execution-details">
+                            <div className="hex-displays">
+                              <div className="detail-group">
+                                <label>Sent ({execution.sent_bytes} bytes)</label>
+                                <pre className="hex-display">{execution.sent_hex}</pre>
+                              </div>
+                              {execution.response_hex && (
+                                <div className="detail-group">
+                                  <label>Received ({execution.response_bytes} bytes)</label>
+                                  <pre className="hex-display">{execution.response_hex}</pre>
+                                </div>
+                              )}
+                            </div>
+
+                            {renderCombinedParsedFields(execution.sent_parsed, execution.response_parsed)}
+
+                            <div className="detail-meta">
+                              <span>Duration: {execution.duration_ms.toFixed(2)} ms</span>
+                              <span>Time: {new Date(execution.timestamp).toLocaleTimeString()}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

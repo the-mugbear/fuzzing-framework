@@ -52,6 +52,8 @@ class TestCase(BaseModel):
     result: Optional[TestCaseResult] = None
     execution_time_ms: Optional[float] = None
     coverage_data: Optional[Dict[str, Any]] = None
+    mutation_strategy: Optional[str] = None
+    mutators_applied: List[str] = Field(default_factory=list)
 
 
 class CrashReport(BaseModel):
@@ -128,6 +130,7 @@ class FuzzSession(BaseModel):
     anomalies: int = 0
     unique_crashes: int = 0
     behavior_state: Dict[str, Any] = Field(default_factory=dict)
+    coverage_snapshot: Optional[Dict[str, Any]] = None
 
 
 class MutationStrategy(BaseModel):
@@ -311,6 +314,8 @@ class TestCaseExecutionRecord(BaseModel):
 
     # For replay - base64 encoded
     raw_payload_b64: str  # Base64 encoded payload for JSON transport
+    mutation_strategy: Optional[str] = None
+    mutators_applied: List[str] = Field(default_factory=list)
 
 
 class ExecutionHistoryResponse(BaseModel):
@@ -416,6 +421,24 @@ class TransitionInfo(BaseModel):
         populate_by_name = True
 
 
+class WalkerExecutionRecord(BaseModel):
+    """Record of a single transition execution"""
+    execution_number: int
+    success: bool
+    old_state: str
+    new_state: str
+    message_type: str
+    sent_hex: str
+    sent_bytes: int
+    sent_parsed: Optional[Dict[str, Any]] = None
+    response_hex: Optional[str] = None
+    response_bytes: int
+    response_parsed: Optional[Dict[str, Any]] = None
+    duration_ms: float
+    error: Optional[str] = None
+    timestamp: str
+
+
 class WalkerStateResponse(BaseModel):
     """Current state of the walker session"""
     session_id: str
@@ -425,6 +448,7 @@ class WalkerStateResponse(BaseModel):
     transition_history: List[str]
     state_coverage: Dict[str, int]
     transition_coverage: Dict[str, int]
+    execution_history: List[WalkerExecutionRecord] = Field(default_factory=list)
 
 
 class WalkerExecuteRequest(BaseModel):
@@ -443,8 +467,10 @@ class WalkerExecuteResponse(BaseModel):
     message_type: str
     sent_hex: str
     sent_bytes: int
+    sent_parsed: Optional[Dict[str, Any]] = None
     response_hex: Optional[str] = None
     response_bytes: int
+    response_parsed: Optional[Dict[str, Any]] = None
     duration_ms: float
     error: Optional[str] = None
     current_state: WalkerStateResponse

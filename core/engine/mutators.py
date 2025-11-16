@@ -268,6 +268,21 @@ class MutationEngine:
                 logger.error("failed_to_load_structure_mutator", error=str(e))
                 self.structure_mutator = None
 
+        self._last_metadata: Dict[str, Any] = {"strategy": None, "mutators": []}
+
+    def _set_last_metadata(self, strategy: Optional[str], mutators: Optional[List[str]]) -> None:
+        self._last_metadata = {
+            "strategy": strategy,
+            "mutators": list(mutators or []),
+        }
+
+    def get_last_metadata(self) -> Dict[str, Any]:
+        """Return metadata about the most recent mutation."""
+        return {
+            "strategy": self._last_metadata.get("strategy"),
+            "mutators": list(self._last_metadata.get("mutators", [])),
+        }
+
     def generate_test_case(self, base_seed: bytes, num_mutations: int = 1) -> bytes:
         """
         Generate a new test case by mutating a seed.
@@ -297,15 +312,19 @@ class MutationEngine:
         if use_structure_aware:
             # Structure-aware mutation
             try:
-                return self.structure_mutator.mutate(base_seed)
+                mutated = self.structure_mutator.mutate(base_seed)
+                self._set_last_metadata("structure_aware", ["structure_aware"])
+                return mutated
             except Exception as e:
                 logger.error("structure_mutation_failed", error=str(e))
                 if not settings.fallback_on_parse_error:
+                    self._set_last_metadata("structure_aware", ["structure_aware", "fallback"])
                     return base_seed
                 # Fall through to byte-level
 
         # Byte-level mutation (original behavior)
         data = base_seed
+        applied_mutators: List[str] = []
         for _ in range(num_mutations):
             mutator_name = random.choices(
                 self.enabled_mutators,
@@ -314,7 +333,9 @@ class MutationEngine:
 
             mutator = self.mutators[mutator_name]
             data = mutator.mutate(data)
+            applied_mutators.append(mutator_name)
 
+        self._set_last_metadata("byte_level", applied_mutators)
         return data
 
     def generate_batch(self, count: int) -> List[bytes]:

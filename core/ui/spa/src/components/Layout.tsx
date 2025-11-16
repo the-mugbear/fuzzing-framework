@@ -53,8 +53,8 @@ function Layout() {
               <p className="eyebrow">Structure-aware fuzzing stack</p>
               <div className="masthead-title-row">
                 <h1>Protocol Fuzzer Console</h1>
-                <Link className="docs-link" to="/guides/getting-started" target="_blank" rel="noreferrer">
-                  Read Docs ↗
+                <Link className="docs-link" to="/guides">
+                  Documentation Hub ↗
                 </Link>
               </div>
               <p className="subtitle">

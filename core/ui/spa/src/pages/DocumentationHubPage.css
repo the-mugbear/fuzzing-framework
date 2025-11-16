@@ -1,0 +1,97 @@
+.docs-hub {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+  padding: 2rem;
+}
+
+.docs-hub-header {
+  max-width: 720px;
+}
+
+.docs-hub-header .eyebrow {
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6c7c8c;
+  margin-bottom: 0.35rem;
+}
+
+.docs-hub-header h1 {
+  margin: 0 0 0.75rem;
+}
+
+.docs-hub-header p {
+  margin: 0;
+  color: #3b3f45;
+}
+
+.docs-hub-section-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+}
+
+.docs-hub-section-header h2 {
+  margin: 0;
+}
+
+.docs-hub-section-header p {
+  margin: 0;
+  color: #4b4f55;
+}
+
+.docs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.docs-card {
+  border: 1px solid #e1e4e8;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: #fff;
+  box-shadow: 0 5px 20px rgba(15, 23, 42, 0.05);
+}
+
+.docs-card-eyebrow {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6c7c8c;
+  margin: 0;
+}
+
+.docs-card h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.docs-card p {
+  margin: 0;
+  color: #394150;
+}
+
+.docs-card-link {
+  margin-top: auto;
+  text-decoration: none;
+  font-weight: 600;
+  color: #2f6fed;
+}
+
+.docs-card-link:hover,
+.docs-card-link:focus {
+  text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .docs-hub {
+    padding: 1.25rem;
+  }
+}
+

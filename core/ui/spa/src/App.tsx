@@ -12,6 +12,7 @@ import FuzzingGuide from './pages/FuzzingGuide';
 import MutationGuide from './pages/MutationGuide';
 import ProtocolAuthoringGuide from './pages/ProtocolAuthoringGuide';
 import ProtocolGuide from './pages/ProtocolGuide';
+import DocumentationHubPage from './pages/DocumentationHubPage';
 
 function App() {
   return (
@@ -25,6 +26,7 @@ function App() {
           <Route path="state-walker" element={<StateWalkerPage />} />
           <Route path="one-off" element={<OneOffTestPage />} />
           <Route path="correlation" element={<CorrelationPage />} />
+          <Route path="guides" element={<DocumentationHubPage />} />
           <Route path="guides/getting-started" element={<GettingStartedGuide />} />
           <Route path="guides/fuzzing" element={<FuzzingGuide />} />
           <Route path="guides/mutation" element={<MutationGuide />} />

@@ -61,6 +61,7 @@ function DashboardPage() {
   const [protocols, setProtocols] = useState<string[]>([]);
   const [sessions, setSessions] = useState<FuzzSession[]>([]);
   const [loading, setLoading] = useState(false);
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [toast, setToast] = useState<{ variant: ToastVariant; message: string } | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string>('');
   const [form, dispatch] = useReducer(formReducer, initialForm);
@@ -148,22 +149,28 @@ function DashboardPage() {
   };
 
   const handleStart = async (id: string) => {
+    setActionInProgress(id);
     try {
       await api(`/api/sessions/${id}/start`, { method: 'POST' });
       setToast({ variant: 'success', message: 'Session started.' });
       refreshSessions();
     } catch (err) {
       setToast({ variant: 'error', message: `Start failed: ${(err as Error).message}` });
+    } finally {
+      setActionInProgress(null);
     }
   };
 
   const handleStop = async (id: string) => {
+    setActionInProgress(id);
     try {
       await api(`/api/sessions/${id}/stop`, { method: 'POST' });
       setToast({ variant: 'success', message: 'Session stopped.' });
       refreshSessions();
     } catch (err) {
       setToast({ variant: 'error', message: `Stop failed: ${(err as Error).message}` });
+    } finally {
+      setActionInProgress(null);
     }
   };
 
@@ -352,9 +359,18 @@ function DashboardPage() {
                   </td>
                   <td>
                     <div className="session-actions">
-                      <button onClick={() => handleStart(session.id)}>Start</button>
-                      <button onClick={() => handleStop(session.id)} className="ghost">
-                        Stop
+                      <button
+                        onClick={() => handleStart(session.id)}
+                        disabled={actionInProgress === session.id}
+                      >
+                        {actionInProgress === session.id ? 'Starting...' : 'Start'}
+                      </button>
+                      <button
+                        onClick={() => handleStop(session.id)}
+                        className="ghost"
+                        disabled={actionInProgress === session.id}
+                      >
+                        {actionInProgress === session.id ? 'Stopping...' : 'Stop'}
                       </button>
                     </div>
                   </td>

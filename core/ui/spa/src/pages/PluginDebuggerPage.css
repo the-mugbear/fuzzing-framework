@@ -334,3 +334,131 @@
   color: #888;
   font-style: italic;
 }
+
+/* Dependencies List */
+.dependencies-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.dep-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: 'Roboto Mono', monospace;
+  white-space: nowrap;
+}
+
+.dep-tag.size-dep {
+  background: rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  color: #93c5fd;
+}
+
+.dep-tag.ref-dep {
+  background: rgba(168, 85, 247, 0.2);
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  color: #c084fc;
+}
+
+.dep-tag.response-dep {
+  background: rgba(251, 191, 36, 0.2);
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  color: #fbbf24;
+}
+
+/* Response Handlers */
+.response-handlers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.response-handler-card {
+  background: rgba(2, 6, 23, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.response-handler-card h4 {
+  margin: 0 0 12px 0;
+  color: #93c5fd;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.handler-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-top: 12px;
+}
+
+.handler-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #cbd5e1;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.handler-code {
+  margin: 0;
+  padding: 12px;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  font-family: 'Roboto Mono', monospace;
+  font-size: 0.85rem;
+  color: #a5b4fc;
+  overflow-x: auto;
+}
+
+.set-fields-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field-mapping {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+}
+
+.target-field {
+  font-family: 'Roboto Mono', monospace;
+  font-weight: 600;
+  color: #6ee7b7;
+  font-size: 0.9rem;
+}
+
+.mapping-arrow {
+  color: #94a3b8;
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.source-value {
+  font-family: 'Roboto Mono', monospace;
+  color: #fbbf24;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
