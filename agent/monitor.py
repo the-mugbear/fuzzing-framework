@@ -17,6 +17,8 @@ from typing import Optional
 import psutil
 import structlog
 
+from core.models import TransportProtocol
+
 logger = structlog.get_logger()
 
 
@@ -162,18 +164,28 @@ class TargetExecutor:
     - Detecting crashes and anomalies
     """
 
-    def __init__(self, target_host: str, target_port: int, launch_cmd: Optional[str] = None):
+    def __init__(
+        self,
+        target_host: str,
+        target_port: int,
+        launch_cmd: Optional[str] = None,
+        transport: TransportProtocol = TransportProtocol.TCP,
+    ):
         self.target_host = target_host
         self.target_port = target_port
         self.launch_cmd = launch_cmd
         self.monitor = ProcessMonitor()
         self._process_handle: Optional[psutil.Process] = None
         self._popen: Optional[subprocess.Popen] = None
+        self.transport = transport
         if self.launch_cmd:
             self._ensure_target_process()
 
     async def execute_test_case(
-        self, test_data: bytes, timeout_sec: float = 5.0
+        self,
+        test_data: bytes,
+        timeout_sec: float = 5.0,
+        transport: Optional[TransportProtocol] = None,
     ) -> MonitoringResult:
         """
         Execute a test case against the target
@@ -190,29 +202,50 @@ class TargetExecutor:
         start_time = time.time()
         response = b""
         verdict = "pass"
+        active_transport = transport or self.transport
 
         try:
             self._ensure_target_process()
-
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock_type = socket.SOCK_DGRAM if active_transport == TransportProtocol.UDP else socket.SOCK_STREAM
+            sock = socket.socket(socket.AF_INET, sock_type)
             sock.settimeout(timeout_sec)
-            sock.connect((self.target_host, self.target_port))
-            sock.sendall(test_data)
 
-            try:
-                response = sock.recv(4096)
-            except socket.timeout:
-                response = b""
-                verdict = "hang"
-            finally:
-                sock.close()
+            if active_transport == TransportProtocol.UDP:
+                try:
+                    sock.sendto(test_data, (self.target_host, self.target_port))
+                    response, _ = sock.recvfrom(4096)
+                except socket.timeout:
+                    response = b""
+                    verdict = "hang"
+                finally:
+                    sock.close()
+            else:
+                try:
+                    sock.connect((self.target_host, self.target_port))
+                    sock.sendall(test_data)
+                    response = sock.recv(4096)
+                except socket.timeout:
+                    response = b""
+                    verdict = "hang"
+                finally:
+                    sock.close()
 
         except ConnectionRefusedError:
             verdict = "crash"
-            logger.error("target_connection_refused", host=self.target_host, port=self.target_port)
+            logger.error(
+                "target_connection_refused",
+                host=self.target_host,
+                port=self.target_port,
+                transport=active_transport.value,
+            )
         except socket.timeout:
             verdict = "hang"
-            logger.warning("target_timeout", host=self.target_host, port=self.target_port)
+            logger.warning(
+                "target_timeout",
+                host=self.target_host,
+                port=self.target_port,
+                transport=active_transport.value,
+            )
         except Exception as exc:
             verdict = "crash"
             logger.error("execution_error", error=str(exc))

@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import EditableFieldTable, { FieldValue } from '../components/EditableFieldTable';
 import LivePacketBuilder from '../components/LivePacketBuilder';
-import MutationControls from '../components/MutationControls';
+import FieldMutationPanel from '../components/FieldMutationPanel';
+import AdvancedMutations from '../components/AdvancedMutations';
+import MutationTimeline, { MutationStackEntry } from '../components/MutationTimeline';
+import DiffHexViewer from '../components/DiffHexViewer';
 import { api, API_BASE } from '../services/api';
 import './MutationWorkbenchPage.css';
 
@@ -60,10 +63,12 @@ interface HistoryEntry {
   id: string;
   timestamp: Date;
   seedIndex: number;
-  mutationsApplied: string[];
-  hexPreview: string;
+  mutationStack: MutationStackEntry[];
+  fields: FieldValue[];
+  hexData: string;
   totalBytes: number;
   response: TestExecuteResponse;
+  description: string;
 }
 
 function MutationWorkbenchPage() {
@@ -85,11 +90,15 @@ function MutationWorkbenchPage() {
   const [sending, setSending] = useState(false);
   const [response, setResponse] = useState<TestExecuteResponse | null>(null);
 
-  // State tracking and history
-  const [currentState, setCurrentState] = useState<string>('No packet loaded');
-  const [mutationsApplied, setMutationsApplied] = useState<string[]>([]);
+  // New state for mutation tracking
+  const [baseHexData, setBaseHexData] = useState(''); // Original seed hex
+  const [mutationStack, setMutationStack] = useState<MutationStackEntry[]>([]);
+  const [redoStack, setRedoStack] = useState<MutationStackEntry[]>([]);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [statusMessage, setStatusMessage] = useState<string>('');
+  const [showDiffView, setShowDiffView] = useState(false);
+  const [diffViewEntry, setDiffViewEntry] = useState<MutationStackEntry | null>(null);
+  const [selectedField, setSelectedField] = useState<string | null>(null);
 
   // Load available protocols
   useEffect(() => {
@@ -113,8 +122,6 @@ function MutationWorkbenchPage() {
     api<Plugin>(`/api/plugins/${selectedProtocol}`)
       .then((p) => {
         setPlugin(p);
-        // Count seeds from data model (seeds are base64 encoded in the plugin response)
-        // Request a small preview to get actual count
         return api<{ previews: any[] }>(
           `/api/plugins/${selectedProtocol}/preview`,
           {
@@ -122,9 +129,8 @@ function MutationWorkbenchPage() {
             body: JSON.stringify({ mode: 'seeds', count: 10 }),
           }
         ).then((previewData) => {
-          // If we got 10, there might be more, but we'll use 10 as a reasonable max for the workbench
           setSeedCount(previewData.previews.length);
-          setSeedIndex(0); // Reset to first seed
+          setSeedIndex(0);
         });
       })
       .catch((err) => {
@@ -134,10 +140,9 @@ function MutationWorkbenchPage() {
       .finally(() => setLoading(false));
   }, [selectedProtocol]);
 
-  // Load seed when protocol or seed index changes
+  // Load base message when protocol or seed index changes
   useEffect(() => {
     if (!selectedProtocol || seedIndex < 0) return;
-
     loadSeed();
   }, [selectedProtocol, seedIndex]);
 
@@ -145,9 +150,11 @@ function MutationWorkbenchPage() {
     setLoading(true);
     setError(null);
     setResponse(null);
+    setMutationStack([]);
+    setRedoStack([]);
+    setShowDiffView(false);
 
     try {
-      // Get preview to obtain seed data
       const previewResponse = await api<{ previews: any[] }>(
         `/api/plugins/${selectedProtocol}/preview`,
         {
@@ -157,12 +164,11 @@ function MutationWorkbenchPage() {
       );
 
       if (previewResponse.previews.length <= seedIndex) {
-        throw new Error(`Seed ${seedIndex} not found`);
+        throw new Error(`Base message ${seedIndex} not found`);
       }
 
       const seedPreview = previewResponse.previews[seedIndex];
 
-      // Parse the seed hex to get fields
       const parseResponse = await api<ParseResponse>(
         `/api/plugins/${selectedProtocol}/parse`,
         {
@@ -177,13 +183,12 @@ function MutationWorkbenchPage() {
       if (parseResponse.success) {
         setFields(parseResponse.fields);
         setHexData(seedPreview.hex_dump);
+        setBaseHexData(seedPreview.hex_dump);
         setTotalBytes(parseResponse.total_bytes);
-        setMutationsApplied([]);
-        setCurrentState(`Seed ${seedIndex + 1} of ${seedCount} (unmodified)`);
-        setStatusMessage(`✓ Loaded seed ${seedIndex + 1}`);
+        setStatusMessage(`✓ Loaded base message ${seedIndex + 1}`);
         setTimeout(() => setStatusMessage(''), 3000);
       } else {
-        setError(parseResponse.error || 'Failed to parse seed');
+        setError(parseResponse.error || 'Failed to parse base message');
       }
     } catch (err) {
       setError((err as Error).message);
@@ -192,23 +197,52 @@ function MutationWorkbenchPage() {
     }
   };
 
+  // Calculate which bytes changed between two hex strings
+  const calculateDiff = (beforeHex: string, afterHex: string): number[] => {
+    const beforeBytes = beforeHex.match(/.{1,2}/g) || [];
+    const afterBytes = afterHex.match(/.{1,2}/g) || [];
+    const maxLen = Math.max(beforeBytes.length, afterBytes.length);
+    const changedOffsets: number[] = [];
+
+    for (let i = 0; i < maxLen; i++) {
+      if (beforeBytes[i] !== afterBytes[i]) {
+        changedOffsets.push(i);
+      }
+    }
+
+    return changedOffsets;
+  };
+
   const handleFieldChange = async (fieldName: string, newValue: any) => {
-    // Update the field value
+    const beforeHex = hexData;
     const updatedFields = fields.map((f) =>
       f.name === fieldName ? { ...f, value: newValue } : f
     );
     setFields(updatedFields);
 
-    // Track manual edit
-    if (!mutationsApplied.includes('manual_edit')) {
-      setMutationsApplied([...mutationsApplied, 'manual_edit']);
-    }
-    setCurrentState(`Seed ${seedIndex + 1} + manual edits`);
-    setStatusMessage(`✓ Updated field: ${fieldName}`);
-    setTimeout(() => setStatusMessage(''), 3000);
-
-    // Rebuild packet with new field values
     await rebuildPacket(updatedFields);
+
+    // After rebuild, create mutation stack entry
+    setTimeout(() => {
+      const afterHex = hexData;
+      const changedOffsets = calculateDiff(beforeHex, afterHex);
+
+      const stackEntry: MutationStackEntry = {
+        id: Date.now().toString(),
+        type: 'manual_edit',
+        fieldChanged: fieldName,
+        timestamp: new Date(),
+        bytesChanged: changedOffsets,
+        beforeHex: beforeHex,
+        afterHex: afterHex,
+        description: `Edited field: ${fieldName}`,
+      };
+
+      setMutationStack([...mutationStack, stackEntry]);
+      setRedoStack([]); // Clear redo stack on new action
+      setStatusMessage(`✓ Updated field: ${fieldName}`);
+      setTimeout(() => setStatusMessage(''), 3000);
+    }, 100);
   };
 
   const rebuildPacket = async (updatedFields: FieldValue[]) => {
@@ -216,7 +250,6 @@ function MutationWorkbenchPage() {
     setBuildError(null);
 
     try {
-      // Convert fields array to field dictionary
       const fieldDict: Record<string, any> = {};
       updatedFields.forEach((f) => {
         fieldDict[f.name] = f.value;
@@ -234,7 +267,6 @@ function MutationWorkbenchPage() {
         setHexData(buildResponse.hex_data);
         setTotalBytes(buildResponse.total_bytes);
 
-        // Re-parse to update field hex values and offsets
         const parseResponse = await api<ParseResponse>(
           `/api/plugins/${selectedProtocol}/parse`,
           {
@@ -264,6 +296,8 @@ function MutationWorkbenchPage() {
     setError(null);
     setResponse(null);
 
+    const beforeHex = hexData;
+
     try {
       const mutateResponse = await api<MutateResponse>(
         `/api/plugins/${selectedProtocol}/mutate_with`,
@@ -281,11 +315,31 @@ function MutationWorkbenchPage() {
         setTotalBytes(mutateResponse.mutated_bytes);
         setFields(mutateResponse.fields);
 
-        // Track mutation
-        const newMutations = [...mutationsApplied.filter(m => m !== 'manual_edit'), mutatorName];
-        setMutationsApplied(newMutations);
-        setCurrentState(`Seed ${seedIndex + 1} + ${mutatorName}`);
-        setStatusMessage(`✓ Applied ${mutatorName} mutation`);
+        // Calculate diff
+        const changedOffsets = calculateDiff(beforeHex, mutateResponse.mutated_hex);
+
+        // Create mutation stack entry
+        const stackEntry: MutationStackEntry = {
+          id: Date.now().toString(),
+          type: 'mutator',
+          mutator: mutatorName,
+          timestamp: new Date(),
+          bytesChanged: changedOffsets,
+          beforeHex: beforeHex,
+          afterHex: mutateResponse.mutated_hex,
+          description:
+            changedOffsets.length === 0
+              ? `${mutatorName} (no changes)`
+              : `Changed ${changedOffsets.length} byte${
+                  changedOffsets.length !== 1 ? 's' : ''
+                }`,
+        };
+
+        setMutationStack([...mutationStack, stackEntry]);
+        setRedoStack([]); // Clear redo stack on new action
+        setShowDiffView(true);
+        setDiffViewEntry(stackEntry);
+        setStatusMessage(`✓ Applied ${mutatorName} mutation to full message`);
         setTimeout(() => setStatusMessage(''), 3000);
       } else {
         setError(mutateResponse.error || 'Mutation failed');
@@ -297,13 +351,180 @@ function MutationWorkbenchPage() {
     }
   };
 
+  const handleFieldMutation = async (
+    fieldName: string,
+    mutator: string,
+    strategy?: string
+  ) => {
+    setLoading(true);
+    setError(null);
+    setResponse(null);
+
+    const beforeHex = hexData;
+
+    try {
+      const response = await api<any>(
+        `/api/plugins/${selectedProtocol}/mutate_field`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            seed_index: seedIndex,
+            field_name: fieldName,
+            mutator: mutator,
+            strategy: strategy,
+          }),
+        }
+      );
+
+      if (response.success) {
+        setHexData(response.mutated_hex);
+        setTotalBytes(response.mutated_bytes);
+        setFields(response.fields);
+
+        // Calculate diff
+        const changedOffsets = calculateDiff(beforeHex, response.mutated_hex);
+
+        // Create description
+        let description = '';
+        if (strategy) {
+          description = `${fieldName}: ${strategy} (${changedOffsets.length} byte${
+            changedOffsets.length !== 1 ? 's' : ''
+          } changed)`;
+        } else {
+          description = `${fieldName}: ${mutator} (${changedOffsets.length} byte${
+            changedOffsets.length !== 1 ? 's' : ''
+          } changed)`;
+        }
+
+        // Create mutation stack entry
+        const stackEntry: MutationStackEntry = {
+          id: Date.now().toString(),
+          type: 'mutator',
+          mutator: strategy || mutator,
+          fieldChanged: fieldName,
+          timestamp: new Date(),
+          bytesChanged: changedOffsets,
+          beforeHex: beforeHex,
+          afterHex: response.mutated_hex,
+          description: description,
+        };
+
+        setMutationStack([...mutationStack, stackEntry]);
+        setRedoStack([]); // Clear redo stack on new action
+        setShowDiffView(true);
+        setDiffViewEntry(stackEntry);
+        setStatusMessage(`✓ Mutated field: ${fieldName}`);
+        setTimeout(() => setStatusMessage(''), 3000);
+      } else {
+        setError(response.error || 'Field mutation failed');
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUndo = () => {
+    if (mutationStack.length === 0) return;
+
+    const lastEntry = mutationStack[mutationStack.length - 1];
+    const newStack = mutationStack.slice(0, -1);
+
+    setMutationStack(newStack);
+    setRedoStack([...redoStack, lastEntry]);
+
+    // Restore to previous state
+    if (newStack.length === 0) {
+      // Restore to base message
+      loadSeed();
+      setShowDiffView(false);
+    } else {
+      const prevEntry = newStack[newStack.length - 1];
+      setHexData(prevEntry.afterHex);
+      parseHexData(prevEntry.afterHex);
+      setDiffViewEntry(prevEntry);
+    }
+
+    setStatusMessage(`↶ Undid ${lastEntry.mutator || 'edit'}`);
+    setTimeout(() => setStatusMessage(''), 3000);
+  };
+
+  const handleRedo = () => {
+    if (redoStack.length === 0) return;
+
+    const nextEntry = redoStack[redoStack.length - 1];
+    const newRedoStack = redoStack.slice(0, -1);
+
+    setMutationStack([...mutationStack, nextEntry]);
+    setRedoStack(newRedoStack);
+
+    setHexData(nextEntry.afterHex);
+    parseHexData(nextEntry.afterHex);
+    setShowDiffView(true);
+    setDiffViewEntry(nextEntry);
+
+    setStatusMessage(`↷ Redid ${nextEntry.mutator || 'edit'}`);
+    setTimeout(() => setStatusMessage(''), 3000);
+  };
+
+  const handleRemoveMutation = async (mutationId: string) => {
+    const index = mutationStack.findIndex((m) => m.id === mutationId);
+    if (index === -1) return;
+
+    const newStack = mutationStack.filter((m) => m.id !== mutationId);
+    setMutationStack(newStack);
+    setRedoStack([]); // Clear redo stack
+
+    // Restore to base and replay remaining mutations
+    await loadSeed();
+
+    // Note: Full replay would require API support for applying mutations sequentially
+    // For now, we'll just reset to base message
+    setStatusMessage('⚠️ Mutation removed - reset to base message');
+    setTimeout(() => setStatusMessage(''), 3000);
+  };
+
+  const handleClearAll = () => {
+    setMutationStack([]);
+    setRedoStack([]);
+    setShowDiffView(false);
+    loadSeed();
+  };
+
+  const handleViewDiff = (entry: MutationStackEntry) => {
+    setShowDiffView(true);
+    setDiffViewEntry(entry);
+  };
+
+  const parseHexData = async (hex: string) => {
+    try {
+      const parseResponse = await api<ParseResponse>(
+        `/api/plugins/${selectedProtocol}/parse`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            packet: hex,
+            format: 'hex',
+          }),
+        }
+      );
+
+      if (parseResponse.success) {
+        setFields(parseResponse.fields);
+        setTotalBytes(parseResponse.total_bytes);
+      }
+    } catch (err) {
+      console.error('Failed to parse hex data:', err);
+    }
+  };
+
   const handleSend = async () => {
     setSending(true);
     setError(null);
     setResponse(null);
 
     try {
-      // Convert hex to base64
       const hexBytes = hexData.match(/.{1,2}/g)?.map((byte) => parseInt(byte, 16)) || [];
       const byteArray = new Uint8Array(hexBytes);
       let binary = '';
@@ -332,17 +553,27 @@ function MutationWorkbenchPage() {
 
       setResponse(data);
 
+      // Build description
+      const mutationDesc =
+        mutationStack.length === 0
+          ? 'No mutations'
+          : mutationStack.map((m) => m.mutator || 'edit').join(' + ');
+
       // Add to history
       const historyEntry: HistoryEntry = {
         id: Date.now().toString(),
         timestamp: new Date(),
         seedIndex: seedIndex,
-        mutationsApplied: [...mutationsApplied],
-        hexPreview: hexData.substring(0, 64), // First 32 bytes
+        mutationStack: [...mutationStack],
+        fields: [...fields],
+        hexData: hexData,
         totalBytes: totalBytes,
         response: data,
+        description: `Base ${seedIndex + 1}${
+          mutationStack.length > 0 ? ` + ${mutationDesc}` : ''
+        }`,
       };
-      setHistory((prev) => [historyEntry, ...prev].slice(0, 5)); // Keep last 5
+      setHistory((prev) => [historyEntry, ...prev].slice(0, 10)); // Keep last 10
 
       setStatusMessage(`✓ Sent ${totalBytes} bytes to ${targetHost}:${targetPort}`);
       setTimeout(() => setStatusMessage(''), 3000);
@@ -353,15 +584,38 @@ function MutationWorkbenchPage() {
     }
   };
 
+  const handleRestoreHistory = (entry: HistoryEntry) => {
+    setSeedIndex(entry.seedIndex);
+    setMutationStack(entry.mutationStack);
+    setFields(entry.fields);
+    setHexData(entry.hexData);
+    setTotalBytes(entry.totalBytes);
+    setRedoStack([]);
+
+    if (entry.mutationStack.length > 0) {
+      const lastMutation = entry.mutationStack[entry.mutationStack.length - 1];
+      setShowDiffView(true);
+      setDiffViewEntry(lastMutation);
+    } else {
+      setShowDiffView(false);
+    }
+
+    setStatusMessage(`✓ Restored: ${entry.description}`);
+    setTimeout(() => setStatusMessage(''), 3000);
+  };
+
   const handleByteHover = (offset: number | null) => {
     if (offset === null) {
       setHoveredField(null);
       return;
     }
 
-    // Find which field contains this offset
     const field = fields.find((f) => offset >= f.offset && offset < f.offset + f.size);
     setHoveredField(field?.name || null);
+  };
+
+  const getBaseMessageName = () => {
+    return `${selectedProtocol} base message ${seedIndex + 1}`;
   };
 
   return (
@@ -371,8 +625,8 @@ function MutationWorkbenchPage() {
           <p className="eyebrow">Interactive Testing</p>
           <h2>Mutation Workbench</h2>
           <p>
-            Manually craft and mutate packets, test mutations, and send to target for real-time
-            feedback.
+            Craft and mutate protocol messages, verify mutation behavior, and test against live
+            targets.
           </p>
         </div>
       </div>
@@ -383,35 +637,17 @@ function MutationWorkbenchPage() {
         </div>
       )}
 
-      {statusMessage && (
-        <div className="status-banner card">
-          {statusMessage}
-        </div>
-      )}
-
-      <div className="current-state-card card">
-        <div className="state-indicator">
-          <div>
-            <strong>Current Packet State:</strong> {currentState}
-          </div>
-          {mutationsApplied.length > 0 && (
-            <div className="mutations-applied">
-              <span>Mutations: </span>
-              {mutationsApplied.map((m, i) => (
-                <span key={i} className="mutation-tag">{m}</span>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="state-info">
-          <span>{totalBytes} bytes will be sent when you click "Send to Target"</span>
-        </div>
-      </div>
+      {statusMessage && <div className="status-banner card">{statusMessage}</div>}
 
       <div className="workbench-controls card">
         <div className="control-row">
           <div className="control-group">
-            <label htmlFor="protocol">Protocol</label>
+            <label htmlFor="protocol">
+              Protocol
+              <span className="tooltip" title="Select a protocol to work with">
+                ⓘ
+              </span>
+            </label>
             <select
               id="protocol"
               value={selectedProtocol}
@@ -428,7 +664,13 @@ function MutationWorkbenchPage() {
 
           <div className="control-group">
             <label htmlFor="seed">
-              Seed ({seedIndex + 1} of {seedCount})
+              Base Message ({seedIndex + 1} of {seedCount})
+              <span
+                className="tooltip"
+                title="Valid protocol examples to start from. These are defined in the protocol plugin."
+              >
+                ⓘ
+              </span>
             </label>
             <div className="seed-selector">
               <button
@@ -506,118 +748,149 @@ function MutationWorkbenchPage() {
       </div>
 
       {fields.length > 0 && (
-        <>
-          <div className="workbench-section card">
-            <h3>Editable Fields</h3>
-            <p className="section-hint">
-              Click "Edit" to modify field values. Computed fields (like size_of) update
-              automatically.
-            </p>
-            <EditableFieldTable
-              fields={fields}
-              onFieldChange={handleFieldChange}
-              hoveredField={hoveredField}
-              onFieldHover={setHoveredField}
+        <div className="workbench-content">
+          {/* Timeline Sidebar */}
+          <div className="timeline-sidebar">
+            <MutationTimeline
+              stack={mutationStack}
+              baseName={getBaseMessageName()}
+              onRemoveMutation={handleRemoveMutation}
+              onClearAll={handleClearAll}
+              onUndo={handleUndo}
+              onRedo={handleRedo}
+              onViewDiff={handleViewDiff}
+              canUndo={mutationStack.length > 0}
+              canRedo={redoStack.length > 0}
             />
           </div>
 
-          <div className="workbench-section card">
-            <LivePacketBuilder
-              hexData={hexData}
-              fields={fields}
-              totalBytes={totalBytes}
-              onByteHover={handleByteHover}
-              building={building}
-              error={buildError}
-            />
-          </div>
-
-          <div className="workbench-section card">
-            <h3>Apply Mutations</h3>
-            <p className="section-hint">
-              Apply a mutation strategy to the current seed and see the result.
-            </p>
-            <MutationControls
-              onMutate={handleMutate}
-              disabled={loading}
-              seedCount={seedCount}
-            />
-          </div>
-
-          {response && (
-            <div className="workbench-section card response-section">
-              <h3>Target Response</h3>
-              <div className="response-details">
-                <div className="response-meta">
-                  <div>
-                    <span>Sent</span>
-                    <strong>{response.sent_bytes} bytes</strong>
-                  </div>
-                  <div>
-                    <span>Received</span>
-                    <strong>{response.response_bytes} bytes</strong>
-                  </div>
-                  <div>
-                    <span>Duration</span>
-                    <strong>{response.duration_ms.toFixed(2)} ms</strong>
-                  </div>
-                </div>
-                {response.response_hex && (
-                  <div className="response-hex">
-                    <label>Response Data (Hex)</label>
-                    <pre>{response.response_hex}</pre>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {history.length > 0 && (
-            <div className="workbench-section card history-section">
-              <h3>Send History (Last 5)</h3>
+          {/* Main Content */}
+          <div className="main-content">
+            <div className="workbench-section card">
+              <h3>Editable Fields</h3>
               <p className="section-hint">
-                Click a history entry to reload that packet state.
+                Click a row to select a field for mutation. Click "Edit" to manually modify values. Size fields update automatically.
               </p>
-              <div className="history-list">
-                {history.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="history-item"
-                    onClick={() => {
-                      // Reload this packet (note: this is simplified - in production you'd restore full state)
-                      setStatusMessage(`History entry from ${entry.timestamp.toLocaleTimeString()} cannot be fully restored yet`);
-                      setTimeout(() => setStatusMessage(''), 3000);
-                    }}
-                  >
-                    <div className="history-header">
-                      <span className="history-time">
-                        {entry.timestamp.toLocaleTimeString()}
-                      </span>
-                      <span className="history-seed">Seed {entry.seedIndex + 1}</span>
-                      {entry.mutationsApplied.length > 0 && (
-                        <span className="history-mutations">
-                          {entry.mutationsApplied.join(' + ')}
-                        </span>
-                      )}
+              <EditableFieldTable
+                fields={fields}
+                onFieldChange={handleFieldChange}
+                hoveredField={hoveredField}
+                onFieldHover={setHoveredField}
+                selectedField={selectedField}
+                onFieldSelect={setSelectedField}
+              />
+            </div>
+
+            {showDiffView && diffViewEntry ? (
+              <div className="workbench-section card">
+                <DiffHexViewer
+                  originalHex={diffViewEntry.beforeHex}
+                  mutatedHex={diffViewEntry.afterHex}
+                  fields={fields}
+                  mutationSummary={{
+                    bytesChanged: diffViewEntry.bytesChanged.length,
+                    offsets: diffViewEntry.bytesChanged,
+                    mutator: diffViewEntry.mutator || 'Manual Edit',
+                  }}
+                  onByteHover={handleByteHover}
+                />
+              </div>
+            ) : (
+              <div className="workbench-section card">
+                <LivePacketBuilder
+                  hexData={hexData}
+                  fields={fields}
+                  totalBytes={totalBytes}
+                  onByteHover={handleByteHover}
+                  building={building}
+                  error={buildError}
+                />
+              </div>
+            )}
+
+            <div className="workbench-section card">
+              <FieldMutationPanel
+                selectedField={fields.find(f => f.name === selectedField) || null}
+                onMutate={handleFieldMutation}
+                disabled={loading}
+              />
+            </div>
+
+            <div className="workbench-section">
+              <AdvancedMutations
+                onMutate={handleMutate}
+                disabled={loading}
+                seedCount={seedCount}
+              />
+            </div>
+
+            {response && (
+              <div className="workbench-section card response-section">
+                <h3>Target Response</h3>
+                <div className="response-details">
+                  <div className="response-meta">
+                    <div>
+                      <span>Sent</span>
+                      <strong>{response.sent_bytes} bytes</strong>
                     </div>
-                    <div className="history-hex">
-                      {entry.hexPreview}
-                      {entry.hexPreview.length < entry.totalBytes * 2 && '...'}
+                    <div>
+                      <span>Received</span>
+                      <strong>{response.response_bytes} bytes</strong>
                     </div>
-                    <div className="history-result">
-                      <span className={entry.response.success ? 'success' : 'failure'}>
-                        {entry.response.success ? '✓' : '✗'}
-                      </span>
-                      <span>{entry.totalBytes} bytes sent</span>
-                      <span>{entry.response.response_bytes} bytes received</span>
-                      <span>{entry.response.duration_ms.toFixed(2)} ms</span>
+                    <div>
+                      <span>Duration</span>
+                      <strong>{response.duration_ms.toFixed(2)} ms</strong>
                     </div>
                   </div>
-                ))}
+                  {response.response_hex && (
+                    <div className="response-hex">
+                      <label>Response Data (Hex)</label>
+                      <pre>{response.response_hex}</pre>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
-        </>
+            )}
+
+            {history.length > 0 && (
+              <div className="workbench-section card history-section">
+                <h3>Test History (Last 10)</h3>
+                <p className="section-hint">Click "Restore" to load a previous test case.</p>
+                <div className="history-list">
+                  {history.map((entry) => (
+                    <div key={entry.id} className="history-item">
+                      <div className="history-header">
+                        <span className="history-time">
+                          {entry.timestamp.toLocaleTimeString()}
+                        </span>
+                        <span className="history-desc">{entry.description}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRestoreHistory(entry)}
+                          className="restore-btn"
+                        >
+                          Restore
+                        </button>
+                      </div>
+                      <div className="history-hex">
+                        {entry.hexData.substring(0, 64)}
+                        {entry.hexData.length > 64 && '...'}
+                      </div>
+                      <div className="history-result">
+                        <span className={entry.response.success ? 'success' : 'failure'}>
+                          {entry.response.success ? '✓' : '✗'}
+                        </span>
+                        <span>{entry.totalBytes} bytes sent</span>
+                        <span>{entry.response.response_bytes} bytes received</span>
+                        <span>{entry.response.duration_ms.toFixed(2)} ms</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {loading && (

@@ -9,11 +9,11 @@ from typing import Dict, Optional, Tuple
 import structlog
 
 from core.config import settings
-from core.models import AgentStatus, AgentWorkItem
+from core.models import AgentStatus, AgentWorkItem, TransportProtocol
 
 logger = structlog.get_logger()
 
-TargetKey = Tuple[str, int]
+TargetKey = Tuple[str, int, TransportProtocol]
 
 
 class AgentManager:
@@ -33,6 +33,7 @@ class AgentManager:
         hostname: str,
         target_host: str,
         target_port: int,
+        transport: TransportProtocol,
     ) -> AgentStatus:
         """Register or update an agent record"""
         status = AgentStatus(
@@ -42,6 +43,7 @@ class AgentManager:
             target_port=target_port,
             is_alive=True,
             last_heartbeat=datetime.utcnow(),
+            transport=transport,
         )
         self._agents[agent_id] = status
         logger.info(
@@ -49,6 +51,7 @@ class AgentManager:
             agent_id=agent_id,
             target_host=target_host,
             target_port=target_port,
+            transport=transport.value,
         )
         return status
 
@@ -75,20 +78,32 @@ class AgentManager:
     def get_agent(self, agent_id: str) -> Optional[AgentStatus]:
         return self._agents.get(agent_id)
 
-    def has_agent_for_target(self, target_host: str, target_port: int) -> bool:
+    def has_agent_for_target(
+        self,
+        target_host: str,
+        target_port: int,
+        transport: TransportProtocol,
+    ) -> bool:
         """Check if at least one agent is registered for the target"""
         for status in self._agents.values():
             if (
                 status.target_host == target_host
                 and status.target_port == target_port
+                and status.transport == transport
                 and status.is_alive
             ):
                 return True
         return False
 
-    async def enqueue_test_case(self, target_host: str, target_port: int, work: AgentWorkItem) -> None:
+    async def enqueue_test_case(
+        self,
+        target_host: str,
+        target_port: int,
+        transport: TransportProtocol,
+        work: AgentWorkItem,
+    ) -> None:
         """Queue a test case for agents matching the given target"""
-        key = (target_host, target_port)
+        key = (target_host, target_port, transport)
         queue = self._queues[key]
         await queue.put(work)
         logger.debug(
@@ -97,6 +112,7 @@ class AgentManager:
             test_case_id=work.test_case_id,
             target_host=target_host,
             target_port=target_port,
+            transport=transport.value,
         )
 
     async def request_work(self, agent_id: str, timeout: float = 0.5) -> Optional[AgentWorkItem]:
@@ -106,7 +122,7 @@ class AgentManager:
             logger.warning("request_from_unknown_agent", agent_id=agent_id)
             return None
 
-        queue = self._queues[(agent.target_host, agent.target_port)]
+        queue = self._queues[(agent.target_host, agent.target_port, agent.transport)]
         try:
             work = await asyncio.wait_for(queue.get(), timeout=timeout)
         except asyncio.TimeoutError:

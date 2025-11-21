@@ -5,6 +5,7 @@ LIVE RELOAD TEST - This should appear immediately!
 """
 
 __version__ = "1.0.1"
+transport = "tcp"
 
 # Required: Data Model
 data_model = {

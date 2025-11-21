@@ -830,3 +830,266 @@ async def mutate_with_endpoint(
     except Exception as e:
         logger.error("mutate_endpoint_failed", plugin=plugin_name, error=str(e))
         raise HTTPException(status_code=500, detail=f"Mutation failed: {str(e)}")
+
+
+class FieldMutateRequest(BaseModel):
+    """Request to apply mutation to a specific field"""
+
+    seed_index: int = 0
+    field_name: str  # Target field to mutate
+    mutator: str  # For byte-level: bitflip, byteflip, arithmetic, interesting
+    strategy: Optional[str] = None  # For structure-aware: boundary_values, expand_field, etc.
+
+
+class FieldMutateResponse(BaseModel):
+    """Response from field mutation"""
+
+    success: bool
+    original_hex: str
+    mutated_hex: str
+    field_name: str
+    mutator_used: str
+    strategy_used: Optional[str] = None
+    original_bytes: int
+    mutated_bytes: int
+    fields: List[ParsedField] = []
+    error: Optional[str] = None
+
+
+@router.post("/plugins/{plugin_name}/mutate_field", response_model=FieldMutateResponse)
+async def mutate_field_endpoint(
+    plugin_name: str,
+    request: FieldMutateRequest,
+    plugin_manager=Depends(get_plugin_manager),
+):
+    """
+    Apply mutation to a specific field.
+
+    For structure-aware mutations, applies the specified strategy to the field.
+    For byte-level mutations, constrains mutation to the field's byte range.
+    """
+    try:
+        plugin = plugin_manager.load_plugin(plugin_name)
+        denormalized_model = denormalize_data_model_from_json(plugin.data_model)
+        seeds = denormalized_model.get("seeds", [])
+
+        if not seeds:
+            raise HTTPException(status_code=400, detail="Plugin has no seeds")
+
+        if request.seed_index < 0 or request.seed_index >= len(seeds):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid seed_index {request.seed_index}",
+            )
+
+        seed = seeds[request.seed_index]
+        mutator_name = request.mutator.lower()
+
+        # Parse original seed to get field info
+        parser = ProtocolParser(denormalized_model)
+        original_fields = parser.parse(seed)
+        blocks = denormalized_model.get("blocks", [])
+
+        # Find target field block
+        target_block = None
+        for block in blocks:
+            if block["name"] == request.field_name:
+                target_block = block
+                break
+
+        if not target_block:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Field '{request.field_name}' not found in protocol",
+            )
+
+        # Determine if this is structure-aware or byte-level
+        if mutator_name == "structure_aware" or request.strategy:
+            # Structure-aware mutation on specific field
+            from core.engine.structure_mutators import StructureAwareMutator
+
+            mutator = StructureAwareMutator(denormalized_model)
+
+            # Use provided strategy or pick one
+            if request.strategy:
+                strategy = request.strategy
+            else:
+                # Default to boundary_values
+                strategy = "boundary_values"
+
+            # Apply mutation to specific field
+            try:
+                mutated_fields = original_fields.copy()
+                mutated_value = mutator._apply_strategy(
+                    strategy,
+                    original_fields[request.field_name],
+                    target_block
+                )
+                mutated_fields[request.field_name] = mutated_value
+                mutated = parser.serialize(mutated_fields)
+                strategy_used = strategy
+            except Exception as e:
+                logger.error("field_mutation_failed", field=request.field_name, strategy=strategy, error=str(e))
+                raise HTTPException(status_code=400, detail=f"Mutation failed: {str(e)}")
+
+        else:
+            # Byte-level mutation scoped to field
+            # Get field offset and size
+            offset = 0
+            field_size = 0
+
+            for block in blocks:
+                field_name = block["name"]
+                field_type = block["type"]
+
+                if field_name == request.field_name:
+                    # Found target field, calculate its size
+                    value = original_fields.get(field_name)
+                    if field_type == "bytes":
+                        field_size = len(value) if isinstance(value, bytes) else block.get("size", 0)
+                    elif field_type.startswith("uint") or field_type.startswith("int"):
+                        if field_type.endswith("8"):
+                            field_size = 1
+                        elif field_type.endswith("16"):
+                            field_size = 2
+                        elif field_type.endswith("32"):
+                            field_size = 4
+                        elif field_type.endswith("64"):
+                            field_size = 8
+                    elif field_type == "string":
+                        field_size = len(value.encode("utf-8")) if isinstance(value, str) else 0
+                    break
+                else:
+                    # Accumulate offset
+                    value = original_fields.get(field_name)
+                    if field_type == "bytes":
+                        offset += len(value) if isinstance(value, bytes) else block.get("size", 0)
+                    elif field_type.startswith("uint") or field_type.startswith("int"):
+                        if field_type.endswith("8"):
+                            offset += 1
+                        elif field_type.endswith("16"):
+                            offset += 2
+                        elif field_type.endswith("32"):
+                            offset += 4
+                        elif field_type.endswith("64"):
+                            offset += 8
+                    elif field_type == "string":
+                        offset += len(value.encode("utf-8")) if isinstance(value, str) else 0
+
+            if field_size == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Could not determine size of field '{request.field_name}'",
+                )
+
+            # Extract field bytes, mutate, reassemble
+            before = seed[:offset]
+            field_bytes = seed[offset:offset + field_size]
+            after = seed[offset + field_size:]
+
+            # Apply byte-level mutator to field bytes only
+            if mutator_name == "bitflip":
+                mutator = BitFlipMutator()
+            elif mutator_name == "byteflip":
+                mutator = ByteFlipMutator()
+            elif mutator_name == "arithmetic":
+                mutator = ArithmeticMutator()
+            elif mutator_name == "interesting":
+                mutator = InterestingValueMutator()
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported byte-level mutator for field mutation: {mutator_name}. Valid: bitflip, byteflip, arithmetic, interesting",
+                )
+
+            mutated_field_bytes = mutator.mutate(field_bytes)
+            mutated = before + mutated_field_bytes + after
+            strategy_used = None
+
+        # Parse mutated packet to show fields
+        try:
+            parsed_fields_dict = parser.parse(mutated)
+
+            fields = []
+            offset = 0
+            for block in blocks:
+                field_name = block["name"]
+                field_type = block["type"]
+                value = parsed_fields_dict.get(field_name)
+
+                # Calculate size
+                if field_type == "bytes":
+                    size = len(value) if isinstance(value, bytes) else block.get("size", 0)
+                elif field_type.startswith("uint") or field_type.startswith("int"):
+                    if field_type.endswith("8"):
+                        size = 1
+                    elif field_type.endswith("16"):
+                        size = 2
+                    elif field_type.endswith("32"):
+                        size = 4
+                    elif field_type.endswith("64"):
+                        size = 8
+                    else:
+                        size = 0
+                elif field_type == "string":
+                    size = len(value.encode("utf-8")) if isinstance(value, str) else 0
+                else:
+                    size = 0
+
+                # Extract hex for this field
+                if offset + size <= len(mutated):
+                    field_bytes = mutated[offset:offset + size]
+                    field_hex = field_bytes.hex()
+                else:
+                    field_hex = ""
+
+                # Format value for display
+                display_value = value
+                if isinstance(value, bytes):
+                    try:
+                        display_value = value.decode("utf-8")
+                    except:
+                        display_value = value.hex()
+
+                fields.append(
+                    ParsedField(
+                        name=field_name,
+                        value=display_value,
+                        hex=field_hex,
+                        offset=offset,
+                        size=size,
+                        type=field_type,
+                    )
+                )
+
+                offset += size
+
+        except Exception as e:
+            logger.warning("mutated_field_parse_failed", error=str(e))
+            fields = []
+
+        logger.info(
+            "field_mutated",
+            plugin=plugin_name,
+            field=request.field_name,
+            mutator=mutator_name,
+            strategy=strategy_used,
+        )
+
+        return FieldMutateResponse(
+            success=True,
+            original_hex=seed.hex().upper(),
+            mutated_hex=mutated.hex().upper(),
+            field_name=request.field_name,
+            mutator_used=mutator_name,
+            strategy_used=strategy_used,
+            original_bytes=len(seed),
+            mutated_bytes=len(mutated),
+            fields=fields,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("field_mutate_endpoint_failed", plugin=plugin_name, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Field mutation failed: {str(e)}")

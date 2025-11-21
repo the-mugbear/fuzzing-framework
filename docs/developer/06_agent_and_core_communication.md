@@ -22,8 +22,8 @@ The interaction between the Core and an Agent follows a simple, HTTP-based polli
 
 2.  **Work Queueing**:
     *   Meanwhile, if a fuzzing session is running in `AGENT` mode, the `FuzzOrchestrator` generates a test case.
-    *   Instead of executing it, it calls the `AgentManager`'s `enqueue_test_case` method, passing the test case and the target information.
-    *   The `AgentManager` places the test case into the appropriate in-memory work queue for that target.
+    *   Instead of executing it, it calls the `AgentManager`'s `enqueue_test_case` method, passing the test case along with the target host, port, and transport.
+    *   The `AgentManager` places the test case into the appropriate in-memory work queue for that target/transport combination.
 
 3.  **Agent Polling for Work**:
     *   The agent enters a continuous loop where it periodically sends a `GET` request to the `/api/agents/{agent_id}/work` endpoint. The frequency of this polling is configurable via the agent's `--poll-interval` command-line argument.
@@ -45,7 +45,7 @@ This polling-based architecture is simple and robust. It decouples the Core from
 This class is the heart of the distributed system on the Core side.
 
 -   `_agents`: A dictionary that stores the state of all registered agents, keyed by `agent_id`.
--   `_queues`: A dictionary of `asyncio.Queue` objects, keyed by a `(host, port)` tuple for each target. This allows multiple agents to service the same target, pulling from a shared queue.
+-   `_queues`: A dictionary of `asyncio.Queue` objects, keyed by a `(host, port, transport)` tuple for each target. This allows multiple agents to service the same transport/endpoint combination, pulling from a shared queue.
 -   `register_agent()`: Handles new agent registrations.
 -   `enqueue_test_case()`: Called by the orchestrator to add work to a queue.
 -   `request_work()`: Called by the agent's polling request to get work from a queue.
@@ -54,12 +54,12 @@ This class is the heart of the distributed system on the Core side.
 # core/agents/manager.py - Simplified Logic
 
 class AgentManager:
-    async def enqueue_test_case(self, target_host: str, target_port: int, work: AgentWorkItem):
+    async def enqueue_test_case(self, target_host: str, target_port: int, transport: str, work: AgentWorkItem):
         """Queue a test case for agents matching the given target."""
-        key = (target_host, target_port)
+        key = (target_host, target_port, transport)
         if key not in self._queues:
             self._queues[key] = asyncio.Queue()
-        
+
         queue = self._queues[key]
         await queue.put(work)
 
@@ -69,7 +69,7 @@ class AgentManager:
         if not agent or agent.status != "active":
             return None
 
-        queue = self._queues.get((agent.target_host, agent.target_port))
+        queue = self._queues.get((agent.target_host, agent.target_port, agent.transport))
         if not queue or queue.empty():
             return None
 

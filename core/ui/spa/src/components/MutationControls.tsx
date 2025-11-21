@@ -11,7 +11,7 @@ const MUTATORS: Mutator[] = [
   {
     name: 'structure_aware',
     label: 'Structure-Aware',
-    description: 'Mutates fields while respecting protocol grammar',
+    description: 'Randomly selects one mutable field and intelligently mutates it while maintaining message validity',
     category: 'structure',
   },
   {
@@ -67,8 +67,11 @@ function MutationControls({ onMutate, disabled, seedCount }: MutationControlsPro
   return (
     <div className="mutation-controls">
       <div className="mutator-section">
-        <h4>Structure-Aware Mutations</h4>
-        <p className="section-desc">Mutations that understand protocol structure</p>
+        <h4>Structure-Aware Mutation</h4>
+        <p className="section-desc">
+          Parses the message, randomly picks ONE mutable field, and mutates it intelligently
+          (e.g., boundary values, arithmetic). Maintains validity by auto-fixing length fields.
+        </p>
         <div className="mutator-grid">
           {structureMutators.map((mutator) => (
             <button
@@ -88,7 +91,10 @@ function MutationControls({ onMutate, disabled, seedCount }: MutationControlsPro
 
       <div className="mutator-section">
         <h4>Byte-Level Mutations</h4>
-        <p className="section-desc">Blind mutations that ignore protocol structure</p>
+        <p className="section-desc">
+          Blind mutations that directly modify bytes at random positions without understanding
+          protocol fields. Can break message validity but may find unexpected bugs.
+        </p>
         <div className="mutator-grid">
           {byteMutators.map((mutator) => (
             <button

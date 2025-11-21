@@ -32,6 +32,7 @@ from core.models import (
     TestCase,
     TestCaseExecutionRecord,
     TestCaseResult,
+    TransportProtocol,
 )
 from core.plugin_loader import plugin_manager
 from core.protocol_behavior import build_behavior_processor
@@ -89,6 +90,7 @@ class FuzzOrchestrator:
         self.session_data_models[session_id] = resolved_data_model
         if resolved_response_model:
             self.session_response_models[session_id] = resolved_response_model
+        session_transport = config.transport or protocol.transport
 
         # Initialize seed corpus from plugin
         seed_corpus = []
@@ -109,6 +111,7 @@ class FuzzOrchestrator:
             protocol=config.protocol,
             target_host=config.target_host,
             target_port=config.target_port,
+            transport=session_transport,
             seed_corpus=seed_corpus,
             enabled_mutators=enabled_mutators,
             timeout_per_test_ms=config.timeout_per_test_ms,
@@ -167,7 +170,9 @@ class FuzzOrchestrator:
             return False
 
         if session.execution_mode == ExecutionMode.AGENT and not agent_manager.has_agent_for_target(
-            session.target_host, session.target_port
+            session.target_host,
+            session.target_port,
+            session.transport,
         ):
             session.error_message = (
                 "No live agents registered for target "
@@ -460,11 +465,17 @@ class FuzzOrchestrator:
             protocol=session.protocol,
             target_host=session.target_host,
             target_port=session.target_port,
+            transport=session.transport,
             data=test_case.data,
             timeout_ms=session.timeout_per_test_ms,
         )
         self.pending_tests[test_case.id] = test_case
-        await agent_manager.enqueue_test_case(session.target_host, session.target_port, work)
+        await agent_manager.enqueue_test_case(
+            session.target_host,
+            session.target_port,
+            session.transport,
+            work,
+        )
 
     async def _finalize_test_case(
         self,
@@ -553,11 +564,15 @@ class FuzzOrchestrator:
         if request.execution_mode == ExecutionMode.AGENT:
             raise ValueError("Agent-mode one-off execution is not yet supported")
 
+        plugin = plugin_manager.load_plugin(request.protocol)
+        session_transport = request.transport or plugin.transport
+
         session_stub = FuzzSession(
             id=str(uuid.uuid4()),
             protocol=request.protocol,
             target_host=request.target_host,
             target_port=request.target_port,
+            transport=session_transport,
             seed_corpus=[],
             enabled_mutators=request.mutators or [],
             timeout_per_test_ms=request.timeout_ms,
@@ -568,7 +583,6 @@ class FuzzOrchestrator:
             data=request.payload,
         )
         try:
-            plugin = plugin_manager.load_plugin(request.protocol)
             processor = build_behavior_processor(denormalize_data_model_from_json(plugin.data_model))
             if processor.has_behaviors():
                 session_stub.behavior_state = processor.initialize_state()
@@ -593,78 +607,13 @@ class FuzzOrchestrator:
         Uses async socket operations to avoid blocking the event loop
         """
         start_time = time.time()
-        response = None
+        response: Optional[bytes] = None
 
         try:
-            # Connect to target using async sockets
-            try:
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_connection(session.target_host, session.target_port),
-                    timeout=settings.mutation_timeout_sec
-                )
-            except (ConnectionRefusedError, OSError) as e:
-                logger.error("target_connection_refused",
-                           host=session.target_host,
-                           port=session.target_port,
-                           error=str(e))
-                # Set session error message for the first connection failure
-                if not session.error_message:
-                    error_msg = (
-                        f"Connection refused to {session.target_host}:{session.target_port}. "
-                        f"Target may not be running. If running in Docker and targeting localhost, "
-                        f"use '172.17.0.1' (Linux) or 'host.docker.internal' (Mac/Windows) instead."
-                    )
-                    session.error_message = error_msg
-                    session.status = FuzzSessionStatus.FAILED
-                    logger.warning("setting_error_message",
-                                 session_id=session.id,
-                                 error_message=error_msg)
-                test_case.result = TestCaseResult.CRASH
-                test_case.execution_time_ms = (time.time() - start_time) * 1000
-                return TestCaseResult.CRASH, None
-
-            try:
-                # Send test data
-                writer.write(test_case.data)
-                await writer.drain()
-
-                # Try to receive response (with timeout)
-                try:
-                    response = await self._read_response_stream(
-                        reader,
-                        timeout=settings.mutation_timeout_sec,
-                        max_bytes=settings.max_response_bytes,
-                        session_id=session.id,
-                    )
-
-                    # Check if response is valid using protocol validator
-                    validator = plugin_manager.get_validator(session.protocol)
-                    if validator:
-                        try:
-                            is_valid = validator(response)
-                            if not is_valid:
-                                result = TestCaseResult.LOGICAL_FAILURE
-                            else:
-                                result = TestCaseResult.PASS
-                        except Exception as e:
-                            logger.warning("validator_exception", error=str(e))
-                            result = TestCaseResult.LOGICAL_FAILURE
-                    else:
-                        result = TestCaseResult.PASS
-
-                except asyncio.TimeoutError:
-                    logger.debug("target_timeout", host=session.target_host, port=session.target_port)
-                    result = TestCaseResult.HANG
-                    response = None
-
-            finally:
-                # Clean up connection
-                writer.close()
-                await writer.wait_closed()
-
-        except asyncio.TimeoutError:
-            result = TestCaseResult.HANG
-            response = None
+            if session.transport == TransportProtocol.UDP:
+                result, response = await self._execute_udp_test_case(session, test_case)
+            else:
+                result, response = await self._execute_tcp_test_case(session, test_case)
         except Exception as e:
             logger.error("execution_error", error=str(e), test_case_id=test_case.id)
             result = TestCaseResult.CRASH
@@ -674,6 +623,166 @@ class FuzzOrchestrator:
         test_case.execution_time_ms = (time.time() - start_time) * 1000
 
         return result, response
+
+    async def _execute_tcp_test_case(
+        self, session: FuzzSession, test_case: TestCase
+    ) -> tuple[TestCaseResult, Optional[bytes]]:
+        reader: Optional[asyncio.StreamReader] = None
+        writer: Optional[asyncio.StreamWriter] = None
+
+        try:
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(session.target_host, session.target_port),
+                    timeout=settings.mutation_timeout_sec,
+                )
+            except (ConnectionRefusedError, OSError) as exc:
+                logger.error(
+                    "target_connection_refused",
+                    host=session.target_host,
+                    port=session.target_port,
+                    error=str(exc),
+                )
+                if not session.error_message:
+                    error_msg = (
+                        f"Connection refused to {session.target_host}:{session.target_port}. "
+                        "Target may not be running. If running in Docker and targeting localhost, "
+                        "use '172.17.0.1' (Linux) or 'host.docker.internal' (Mac/Windows) instead."
+                    )
+                    session.error_message = error_msg
+                    session.status = FuzzSessionStatus.FAILED
+                    logger.warning(
+                        "setting_error_message",
+                        session_id=session.id,
+                        error_message=error_msg,
+                    )
+                return TestCaseResult.CRASH, None
+            except asyncio.TimeoutError:
+                logger.debug(
+                    "target_timeout",
+                    host=session.target_host,
+                    port=session.target_port,
+                    phase="connect",
+                )
+                return TestCaseResult.HANG, None
+
+            try:
+                writer.write(test_case.data)
+                await writer.drain()
+                response = await self._read_response_stream(
+                    reader,
+                    timeout=settings.mutation_timeout_sec,
+                    max_bytes=settings.max_response_bytes,
+                    session_id=session.id,
+                )
+                result = self._classify_response(session.protocol, response)
+                return result, response
+            except asyncio.TimeoutError:
+                logger.debug(
+                    "target_timeout",
+                    host=session.target_host,
+                    port=session.target_port,
+                    phase="read",
+                )
+                return TestCaseResult.HANG, None
+        finally:
+            if writer:
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except Exception:
+                    pass
+
+    async def _execute_udp_test_case(
+        self, session: FuzzSession, test_case: TestCase
+    ) -> tuple[TestCaseResult, Optional[bytes]]:
+        loop = asyncio.get_running_loop()
+        response_future: asyncio.Future[bytes] = loop.create_future()
+        max_bytes = settings.max_response_bytes
+        session_id = session.id
+
+        class _UDPClient(asyncio.DatagramProtocol):
+            def __init__(self):
+                self.transport: Optional[asyncio.transports.DatagramTransport] = None
+
+            def connection_made(self, transport: asyncio.BaseTransport) -> None:
+                self.transport = transport  # type: ignore[assignment]
+                try:
+                    transport.sendto(test_case.data)  # type: ignore[attr-defined]
+                except Exception as exc:
+                    if not response_future.done():
+                        response_future.set_exception(exc)
+
+            def datagram_received(self, data: bytes, addr):
+                chunk = data
+                if len(chunk) > max_bytes:
+                    logger.warning(
+                        "response_truncated",
+                        limit_bytes=max_bytes,
+                        session_id=session_id,
+                    )
+                    chunk = chunk[:max_bytes]
+                if not response_future.done():
+                    response_future.set_result(chunk)
+
+            def error_received(self, exc):
+                if not response_future.done():
+                    response_future.set_exception(exc or ConnectionError("udp_error"))
+
+        transport: Optional[asyncio.transports.DatagramTransport] = None
+        try:
+            transport, _ = await loop.create_datagram_endpoint(
+                _UDPClient,
+                remote_addr=(session.target_host, session.target_port),
+            )
+            response = await asyncio.wait_for(
+                response_future,
+                timeout=settings.mutation_timeout_sec,
+            )
+            result = self._classify_response(session.protocol, response)
+            return result, response
+        except asyncio.TimeoutError:
+            logger.debug(
+                "target_timeout",
+                host=session.target_host,
+                port=session.target_port,
+                phase="udp",
+            )
+            return TestCaseResult.HANG, None
+        except (ConnectionRefusedError, OSError) as exc:
+            logger.error(
+                "udp_target_unreachable",
+                host=session.target_host,
+                port=session.target_port,
+                error=str(exc),
+            )
+            if not session.error_message:
+                error_msg = (
+                    f"Unable to send UDP datagram to {session.target_host}:{session.target_port}. "
+                    "Target may not be listening or reachable."
+                )
+                session.error_message = error_msg
+                session.status = FuzzSessionStatus.FAILED
+                logger.warning(
+                    "setting_error_message",
+                    session_id=session.id,
+                    error_message=error_msg,
+                )
+            return TestCaseResult.CRASH, None
+        finally:
+            if transport:
+                transport.close()
+
+    def _classify_response(self, protocol: str, response: bytes) -> TestCaseResult:
+        validator = plugin_manager.get_validator(protocol)
+        if not validator:
+            return TestCaseResult.PASS
+        try:
+            is_valid = validator(response)
+            return TestCaseResult.PASS if is_valid else TestCaseResult.LOGICAL_FAILURE
+        except Exception as exc:
+            logger.warning("validator_exception", error=str(exc))
+            return TestCaseResult.LOGICAL_FAILURE
 
     async def _read_response_stream(
         self,

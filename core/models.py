@@ -4,6 +4,7 @@ Core data models
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
+
 from pydantic import BaseModel, Field
 
 
@@ -28,6 +29,13 @@ class TestCaseResult(str, Enum):
     ANOMALY = "anomaly"
 
 
+class TransportProtocol(str, Enum):
+    """Network transport used to reach targets"""
+
+    TCP = "tcp"
+    UDP = "udp"
+
+
 class ProtocolPlugin(BaseModel):
     """Protocol plugin definition"""
 
@@ -39,6 +47,10 @@ class ProtocolPlugin(BaseModel):
     description: Optional[str] = None
     author: Optional[str] = None
     version: Optional[str] = "1.0.0"
+    transport: TransportProtocol = Field(
+        default=TransportProtocol.TCP,
+        description="Default transport to use when executing this protocol",
+    )
 
 
 class TestCase(BaseModel):
@@ -80,6 +92,7 @@ class AgentStatus(BaseModel):
     hostname: str
     target_host: str
     target_port: int
+    transport: TransportProtocol = TransportProtocol.TCP
     is_alive: bool
     last_heartbeat: datetime
     cpu_usage: float = 0.0
@@ -94,6 +107,7 @@ class ExecutionMode(str, Enum):
     AGENT = "agent"
 
 
+
 class FuzzSession(BaseModel):
     """Fuzzing session configuration and state"""
 
@@ -105,6 +119,7 @@ class FuzzSession(BaseModel):
     status: FuzzSessionStatus = FuzzSessionStatus.IDLE
     target_host: str
     target_port: int
+    transport: TransportProtocol = TransportProtocol.TCP
     seed_corpus: List[str] = Field(default_factory=list)
     enabled_mutators: List[str] = Field(default_factory=list)
     timeout_per_test_ms: int = 5000
@@ -150,6 +165,10 @@ class FuzzConfig(BaseModel):
     protocol: str
     target_host: str
     target_port: int
+    transport: Optional[TransportProtocol] = Field(
+        default=None,
+        description="Override protocol's default transport (tcp/udp)",
+    )
     mutation_strategy: MutationStrategy = Field(default_factory=MutationStrategy)
     enabled_mutators: Optional[List[str]] = Field(
         default=None, description="Explicit mutators to use (overrides strategy flags)"
@@ -177,6 +196,7 @@ class AgentWorkItem(BaseModel):
     protocol: str
     target_host: str
     target_port: int
+    transport: TransportProtocol = TransportProtocol.TCP
     data: bytes
     timeout_ms: int
 
@@ -206,6 +226,10 @@ class OneOffTestRequest(BaseModel):
     execution_mode: ExecutionMode = ExecutionMode.CORE
     timeout_ms: int = 5000
     mutators: Optional[List[str]] = None  # Allows reusing existing seeds for chaining
+    transport: Optional[TransportProtocol] = Field(
+        default=None,
+        description="Override protocol-defined transport for this request",
+    )
 
 
 class OneOffTestResult(BaseModel):

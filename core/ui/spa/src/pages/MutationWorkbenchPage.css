@@ -119,6 +119,28 @@
   font-size: 0.9rem;
   font-weight: 600;
   color: #93c5fd;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tooltip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 0.75rem;
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.2);
+  border-radius: 50%;
+  cursor: help;
+  transition: all 0.2s;
+}
+
+.tooltip:hover {
+  background: rgba(59, 130, 246, 0.3);
+  transform: scale(1.1);
 }
 
 .control-group select,
@@ -212,6 +234,39 @@
 .send-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Workbench Content Layout */
+.workbench-content {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.timeline-sidebar {
+  position: sticky;
+  top: 20px;
+  height: calc(100vh - 40px);
+  overflow: hidden;
+}
+
+.main-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+@media (max-width: 1200px) {
+  .workbench-content {
+    grid-template-columns: 1fr;
+  }
+
+  .timeline-sidebar {
+    position: relative;
+    top: 0;
+    height: 500px;
+  }
 }
 
 .workbench-section {
@@ -327,14 +382,12 @@
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
-  cursor: pointer;
   transition: all 0.2s;
 }
 
 .history-item:hover {
   background: rgba(15, 23, 42, 0.8);
   border-color: rgba(168, 85, 247, 0.3);
-  transform: translateX(4px);
 }
 
 .history-header {
@@ -349,6 +402,29 @@
   font-weight: 600;
   color: #93c5fd;
   font-size: 0.9rem;
+}
+
+.history-desc {
+  flex: 1;
+  font-size: 0.85rem;
+  color: #cbd5e1;
+}
+
+.restore-btn {
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #93c5fd;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.8rem;
+  transition: all 0.2s;
+}
+
+.restore-btn:hover {
+  background: rgba(59, 130, 246, 0.3);
+  transform: scale(1.05);
 }
 
 .history-seed {

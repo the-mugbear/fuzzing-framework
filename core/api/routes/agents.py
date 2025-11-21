@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from core.api.deps import get_agent_manager, get_orchestrator
-from core.models import AgentTestResult, AgentWorkItem
+from core.models import AgentTestResult, AgentWorkItem, TransportProtocol
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -15,11 +15,18 @@ async def register_agent(agent_info: dict, agent_manager=Depends(get_agent_manag
     if missing:
         raise HTTPException(status_code=400, detail=f"Missing fields: {', '.join(missing)}")
 
+    transport_raw = agent_info.get("transport", TransportProtocol.TCP.value)
+    try:
+        transport = TransportProtocol(str(transport_raw).lower())
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid transport: {transport_raw}")
+
     return agent_manager.register_agent(
         agent_id=agent_info["agent_id"],
         hostname=agent_info["hostname"],
         target_host=agent_info["target_host"],
         target_port=int(agent_info["target_port"]),
+        transport=transport,
     )
 
 

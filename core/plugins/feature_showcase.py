@@ -43,6 +43,7 @@ Let's begin!
 """
 
 __version__ = "1.0.0"
+transport = "tcp"
 
 # ==============================================================================
 #  SECTION 1: DATA MODEL (Request/Outbound Messages)

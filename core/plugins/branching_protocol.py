@@ -10,6 +10,7 @@ based on different message types. Useful for:
 """
 
 __version__ = "1.0.0"
+transport = "tcp"
 
 # Data Model
 data_model = {

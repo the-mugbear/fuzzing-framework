@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, List, Optional
 import structlog
 
 from core.config import settings
-from core.models import ProtocolPlugin
+from core.models import ProtocolPlugin, TransportProtocol
 from core.engine.seed_synthesizer import synthesize_seeds_for_protocol
 
 logger = structlog.get_logger()
@@ -201,6 +201,24 @@ class PluginManager:
             state_model = module.state_model
             response_model = getattr(module, "response_model", None)
             response_handlers = copy.deepcopy(getattr(module, "response_handlers", []))
+            transport_value = getattr(
+                module,
+                "transport",
+                getattr(module, "TRANSPORT", TransportProtocol.TCP.value),
+            )
+            try:
+                transport = (
+                    transport_value
+                    if isinstance(transport_value, TransportProtocol)
+                    else TransportProtocol(str(transport_value).lower())
+                )
+            except ValueError:
+                logger.warning(
+                    "invalid_plugin_transport",
+                    plugin=plugin_name,
+                    transport=transport_value,
+                )
+                transport = TransportProtocol.TCP
 
             # Auto-generate seeds if not provided
             if 'seeds' not in data_model or not data_model['seeds']:
@@ -234,6 +252,7 @@ class PluginManager:
                 "validate_response": getattr(module, "validate_response", None),
                 "description": getattr(module, "__doc__", None),
                 "version": getattr(module, "__version__", "1.0.0"),
+                "transport": transport,
             }
 
             # Cache the loaded plugin
@@ -256,6 +275,7 @@ class PluginManager:
             response_handlers=data.get("response_handlers", []),
             description=data.get("description"),
             version=data.get("version", "1.0.0"),
+            transport=data.get("transport", TransportProtocol.TCP),
         )
 
     def get_validator(self, plugin_name: str) -> Optional[Callable]:

@@ -27,6 +27,15 @@
   background: rgba(59, 130, 246, 0.1);
 }
 
+.editable-field-table tr.selected {
+  background: rgba(139, 92, 246, 0.2) !important;
+  border-left: 3px solid #a78bfa;
+}
+
+.editable-field-table tr.selected:hover {
+  background: rgba(139, 92, 246, 0.25) !important;
+}
+
 .editable-field-table tr.computed {
   background: rgba(45, 212, 191, 0.05);
 }

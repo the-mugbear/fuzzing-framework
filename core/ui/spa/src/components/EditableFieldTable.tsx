@@ -18,6 +18,8 @@ interface EditableFieldTableProps {
   onFieldChange: (fieldName: string, newValue: any) => void;
   hoveredField: string | null;
   onFieldHover: (fieldName: string | null) => void;
+  selectedField: string | null;
+  onFieldSelect: (fieldName: string | null) => void;
 }
 
 function EditableFieldTable({
@@ -25,6 +27,8 @@ function EditableFieldTable({
   onFieldChange,
   hoveredField,
   onFieldHover,
+  selectedField,
+  onFieldSelect,
 }: EditableFieldTableProps) {
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<string>('');
@@ -86,10 +90,12 @@ function EditableFieldTable({
             <tr
               key={field.name}
               className={`${hoveredField === field.name ? 'hovered' : ''} ${
-                field.computed ? 'computed' : ''
-              } ${field.mutable === false ? 'immutable' : ''}`}
+                selectedField === field.name ? 'selected' : ''
+              } ${field.computed ? 'computed' : ''} ${field.mutable === false ? 'immutable' : ''}`}
               onMouseEnter={() => onFieldHover(field.name)}
               onMouseLeave={() => onFieldHover(null)}
+              onClick={() => onFieldSelect(field.name)}
+              style={{ cursor: 'pointer' }}
             >
               <td>
                 <strong>{field.name}</strong>

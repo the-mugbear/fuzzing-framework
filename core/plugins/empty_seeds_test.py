@@ -6,6 +6,7 @@ will kick in and create baseline seeds.
 """
 
 __version__ = "1.0.0"
+transport = "tcp"
 
 data_model = {
     "name": "EmptySeedsTest",

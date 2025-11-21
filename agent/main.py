@@ -22,6 +22,7 @@ import structlog
 
 from agent.monitor import TargetExecutor
 from core.logging import setup_logging
+from core.models import TransportProtocol
 
 setup_logging("agent")
 
@@ -43,13 +44,20 @@ class FuzzerAgent:
         agent_id: Optional[str] = None,
         poll_interval: float = 0.5,
         launch_cmd: Optional[str] = None,
+        transport: TransportProtocol = TransportProtocol.TCP,
     ):
         self.core_url = core_url.rstrip("/")
         self.target_host = target_host
         self.target_port = target_port
         self.agent_id = agent_id or str(uuid.uuid4())
         self.hostname = socket.gethostname()
-        self.executor = TargetExecutor(target_host, target_port, launch_cmd=launch_cmd)
+        self.transport = transport
+        self.executor = TargetExecutor(
+            target_host,
+            target_port,
+            launch_cmd=launch_cmd,
+            transport=transport,
+        )
         self.poll_interval = poll_interval
         self.launch_cmd = launch_cmd
         self.running = False
@@ -67,6 +75,7 @@ class FuzzerAgent:
                     "hostname": self.hostname,
                     "target_host": self.target_host,
                     "target_port": self.target_port,
+                    "transport": self.transport.value,
                 },
                 timeout=10.0,
             )
@@ -92,6 +101,7 @@ class FuzzerAgent:
                         "cpu_usage": cpu_usage,
                         "memory_usage_mb": memory_usage,
                         "active_tests": self.active_tests,
+                        "transport": self.transport.value,
                     },
                     timeout=5.0,
                 )
@@ -136,11 +146,28 @@ class FuzzerAgent:
             return
 
         timeout = work_item.get("timeout_ms", 5000) / 1000.0
+        transport_value = work_item.get("transport", self.transport.value)
+        try:
+            work_transport = TransportProtocol(str(transport_value).lower())
+        except ValueError:
+            logger.warning("unknown_transport", transport=transport_value)
+            work_transport = self.transport
         self.active_tests += 1
         try:
-            result = await self.executor.execute_test_case(payload, timeout_sec=timeout)
+            result = await self.executor.execute_test_case(
+                payload,
+                timeout_sec=timeout,
+                transport=work_transport,
+            )
         finally:
             self.active_tests = max(0, self.active_tests - 1)
+
+        if work_transport != self.transport:
+            logger.debug(
+                "agent_transport_override",
+                agent_transport=self.transport.value,
+                work_transport=work_transport.value,
+            )
 
         await self._submit_result(work_item, result)
 
@@ -182,6 +209,7 @@ class FuzzerAgent:
             "agent_starting",
             agent_id=self.agent_id,
             target=f"{self.target_host}:{self.target_port}",
+            transport=self.transport.value,
         )
 
         self.client = httpx.AsyncClient(timeout=30.0)
@@ -257,6 +285,12 @@ async def main():
         "--launch-cmd",
         help="Optional command to launch and monitor a local target binary",
     )
+    parser.add_argument(
+        "--transport",
+        choices=[TransportProtocol.TCP.value, TransportProtocol.UDP.value],
+        default=TransportProtocol.TCP.value,
+        help="Transport to use when communicating with the target",
+    )
 
     args = parser.parse_args()
 
@@ -267,6 +301,7 @@ async def main():
         agent_id=args.agent_id,
         poll_interval=args.poll_interval,
         launch_cmd=args.launch_cmd,
+        transport=TransportProtocol(args.transport),
     )
 
     await agent.run()

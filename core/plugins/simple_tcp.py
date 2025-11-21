@@ -9,6 +9,7 @@ This demonstrates a basic request-response protocol with:
 """
 
 __version__ = "1.0.0"
+transport = "tcp"
 
 # Data model defines message structure
 data_model = {

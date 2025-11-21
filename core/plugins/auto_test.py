@@ -6,6 +6,7 @@ generated from the data_model definition. No manual binary crafting required!
 """
 
 __version__ = "1.0.0"
+transport = "tcp"
 
 # Data model defines message structure
 # NOTE: No manual "seeds" array - they will be auto-generated!
