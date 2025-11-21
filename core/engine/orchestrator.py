@@ -6,7 +6,7 @@ import base64
 import time
 import uuid
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import structlog
@@ -217,6 +217,7 @@ class FuzzOrchestrator:
         self.followup_queues.pop(session_id, None)
         self.session_data_models.pop(session_id, None)
         self.session_response_models.pop(session_id, None)
+        self.history_store.reset_session(session_id)
 
         logger.info("session_stopped", session_id=session_id)
         return True
@@ -273,9 +274,14 @@ class FuzzOrchestrator:
             transitions = protocol.state_model.get("transitions", [])
             if transitions:
                 use_stateful_fuzzing = True
+                response_model = None
+                if protocol.response_model:
+                    response_model = denormalize_data_model_from_json(protocol.response_model)
+
                 stateful_session = StatefulFuzzingSession(
                     protocol.state_model,
                     data_model or denormalize_data_model_from_json(protocol.data_model),
+                    response_model=response_model,
                     progression_weight=0.8  # 80% follow happy path
                 )
                 # Store stateful session for metrics access
@@ -520,7 +526,23 @@ class FuzzOrchestrator:
             },
         )
 
-        self._evaluate_response_followups(payload.session_id, payload.response)
+        timestamp_response = datetime.utcnow()
+        duration_ms = payload.execution_time_ms or 0.0
+        timestamp_sent = timestamp_response - timedelta(milliseconds=duration_ms)
+        response_bytes = payload.response if payload.response else None
+
+        self._record_execution(
+            session,
+            test_case,
+            timestamp_sent,
+            timestamp_response,
+            payload.result,
+            response_bytes,
+            mutation_strategy=test_case.mutation_strategy,
+            mutators_applied=test_case.mutators_applied,
+        )
+
+        self._evaluate_response_followups(payload.session_id, response_bytes)
 
         await agent_manager.complete_work(payload.test_case_id)
 
@@ -608,9 +630,11 @@ class FuzzOrchestrator:
 
                 # Try to receive response (with timeout)
                 try:
-                    response = await asyncio.wait_for(
-                        reader.read(4096),
-                        timeout=settings.mutation_timeout_sec
+                    response = await self._read_response_stream(
+                        reader,
+                        timeout=settings.mutation_timeout_sec,
+                        max_bytes=settings.max_response_bytes,
+                        session_id=session.id,
                     )
 
                     # Check if response is valid using protocol validator
@@ -650,6 +674,43 @@ class FuzzOrchestrator:
         test_case.execution_time_ms = (time.time() - start_time) * 1000
 
         return result, response
+
+    async def _read_response_stream(
+        self,
+        reader: asyncio.StreamReader,
+        timeout: float,
+        max_bytes: int,
+        session_id: str,
+    ) -> bytes:
+        """Read up to max_bytes from reader, respecting per-chunk timeout."""
+        chunks: List[bytes] = []
+        total = 0
+
+        while total < max_bytes:
+            read_size = min(4096, max_bytes - total)
+            try:
+                chunk = await asyncio.wait_for(reader.read(read_size), timeout=timeout)
+            except asyncio.TimeoutError:
+                if not chunks:
+                    raise
+                logger.debug("response_read_timeout_partial", received=total)
+                break
+
+            if not chunk:
+                break
+
+            chunks.append(chunk)
+            total += len(chunk)
+
+            if total >= max_bytes:
+                logger.warning(
+                    "response_truncated",
+                    limit_bytes=max_bytes,
+                    session_id=session_id,
+                )
+                break
+
+        return b"".join(chunks)
 
     def _record_execution(
         self,

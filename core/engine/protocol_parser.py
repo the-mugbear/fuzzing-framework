@@ -5,6 +5,7 @@ Parses binary protocol messages into field dictionaries based on data_model,
 and serializes them back with automatic length/checksum fixing.
 """
 import struct
+import zlib
 from typing import Any, Dict, List, Optional
 
 import structlog
@@ -94,10 +95,62 @@ class ProtocolParser:
         Returns:
             Binary protocol message
         """
+        # Check if protocol has checksum fields
+        has_checksums = any(
+            block.get('is_checksum') or block.get('checksum_algorithm')
+            for block in self.blocks
+        )
+
+        # If checksums are present, use two-pass serialization
+        if has_checksums:
+            return self.serialize_with_checksums(fields)
+
+        # Otherwise, use simple single-pass serialization
         # First pass: auto-update dependent fields
         fields = self._auto_fix_fields(fields)
 
         # Second pass: serialize each field
+        result = b''
+
+        for block in self.blocks:
+            field_name = block['name']
+            field_type = block['type']
+            value = fields.get(field_name)
+
+            if value is None:
+                # Use default if field not present
+                value = block.get('default', self._get_default_value(field_type))
+
+            try:
+                if field_type == 'bytes':
+                    result += self._serialize_bytes_field(value, block)
+                elif field_type.startswith('uint') or field_type.startswith('int'):
+                    result += self._serialize_integer_field(value, block)
+                elif field_type == 'string':
+                    result += self._serialize_string_field(value, block)
+                else:
+                    raise ValueError(f"Unsupported field type: {field_type}")
+
+            except Exception as e:
+                logger.error(
+                    "serialize_field_error",
+                    field=field_name,
+                    value=value,
+                    error=str(e)
+                )
+                raise ValueError(f"Failed to serialize field '{field_name}': {e}")
+
+        return result
+
+    def _serialize_without_checksum(self, fields: Dict[str, Any]) -> bytes:
+        """
+        Internal method to serialize without checksum processing.
+        This avoids infinite recursion when serialize_with_checksums calls it.
+        """
+        # Auto-update dependent fields (lengths, but NOT checksums)
+        fields = self._auto_fix_fields(fields)
+
+        # Serialize each field
         result = b''
 
         for block in self.blocks:
@@ -282,9 +335,198 @@ class ProtocolParser:
 
             fields[block['name']] = total_size
 
-        # TODO: Update checksum fields (when behavior system is integrated)
+        # Update checksum fields
+        # Note: Checksums must be calculated AFTER serialization, so we'll do a two-pass approach
+        # For now, we'll set checksums to placeholder values and they'll be fixed in a post-processing step
 
         return fields
+
+    def serialize_with_checksums(self, fields: Dict[str, Any]) -> bytes:
+        """
+        Serialize fields and automatically compute checksums.
+
+        This is a two-pass serialization:
+        1. Serialize with placeholder checksum values
+        2. Calculate actual checksums over the serialized data
+        3. Update checksum fields in place
+
+        Args:
+            fields: Field dictionary
+
+        Returns:
+            Binary message with correct checksums
+        """
+        # First pass: serialize with auto-fixed fields (lengths) but WITHOUT checksums
+        result = self._serialize_without_checksum(fields)
+
+        # Find checksum fields and their positions
+        checksum_fields = []
+        offset = 0
+        for block in self.blocks:
+            if block.get('is_checksum') or block.get('checksum_algorithm'):
+                checksum_fields.append({
+                    'block': block,
+                    'offset': offset,
+                })
+
+            # Calculate field size to track offset
+            field_size = self._get_field_size(block, fields.get(block['name']))
+            offset += field_size
+
+        # If no checksum fields, return as-is
+        if not checksum_fields:
+            return result
+
+        # Second pass: calculate and update checksums
+        result_bytes = bytearray(result)
+        for checksum_info in checksum_fields:
+            block = checksum_info['block']
+            checksum_offset = checksum_info['offset']
+
+            # Determine what data to checksum
+            checksum_data = self._get_checksum_data(
+                result_bytes,
+                block,
+                checksum_offset
+            )
+
+            # Calculate checksum
+            algorithm = block.get('checksum_algorithm', 'crc32')
+            checksum_value = self._calculate_checksum(checksum_data, algorithm)
+
+            # Update checksum in result
+            field_type = block['type']
+            endian = block.get('endian', 'big')
+            type_info = self._get_integer_info(field_type, endian)
+            checksum_bytes = struct.pack(type_info['format'], checksum_value)
+
+            # Replace checksum bytes in result
+            checksum_size = type_info['size']
+            result_bytes[checksum_offset:checksum_offset + checksum_size] = checksum_bytes
+
+            logger.debug(
+                "checksum_calculated",
+                field=block['name'],
+                algorithm=algorithm,
+                value=hex(checksum_value),
+                offset=checksum_offset
+            )
+
+        return bytes(result_bytes)
+
+    def _get_field_size(self, block: dict, value: Any) -> int:
+        """Get the serialized size of a field"""
+        if 'size' in block:
+            return block['size']
+
+        field_type = block.get('type', '')
+        if field_type.startswith('uint') or field_type.startswith('int'):
+            return self._get_integer_info(field_type, block.get('endian', 'big'))['size']
+
+        # For variable-length fields, estimate from value
+        return self._calculate_field_length(block, value)
+
+    def _get_checksum_data(
+        self,
+        data: bytes,
+        checksum_block: dict,
+        checksum_offset: int
+    ) -> bytes:
+        """
+        Extract the portion of data that should be checksummed.
+
+        Args:
+            data: Full serialized message
+            checksum_block: Block definition for checksum field
+            checksum_offset: Offset of checksum field in message
+
+        Returns:
+            Bytes to checksum
+        """
+        checksum_over = checksum_block.get('checksum_over')
+
+        if not checksum_over:
+            # Default: checksum everything except the checksum field itself
+            checksum_size = self._get_field_size(checksum_block, None)
+            return data[:checksum_offset] + data[checksum_offset + checksum_size:]
+
+        if checksum_over == 'all':
+            # Checksum entire message except checksum field
+            checksum_size = self._get_field_size(checksum_block, None)
+            return data[:checksum_offset] + data[checksum_offset + checksum_size:]
+
+        if checksum_over == 'before':
+            # Checksum everything before the checksum field
+            return data[:checksum_offset]
+
+        if checksum_over == 'after':
+            # Checksum everything after the checksum field
+            checksum_size = self._get_field_size(checksum_block, None)
+            return data[checksum_offset + checksum_size:]
+
+        if isinstance(checksum_over, list):
+            # Checksum specific fields (concatenate their values)
+            # This requires knowing field positions, which is complex
+            # For now, fall back to 'all'
+            logger.warning(
+                "checksum_over_list_not_implemented",
+                field=checksum_block['name'],
+                falling_back_to_all=True
+            )
+            checksum_size = self._get_field_size(checksum_block, None)
+            return data[:checksum_offset] + data[checksum_offset + checksum_size:]
+
+        # Unknown checksum_over value
+        checksum_size = self._get_field_size(checksum_block, None)
+        return data[:checksum_offset] + data[checksum_offset + checksum_size:]
+
+    def _calculate_checksum(self, data: bytes, algorithm: str) -> int:
+        """
+        Calculate checksum using specified algorithm.
+
+        Args:
+            data: Data to checksum
+            algorithm: Algorithm name (crc32, sum, xor, adler32)
+
+        Returns:
+            Checksum value as integer
+        """
+        algorithm = algorithm.lower()
+
+        if algorithm == 'crc32':
+            # CRC32 (used in PNG, ZIP, etc.)
+            return zlib.crc32(data) & 0xFFFFFFFF
+
+        elif algorithm == 'adler32':
+            # Adler32 (faster than CRC32, used in zlib)
+            return zlib.adler32(data) & 0xFFFFFFFF
+
+        elif algorithm == 'sum':
+            # Simple sum of all bytes (modulo 256 or larger)
+            return sum(data) & 0xFFFFFFFF
+
+        elif algorithm == 'xor':
+            # XOR of all bytes
+            result = 0
+            for byte in data:
+                result ^= byte
+            return result
+
+        elif algorithm == 'sum8':
+            # 8-bit sum
+            return sum(data) & 0xFF
+
+        elif algorithm == 'sum16':
+            # 16-bit sum
+            return sum(data) & 0xFFFF
+
+        else:
+            logger.warning(
+                "unknown_checksum_algorithm",
+                algorithm=algorithm,
+                using_default='crc32'
+            )
+            return zlib.crc32(data) & 0xFFFFFFFF
 
     def _get_integer_info(self, field_type: str, endian: str) -> dict:
         """Get struct format and size for integer type"""

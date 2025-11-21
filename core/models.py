@@ -414,7 +414,7 @@ class TransitionInfo(BaseModel):
     """Information about a state transition"""
     from_state: str = Field(alias="from")
     to_state: str = Field(alias="to")
-    message_type: str
+    message_type: Optional[str] = None
     expected_response: Optional[str] = None
 
     class Config:
@@ -436,6 +436,8 @@ class WalkerExecutionRecord(BaseModel):
     response_parsed: Optional[Dict[str, Any]] = None
     duration_ms: float
     error: Optional[str] = None
+    validation_passed: Optional[bool] = None
+    validation_error: Optional[str] = None
     timestamp: str
 
 
@@ -473,4 +475,6 @@ class WalkerExecuteResponse(BaseModel):
     response_parsed: Optional[Dict[str, Any]] = None
     duration_ms: float
     error: Optional[str] = None
+    validation_passed: Optional[bool] = None
+    validation_error: Optional[str] = None
     current_state: WalkerStateResponse

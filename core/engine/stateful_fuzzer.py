@@ -30,6 +30,7 @@ class StatefulFuzzingSession:
     Args:
         state_model: Protocol state machine definition from plugin
         data_model: Protocol data model from plugin
+        response_model: Optional response model for parsing server responses
         progression_weight: Probability of following happy path (0.0-1.0)
     """
 
@@ -37,10 +38,12 @@ class StatefulFuzzingSession:
         self,
         state_model: dict,
         data_model: dict,
+        response_model: Optional[dict] = None,
         progression_weight: float = 0.8
     ):
         self.state_model = state_model
         self.data_model = data_model
+        self.response_model = response_model
         self.progression_weight = progression_weight
 
         # Current state
@@ -51,6 +54,9 @@ class StatefulFuzzingSession:
 
         # Parser for message analysis
         self.parser = ProtocolParser(data_model)
+
+        # Response parser if response_model is provided
+        self.response_parser = ProtocolParser(response_model) if response_model else None
 
         # Build message type to command/message mapping
         self.message_type_field: Optional[str] = None
@@ -304,9 +310,18 @@ class StatefulFuzzingSession:
             expected_response = transition.get("expected_response")
 
             if expected_response and response:
-                # Would need to implement response parsing/matching
-                # For now, assume success if we got a response
-                response_matches = True
+                # Validate the response matches expected message type
+                response_matches = self._validate_expected_response(
+                    response, expected_response
+                )
+                if not response_matches:
+                    logger.warning(
+                        "unexpected_response_type",
+                        state=self.current_state,
+                        message_type=message_type,
+                        expected=expected_response,
+                        actual=self._identify_response_message_type(response)
+                    )
             else:
                 # No expected response specified, assume success
                 response_matches = True
@@ -468,3 +483,85 @@ class StatefulFuzzingSession:
             return True
 
         return False
+
+    def _identify_response_message_type(self, response: bytes) -> Optional[str]:
+        """
+        Identify the message type from a response.
+
+        Args:
+            response: Binary response message
+
+        Returns:
+            Message type string, or None if can't identify
+        """
+        if not self.response_parser:
+            # No response model - can't identify response type
+            return None
+
+        try:
+            fields = self.response_parser.parse(response)
+
+            # Look for message type field in response
+            # Try common field names first
+            for field_name in ["message_type", "command", "type", "msg_type"]:
+                if field_name in fields:
+                    value = fields[field_name]
+
+                    # Reverse lookup: numeric value -> symbolic name
+                    for msg_type, cmd_val in self.message_type_to_command.items():
+                        if cmd_val == value:
+                            return msg_type
+
+            return None
+
+        except Exception as e:
+            logger.debug("response_type_identification_failed", error=str(e))
+            return None
+
+    def _validate_expected_response(
+        self,
+        response: bytes,
+        expected_response: str
+    ) -> bool:
+        """
+        Validate that the response matches the expected message type.
+
+        Args:
+            response: Binary response message
+            expected_response: Expected message type (e.g., "HANDSHAKE_RESPONSE")
+
+        Returns:
+            True if response matches expected type, False otherwise
+        """
+        if not response:
+            return False
+
+        # Identify actual response type
+        actual_response_type = self._identify_response_message_type(response)
+
+        if actual_response_type is None:
+            # Can't identify response type - be lenient and assume it's ok
+            logger.debug(
+                "cannot_validate_response",
+                expected=expected_response,
+                reason="no_response_parser_or_type_field"
+            )
+            return True
+
+        # Compare actual vs expected
+        matches = actual_response_type == expected_response
+
+        if matches:
+            logger.debug(
+                "response_validated",
+                expected=expected_response,
+                actual=actual_response_type
+            )
+        else:
+            logger.info(
+                "response_mismatch",
+                expected=expected_response,
+                actual=actual_response_type
+            )
+
+        return matches

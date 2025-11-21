@@ -19,3 +19,11 @@ Your plan for an interactive UI, as detailed in `docs/developer/UI_PROTOCOL_FEAT
 While the codebase is generally well-structured, there are opportunities for simplification as new features are added. For instance, when implementing the `expected_response` logic in the stateful fuzzer, there's an opportunity to refactor the `StatefulFuzzingSession` class to be more modular and easier to test.
 
 
+---
+Updated TODO List (November 16, 2025):
+
+1. [cancelled] Expose and document the automatic checksum calculation feature.
+2. [pending] Refactor `feature_showcase.py` to correctly implement and document the automatic checksum feature.
+3. [pending] Create `roadmap.md` and `ARCHITECTURE_IMPROVEMENTS_PLAN.md` to address architectural limitations like the flat data_model and outline future work.
+4. [pending] Investigate remaining core components: `structure_mutators.py`, `orchestrator.py`, and the `agent/` directory.
+5. [pending] Perform a full review and update of all project documentation.

@@ -211,7 +211,11 @@ Findings are stored in `data/crashes/{FINDING_ID}/`:
 
 ## Creating Protocol Plugins
 
-Create a new file in `core/plugins/my_protocol.py`:
+While you can create a new file in `core/plugins/my_protocol.py` with a basic structure, this is only for initial illustration.
+
+**For any real-world protocol, you must consult the full guide.**
+
+The example below shows a minimal plugin. To create a powerful and effective protocol plugin—including defining state machines, response handlers, checksums, and other critical features—please see the complete **[Protocol Testing Guide](docs/PROTOCOL_TESTING.md)**.
 
 ```python
 """My custom protocol"""
@@ -229,21 +233,10 @@ data_model = {
         b"MYPK\x00\x00\x00\x04TEST",
     ]
 }
-
-state_model = {
-    "initial_state": "INIT",
-    "states": ["INIT", "READY"],
-    "transitions": []
-}
-
-def validate_response(response: bytes) -> bool:
-    """Optional: Custom validation logic"""
-    return len(response) >= 4
+# ... plus state_model, validators, etc.
 ```
 
-Reload the Core or restart Docker to load the new plugin.
-
-This is a very basic example. For a complete walkthrough of how to create a powerful and effective protocol plugin, including how to define state machines and response handlers, please see the full [Protocol Testing Guide](docs/PROTOCOL_TESTING.md).
+Reload the Core or restart Docker to load the new plugin. After creating a plugin, refer to the "Testing Your Protocol Plugin" section below and the full guide to validate it.
 
 ## Testing Your Protocol Plugin
 

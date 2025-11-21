@@ -1,5 +1,5 @@
 """State Machine Walker API endpoints."""
-import socket
+import asyncio
 import time
 import uuid
 from datetime import datetime
@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from core.api.deps import get_plugin_manager
 from core.engine.protocol_parser import ProtocolParser
+from core.engine.response_planner import ResponsePlanner
 from core.engine.stateful_fuzzer import StatefulFuzzingSession
 from core.models import (
     TransitionInfo,
@@ -32,6 +33,8 @@ router = APIRouter(prefix="/api/walker", tags=["walker"])
 _walker_sessions: Dict[str, StatefulFuzzingSession] = {}
 _session_protocols: Dict[str, str] = {}  # Maps session_id -> protocol_name
 _execution_history: Dict[str, list] = {}  # Maps session_id -> list of execution results
+_response_planners: Dict[str, ResponsePlanner] = {}  # Maps session_id -> ResponsePlanner
+_field_overrides: Dict[str, Dict[str, any]] = {}  # Maps session_id -> field overrides from response handlers
 
 
 def _serialize_parsed_fields(fields: Dict[str, any], data_model: Dict[str, any]) -> Dict[str, any]:
@@ -177,15 +180,37 @@ async def initialize_walker(
         # Create a new walker session
         session_id = str(uuid.uuid4())
         denormalized_model = denormalize_data_model_from_json(plugin.data_model)
+
+        # Denormalize response_model if available
+        response_model = None
+        if plugin.response_model:
+            response_model = denormalize_data_model_from_json(plugin.response_model)
+
         walker_session = StatefulFuzzingSession(
             state_model=plugin.state_model,
             data_model=denormalized_model,
+            response_model=response_model,
             progression_weight=1.0,  # Always follow valid transitions
         )
 
         _walker_sessions[session_id] = walker_session
         _session_protocols[session_id] = request.protocol
         _execution_history[session_id] = []  # Initialize empty execution history
+        _field_overrides[session_id] = {}  # Initialize empty field overrides
+
+        # Create response planner if protocol has response handlers
+        if plugin.response_handlers:
+            response_planner = ResponsePlanner(
+                request_model=denormalized_model,
+                response_model=response_model,
+                handlers=plugin.response_handlers,
+            )
+            _response_planners[session_id] = response_planner
+            logger.info(
+                "response_planner_initialized",
+                session_id=session_id,
+                handler_count=len(plugin.response_handlers)
+            )
 
         logger.info(
             "walker_session_initialized",
@@ -262,32 +287,65 @@ async def execute_transition(
                 detail=f"No seed found for message type '{message_type}'"
             )
 
+        # Apply field overrides from response handlers if any
+        overrides = _field_overrides.get(request.session_id, {})
+        if overrides:
+            try:
+                # Parse the seed
+                request_parser = ProtocolParser(denormalized_model)
+                fields = request_parser.parse(seed)
+
+                # Apply overrides
+                fields.update(overrides)
+
+                # Serialize back to bytes
+                seed = request_parser.serialize(fields)
+
+                logger.info(
+                    "field_overrides_applied",
+                    session_id=request.session_id,
+                    overrides=list(overrides.keys())
+                )
+            except Exception as e:
+                logger.warning(
+                    "field_override_failed",
+                    session_id=request.session_id,
+                    error=str(e)
+                )
+
         # Send the message to the target
         start_time = time.time()
         response_bytes = b""
         success = True
         error_msg = None
+        timeout = 5.0
 
         try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.settimeout(5.0)
-                sock.connect((request.target_host, request.target_port))
-                sock.sendall(seed)
-
-                # Signal that we're done sending (important for servers that wait for EOF)
-                sock.shutdown(socket.SHUT_WR)
-
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(request.target_host, request.target_port),
+                timeout=timeout,
+            )
+            try:
+                writer.write(seed)
+                await writer.drain()
                 try:
-                    # Read all response data
-                    response_chunks = []
-                    while True:
-                        chunk = sock.recv(4096)
-                        if not chunk:
-                            break
-                        response_chunks.append(chunk)
-                    response_bytes = b"".join(response_chunks)
-                except socket.timeout:
-                    response_bytes = b""
+                    writer.write_eof()
+                except (AttributeError, RuntimeError):
+                    pass
+
+                response_chunks = []
+                while True:
+                    try:
+                        chunk = await asyncio.wait_for(reader.read(4096), timeout=timeout)
+                    except asyncio.TimeoutError:
+                        break
+                    if not chunk:
+                        break
+                    response_chunks.append(chunk)
+                response_bytes = b"".join(response_chunks)
+            finally:
+                writer.close()
+                await writer.wait_closed()
         except Exception as e:
             success = False
             error_msg = str(e)
@@ -298,6 +356,70 @@ async def execute_transition(
             )
 
         duration_ms = (time.time() - start_time) * 1000
+
+        # Process response with response handlers to extract field overrides
+        if success and response_bytes:
+            planner = _response_planners.get(request.session_id)
+            if planner:
+                try:
+                    # Parse the response
+                    parsed_response = planner.response_parser.parse(response_bytes)
+
+                    # Check which handlers match and extract field updates
+                    new_overrides = {}
+                    for handler in planner.handlers:
+                        if planner._matches(handler.get("match", {}), parsed_response):
+                            # Extract field updates from this handler
+                            set_fields = handler.get("set_fields", {})
+                            for field_name, spec in set_fields.items():
+                                value = planner._resolve_field_value(spec, parsed_response)
+                                if value is not None:
+                                    new_overrides[field_name] = value
+
+                            logger.info(
+                                "response_handler_matched",
+                                session_id=request.session_id,
+                                handler=handler.get("name"),
+                                fields_updated=list(set_fields.keys())
+                            )
+
+                    # Update field overrides for next message
+                    if new_overrides:
+                        _field_overrides[request.session_id].update(new_overrides)
+                        logger.info(
+                            "field_overrides_updated",
+                            session_id=request.session_id,
+                            overrides=list(new_overrides.keys())
+                        )
+
+                except Exception as e:
+                    logger.warning(
+                        "response_handler_processing_failed",
+                        session_id=request.session_id,
+                        error=str(e)
+                    )
+
+        # Validate response using protocol validator (logic oracle)
+        validation_passed = None
+        validation_error = None
+        if success and response_bytes:
+            validator = plugin_manager.get_validator(protocol_name)
+            if validator:
+                try:
+                    validation_passed = validator(response_bytes)
+                    if not validation_passed:
+                        logger.info(
+                            "response_validation_failed",
+                            session_id=request.session_id,
+                            message_type=message_type
+                        )
+                except Exception as e:
+                    validation_error = str(e)
+                    logger.warning(
+                        "response_validator_error",
+                        session_id=request.session_id,
+                        error=str(e)
+                    )
 
         # Update walker state based on transition
         execution_result = "pass" if success else "error"
@@ -333,7 +455,7 @@ async def execute_transition(
 
         try:
             # Parse response using response_model if available
-            if response_bytes and hasattr(plugin, 'response_model') and plugin.response_model:
+            if response_bytes and plugin.response_model:
                 # Denormalize response_model just like data_model
                 denormalized_response_model = denormalize_data_model_from_json(plugin.response_model)
                 response_parser = ProtocolParser(denormalized_response_model)
@@ -360,6 +482,8 @@ async def execute_transition(
             response_parsed=response_parsed,
             duration_ms=duration_ms,
             error=error_msg,
+            validation_passed=validation_passed,
+            validation_error=validation_error,
             timestamp=datetime.utcnow().isoformat(),
         )
 
@@ -382,6 +506,8 @@ async def execute_transition(
             response_parsed=response_parsed,
             duration_ms=duration_ms,
             error=error_msg,
+            validation_passed=validation_passed,
+            validation_error=validation_error,
             current_state=_build_state_response(request.session_id, session),
         )
 
@@ -405,6 +531,10 @@ async def reset_walker(session_id: str):
             raise HTTPException(status_code=404, detail="Walker session not found")
 
         session.reset_to_initial_state()
+
+        # Clear field overrides on reset
+        if session_id in _field_overrides:
+            _field_overrides[session_id] = {}
 
         logger.info("walker_session_reset", session_id=session_id)
 
@@ -443,6 +573,17 @@ async def delete_walker(session_id: str):
     """
     if session_id in _walker_sessions:
         del _walker_sessions[session_id]
+
+        # Clean up associated data
+        if session_id in _session_protocols:
+            del _session_protocols[session_id]
+        if session_id in _execution_history:
+            del _execution_history[session_id]
+        if session_id in _response_planners:
+            del _response_planners[session_id]
+        if session_id in _field_overrides:
+            del _field_overrides[session_id]
+
         logger.info("walker_session_deleted", session_id=session_id)
         return {"status": "deleted"}
 

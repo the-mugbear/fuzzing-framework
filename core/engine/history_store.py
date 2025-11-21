@@ -25,6 +25,7 @@ class ExecutionHistoryStore:
 
         # Memory cache for recent tests (fast UI queries)
         self._recent_cache: Dict[str, deque] = {}
+        self._sequence_counters: Dict[str, int] = {}
 
         # Async write queue for batching
         self._write_queue: asyncio.Queue = asyncio.Queue()
@@ -207,6 +208,39 @@ class ExecutionHistoryStore:
         finally:
             conn.close()
 
+    def reset_session(self, session_id: str) -> None:
+        """Clear cached sequence tracking for a session."""
+        self._sequence_counters.pop(session_id, None)
+
+    def get_max_sequence(self, session_id: str) -> int:
+        """Return the highest recorded sequence number for a session."""
+        cache = self._recent_cache.get(session_id)
+        if cache:
+            try:
+                return cache[-1].sequence_number
+            except IndexError:
+                pass
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.execute(
+                "SELECT MAX(sequence_number) FROM executions WHERE session_id = ?",
+                (session_id,),
+            )
+            result = cursor.fetchone()
+            return result[0] or 0
+        finally:
+            conn.close()
+
+    def _next_sequence_number(self, session_id: str) -> int:
+        """Allocate the next sequence number for a session."""
+        current = self._sequence_counters.get(session_id)
+        if current is None:
+            current = self.get_max_sequence(session_id)
+        current += 1
+        self._sequence_counters[session_id] = current
+        return current
+
     def record(
         self,
         session: FuzzSession,
@@ -224,7 +258,7 @@ class ExecutionHistoryStore:
         Creates the record and queues it for async batch writing to SQLite.
         Also updates the memory cache for fast recent-test queries.
         """
-        sequence_num = session.total_tests
+        sequence_num = self._next_sequence_number(session.id)
         duration_ms = (timestamp_response - timestamp_sent).total_seconds() * 1000
 
         record = TestCaseExecutionRecord(

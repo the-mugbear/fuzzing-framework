@@ -69,7 +69,7 @@ async def execute_test(
                         ParsedFieldInfo(
                             name=field_name or "",
                             value=value,
-                            hex=chunk.hex().upper(),
+                            hex_value=chunk.hex().upper(),
                             type=field_type,
                             offset=offset,
                             size=size,

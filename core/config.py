@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     max_mutations_per_seed: int = 1000
     mutation_timeout_sec: int = 5
     max_concurrent_tests: int = 10
+    max_response_bytes: int = 1024 * 1024
 
     # Mutation strategy
     mutation_mode: str = "hybrid"  # "structure_aware", "byte_level", "hybrid"
