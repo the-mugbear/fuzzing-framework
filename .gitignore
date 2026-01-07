@@ -38,9 +38,22 @@ volumes/
 # Ignore markdown files in the root, which are often AI-generated artifacts
 /*.md
 
-# But explicitly re-include the primary README and QUICKSTART files
-!README.md
-!QUICKSTART.md
+# Node.js / npm
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build artifacts
+dist/
+build/
+*.tsbuildinfo
+
+# Temporary files and artifacts
+# Exclude requirements.txt which should be tracked
+/*-*.txt
+core/ui/spa/*.txt
 
 # OS
 .DS_Store
