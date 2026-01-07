@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import './DocumentationHubPage.css';
 
@@ -10,8 +11,10 @@ interface InternalGuide {
 interface RepoDoc {
   title: string;
   description: string;
-  href: string;
+  path: string;
 }
+
+type SectionFilter = 'all' | 'interactive' | 'repository' | 'developer';
 
 const interactiveGuides: InternalGuide[] = [
   {
@@ -45,32 +48,32 @@ const repositoryDocs: RepoDoc[] = [
   {
     title: 'Documentation Index',
     description: 'Single landing page linking every README, guide, and developer note.',
-    href: '/docs/README.md',
+    path: 'docs/README.md',
   },
   {
     title: 'Project README',
     description: 'High-level architecture, execution modes, and key repository paths.',
-    href: '/README.md',
+    path: 'README.md',
   },
   {
     title: 'Quickstart',
     description: 'Run the stack via Docker or local tooling with copy/paste commands.',
-    href: '/QUICKSTART.md',
+    path: 'QUICKSTART.md',
   },
   {
     title: 'Fuzzing Guide',
     description: 'Campaign planning, corpus hygiene, and recovery checklists.',
-    href: '/docs/FUZZING_GUIDE.md',
+    path: 'docs/FUZZING_GUIDE.md',
   },
   {
     title: 'Protocol Testing',
     description: 'Step-by-step instructions for exercising plugins and validating blocks.',
-    href: '/docs/PROTOCOL_TESTING.md',
+    path: 'docs/PROTOCOL_TESTING.md',
   },
   {
     title: 'OpenAPI Explorer',
     description: 'Interactive API docs generated from the FastAPI schema (Swagger UI).',
-    href: '/docs',
+    path: 'docs/',
   },
 ];
 
@@ -78,104 +81,156 @@ const developerReferences: RepoDoc[] = [
   {
     title: 'Architecture Overview',
     description: 'Layer-by-layer breakdown of the orchestrator, engine, and plugins.',
-    href: '/docs/developer/01_overview.md',
+    path: 'docs/developer/01_overview.md',
   },
   {
     title: 'Test Case Generation',
     description: 'How seed corpora feed the mutation engine and scheduling loop.',
-    href: '/docs/developer/02_test_case_generation_and_mutation.md',
+    path: 'docs/developer/02_test_case_generation_and_mutation.md',
   },
   {
     title: 'Protocol Parsing & Plugins',
     description: 'Tips for capturing grammars, declarative behaviors, and validators.',
-    href: '/docs/developer/03_protocol_parsing_and_plugins.md',
+    path: 'docs/developer/03_protocol_parsing_and_plugins.md',
   },
   {
     title: 'Stateful Fuzzing',
     description: 'Details on state walkers, transitions, and replay debugging.',
-    href: '/docs/developer/04_stateful_fuzzing.md',
+    path: 'docs/developer/04_stateful_fuzzing.md',
   },
   {
     title: 'Corpus & Agents',
     description: 'Distributed execution, agent telemetry, and crash artifact handling.',
-    href: '/docs/developer/05_corpus_and_agents.md',
+    path: 'docs/developer/05_corpus_and_agents.md',
   },
   {
     title: 'Advanced Logic',
     description: 'Automatic sizing, response handling, and declarative operations.',
-    href: '/docs/developer/06_advanced_logic.md',
+    path: 'docs/developer/06_advanced_logic.md',
   },
 ];
 
 const DocumentationHubPage = () => {
+  const [activeFilter, setActiveFilter] = useState<SectionFilter>('all');
+
+  const filterOptions = useMemo(
+    () => [
+      { label: 'All content', value: 'all' as SectionFilter },
+      { label: 'Interactive guides', value: 'interactive' as SectionFilter },
+      { label: 'Repository docs', value: 'repository' as SectionFilter },
+      { label: 'Deep dives', value: 'developer' as SectionFilter },
+    ],
+    [],
+  );
+
+  const shouldShow = (section: SectionFilter) =>
+    activeFilter === 'all' || activeFilter === section;
+
   return (
     <div className="docs-hub">
       <header className="docs-hub-header">
         <p className="eyebrow">Documentation</p>
         <h1>Explore the Knowledge Base</h1>
         <p>
-          Browse in-app guides for quick answers or jump to the Markdown sources that ship with the
-          repository. Everything below opens in a new tab so you can keep your current workflow in
-          place.
+          Browse in-app guides or review the bundled references without leaving the console. Use the
+          controls to focus on the content type you need—every card stays in-place so you can scan
+          quickly without bouncing to raw Markdown.
         </p>
+
+        <div className="docs-controls">
+          <div className="filter-group" role="group" aria-label="Filter documentation sections">
+            {filterOptions.map((option) => (
+              <button
+                key={option.value}
+                className={`filter-pill ${activeFilter === option.value ? 'active' : ''}`}
+                type="button"
+                onClick={() => setActiveFilter(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <div className="legend">
+            <span className="legend-item">
+              <span className="legend-dot inapp" />
+              In-app guide
+            </span>
+            <span className="legend-item">
+              <span className="legend-dot repo" />
+              Repo reference
+            </span>
+            <span className="legend-item">
+              <span className="legend-dot deep" />
+              Deep dive
+            </span>
+          </div>
+        </div>
       </header>
 
-      <section>
-        <div className="docs-hub-section-header">
-          <h2>Interactive Guides</h2>
-          <p>Delivered inside the console with context-aware walkthroughs.</p>
-        </div>
-        <div className="docs-grid">
-          {interactiveGuides.map((guide) => (
-            <article key={guide.title} className="docs-card">
-              <p className="docs-card-eyebrow">In-app</p>
-              <h3>{guide.title}</h3>
-              <p>{guide.description}</p>
-              <Link className="docs-card-link" to={guide.to}>
-                Open guide ↗
-              </Link>
-            </article>
-          ))}
-        </div>
-      </section>
+      {shouldShow('interactive') && (
+        <section>
+          <div className="docs-hub-section-header">
+            <h2>Interactive Guides</h2>
+            <p>Delivered inside the console with context-aware walkthroughs.</p>
+          </div>
+          <div className="docs-grid">
+            {interactiveGuides.map((guide) => (
+              <article key={guide.title} className="docs-card">
+                <p className="docs-card-eyebrow inapp">In-app</p>
+                <h3>{guide.title}</h3>
+                <p>{guide.description}</p>
+                <Link className="docs-card-link" to={guide.to}>
+                  Open guide ↗
+                </Link>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
 
-      <section>
-        <div className="docs-hub-section-header">
-          <h2>Repository Docs</h2>
-          <p>Markdown references bundled with the source tree.</p>
-        </div>
-        <div className="docs-grid">
-          {repositoryDocs.map((doc) => (
-            <article key={doc.title} className="docs-card">
-              <p className="docs-card-eyebrow">Markdown</p>
-              <h3>{doc.title}</h3>
-              <p>{doc.description}</p>
-              <a className="docs-card-link" href={doc.href} target="_blank" rel="noreferrer">
-                Open document ↗
-              </a>
-            </article>
-          ))}
-        </div>
-      </section>
+      {shouldShow('repository') && (
+        <section>
+          <div className="docs-hub-section-header">
+            <h2>Repository Docs</h2>
+            <p>Markdown references bundled with the source tree.</p>
+          </div>
+          <div className="docs-grid">
+            {repositoryDocs.map((doc) => (
+              <article key={doc.title} className="docs-card">
+                <p className="docs-card-eyebrow repo">Repository</p>
+                <h3>{doc.title}</h3>
+                <p>{doc.description}</p>
+                <div className="docs-card-path">
+                  <span>Path: </span>
+                  <code>{doc.path}</code>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
 
-      <section>
-        <div className="docs-hub-section-header">
-          <h2>Deep Dives</h2>
-          <p>Developer notes covering the internals of the fuzzer runtime.</p>
-        </div>
-        <div className="docs-grid">
-          {developerReferences.map((doc) => (
-            <article key={doc.title} className="docs-card">
-              <p className="docs-card-eyebrow">Developer</p>
-              <h3>{doc.title}</h3>
-              <p>{doc.description}</p>
-              <a className="docs-card-link" href={doc.href} target="_blank" rel="noreferrer">
-                Open document ↗
-              </a>
-            </article>
-          ))}
-        </div>
-      </section>
+      {shouldShow('developer') && (
+        <section>
+          <div className="docs-hub-section-header">
+            <h2>Deep Dives</h2>
+            <p>Developer notes covering the internals of the fuzzer runtime.</p>
+          </div>
+          <div className="docs-grid">
+            {developerReferences.map((doc) => (
+              <article key={doc.title} className="docs-card">
+                <p className="docs-card-eyebrow deep">Developer</p>
+                <h3>{doc.title}</h3>
+                <p>{doc.description}</p>
+                <div className="docs-card-path">
+                  <span>Path: </span>
+                  <code>{doc.path}</code>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 };

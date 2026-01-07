@@ -187,20 +187,20 @@ class ExecutionHistoryStore:
                         rec.payload_size,
                         rec.payload_hash,
                         rec.payload_preview,
-                        base64.b64decode(rec.raw_payload_b64),  # Store raw bytes
-                        rec.protocol,
-                        rec.message_type,
-                        rec.state_at_send,
-                        rec.mutation_strategy,
-                        json.dumps(rec.mutators_applied or []),
-                        rec.result.value,
-                        rec.response_size,
-                        rec.response_preview,
-                        None,  # We'll add response_data if needed later
-                    )
-                    for rec in records
-                ],
-            )
+                    base64.b64decode(rec.raw_payload_b64),  # Store raw bytes
+                    rec.protocol,
+                    rec.message_type,
+                    rec.state_at_send,
+                    rec.mutation_strategy,
+                    json.dumps(rec.mutators_applied or []),
+                    rec.result.value,
+                    rec.response_size,
+                    rec.response_preview,
+                    base64.b64decode(rec.raw_response_b64) if rec.raw_response_b64 else None,
+                )
+                for rec in records
+            ],
+        )
             conn.commit()
         except Exception as exc:
             logger.error("batch_write_failed", error=str(exc), batch_size=len(records))
@@ -278,6 +278,7 @@ class ExecutionHistoryStore:
             response_size=len(response) if response is not None else None,
             response_preview=response[:64].hex() if response is not None else None,
             raw_payload_b64=base64.b64encode(test_case.data).decode("utf-8"),
+            raw_response_b64=base64.b64encode(response).decode("utf-8") if response else None,
             mutation_strategy=test_case.mutation_strategy,
             mutators_applied=list(test_case.mutators_applied or []),
         )
@@ -378,6 +379,9 @@ class ExecutionHistoryStore:
                         response_size=row["response_size"],
                         response_preview=row["response_preview"],
                         raw_payload_b64=base64.b64encode(row["raw_payload"]).decode("utf-8"),
+                        raw_response_b64=base64.b64encode(row["response_data"]).decode("utf-8")
+                        if row["response_data"]
+                        else None,
                     )
                 )
 
@@ -441,6 +445,9 @@ class ExecutionHistoryStore:
                 response_size=row["response_size"],
                 response_preview=row["response_preview"],
                 raw_payload_b64=base64.b64encode(row["raw_payload"]).decode("utf-8"),
+                raw_response_b64=base64.b64encode(row["response_data"]).decode("utf-8")
+                if row["response_data"]
+                else None,
             )
         finally:
             conn.close()
@@ -491,6 +498,9 @@ class ExecutionHistoryStore:
                 response_size=row["response_size"],
                 response_preview=row["response_preview"],
                 raw_payload_b64=base64.b64encode(row["raw_payload"]).decode("utf-8"),
+                raw_response_b64=base64.b64encode(row["response_data"]).decode("utf-8")
+                if row["response_data"]
+                else None,
             )
         finally:
             conn.close()

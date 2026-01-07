@@ -25,24 +25,83 @@
   border: 1px solid rgba(255, 255, 255, 0.3);
 }
 
-.session-summary {
+.session-config-card {
   margin-top: 20px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 12px;
-}
-
-.session-summary div {
-  background: rgba(15, 23, 42, 0.5);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(24, 24, 40, 0.9));
   border-radius: 16px;
-  padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
 }
 
-.session-summary span {
-  text-transform: uppercase;
-  font-size: 0.75rem;
+.config-section {
+  margin-bottom: 24px;
+}
+
+.config-section:last-child {
+  margin-bottom: 0;
+}
+
+.config-section h3 {
+  margin: 0 0 16px 0;
+  font-size: 1rem;
+  font-weight: 600;
   color: #93c5fd;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 8px;
+}
+
+.config-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.config-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.config-item-full {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+}
+
+.config-item span {
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  color: #94a3b8;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+
+.config-item strong {
+  color: #e0e0e8;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.mutator-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.mutator-tag {
+  display: inline-block;
+  padding: 6px 12px;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 8px;
+  color: #93c5fd;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-transform: lowercase;
 }
 
 .correlation-header {

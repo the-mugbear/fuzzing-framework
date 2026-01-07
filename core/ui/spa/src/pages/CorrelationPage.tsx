@@ -11,6 +11,12 @@ interface FuzzSessionSummary {
   target_host: string;
   target_port: number;
   status: string;
+  timeout_per_test_ms: number;
+  rate_limit_per_second?: number | null;
+  transport: string;
+  execution_mode: string;
+  enabled_mutators: string[];
+  fuzzing_mode?: string | null;
 }
 
 interface TestCaseExecutionRecord {
@@ -456,20 +462,61 @@ function CorrelationPage() {
       </div>
 
       {selectedSession && (
-        <div className="session-summary">
-          <div>
-            <span>Protocol</span>
-            <strong>{selectedSession.protocol}</strong>
+        <div className="session-config-card">
+          <div className="config-section">
+            <h3>Target Configuration</h3>
+            <div className="config-row">
+              <div className="config-item">
+                <span>Protocol</span>
+                <strong>{selectedSession.protocol}</strong>
+              </div>
+              <div className="config-item">
+                <span>Target</span>
+                <strong>{selectedSession.target_host}:{selectedSession.target_port}</strong>
+              </div>
+              <div className="config-item">
+                <span>Transport</span>
+                <strong>{selectedSession.transport.toUpperCase()}</strong>
+              </div>
+              <div className="config-item">
+                <span>Status</span>
+                <StatusBadge value={selectedSession.status} />
+              </div>
+            </div>
           </div>
-          <div>
-            <span>Target</span>
-            <strong>
-              {selectedSession.target_host}:{selectedSession.target_port}
-            </strong>
-          </div>
-          <div>
-            <span>Status</span>
-            <StatusBadge value={selectedSession.status} />
+
+          <div className="config-section">
+            <h3>Fuzzing Configuration</h3>
+            <div className="config-row">
+              <div className="config-item">
+                <span>Execution Mode</span>
+                <strong>{selectedSession.execution_mode}</strong>
+              </div>
+              <div className="config-item">
+                <span>Timeout</span>
+                <strong>{selectedSession.timeout_per_test_ms} ms</strong>
+              </div>
+              {selectedSession.rate_limit_per_second && (
+                <div className="config-item">
+                  <span>Rate Limit</span>
+                  <strong>{selectedSession.rate_limit_per_second}/sec</strong>
+                </div>
+              )}
+              {selectedSession.fuzzing_mode && (
+                <div className="config-item">
+                  <span>Fuzzing Mode</span>
+                  <strong>{selectedSession.fuzzing_mode}</strong>
+                </div>
+              )}
+            </div>
+            <div className="config-item config-item-full">
+              <span>Enabled Mutators</span>
+              <div className="mutator-tags">
+                {selectedSession.enabled_mutators.map((mutator) => (
+                  <span key={mutator} className="mutator-tag">{mutator}</span>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}

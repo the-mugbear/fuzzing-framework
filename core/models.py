@@ -80,6 +80,8 @@ class CrashReport(BaseModel):
     exit_code: Optional[int] = None
     stack_trace: Optional[str] = None
     reproducer_data: bytes
+    response_data: Optional[bytes] = None
+    response_preview: Optional[str] = None
     cpu_usage: Optional[float] = None
     memory_usage_mb: Optional[float] = None
     severity: str = "unknown"
@@ -147,6 +149,53 @@ class FuzzSession(BaseModel):
     behavior_state: Dict[str, Any] = Field(default_factory=dict)
     coverage_snapshot: Optional[Dict[str, Any]] = None
 
+    # NEW: Targeting configuration
+    target_state: Optional[str] = Field(
+        default=None, description="Focus fuzzing on specific state (for stateful protocols)"
+    )
+    fuzzing_mode: str = Field(
+        default="random", description="Fuzzing strategy: random, breadth_first, depth_first, targeted"
+    )
+    mutable_fields: Optional[List[str]] = Field(
+        default=None, description="Restrict mutations to specific fields (None = all mutable fields)"
+    )
+    field_mutation_config: Optional[Dict[str, Any]] = Field(
+        default=None, description="Per-field mutation configuration"
+    )
+
+    # NEW: State coverage tracking (live data, updated in real-time)
+    state_coverage: Dict[str, int] = Field(
+        default_factory=dict, description="State visit counts: {state_name: count}"
+    )
+    transition_coverage: Dict[str, int] = Field(
+        default_factory=dict, description="Transition counts: {'FROM->TO': count}"
+    )
+    current_state: Optional[str] = Field(
+        default=None, description="Current protocol state (for stateful protocols)"
+    )
+
+    # NEW: Field mutation tracking
+    field_mutation_counts: Dict[str, int] = Field(
+        default_factory=dict, description="Per-field mutation counts: {field_name: count}"
+    )
+
+    # Computed properties
+    @property
+    def coverage_percentage(self) -> float:
+        """Returns % of states visited vs total in protocol"""
+        if not self.state_coverage:
+            return 0.0
+        total_states = len(self.state_coverage)
+        if total_states == 0:
+            return 0.0
+        visited = sum(1 for count in self.state_coverage.values() if count > 0)
+        return (visited / total_states) * 100.0
+
+    @property
+    def unexplored_states(self) -> List[str]:
+        """States defined in protocol but never reached"""
+        return [state for state, count in self.state_coverage.items() if count == 0]
+
 
 class MutationStrategy(BaseModel):
     """Mutation configuration"""
@@ -186,6 +235,20 @@ class FuzzConfig(BaseModel):
         default=None, description="Percentage for structure-aware mutations in hybrid mode (0-100)"
     )
     enable_state_tracking: bool = True
+
+    # NEW: Targeting configuration
+    target_state: Optional[str] = Field(
+        default=None, description="Focus fuzzing on specific state (for stateful protocols)"
+    )
+    fuzzing_mode: str = Field(
+        default="random", description="Fuzzing strategy: random, breadth_first, depth_first, targeted"
+    )
+    mutable_fields: Optional[List[str]] = Field(
+        default=None, description="Restrict mutations to specific fields (None = all mutable fields)"
+    )
+    field_mutation_config: Optional[Dict[str, Any]] = Field(
+        default=None, description="Per-field mutation configuration {field_name: {mutators: [...], weight: 0.8}}"
+    )
 
 
 class AgentWorkItem(BaseModel):
@@ -335,6 +398,7 @@ class TestCaseExecutionRecord(BaseModel):
     response_size: Optional[int] = None
     response_preview: Optional[str] = None  # First 64 bytes of response in hex
     error_message: Optional[str] = None
+    raw_response_b64: Optional[str] = None
 
     # For replay - base64 encoded
     raw_payload_b64: str  # Base64 encoded payload for JSON transport

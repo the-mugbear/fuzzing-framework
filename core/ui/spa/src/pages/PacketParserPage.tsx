@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import HexViewer, { HexHighlight } from '../components/HexViewer';
 import ParsedFieldsView, { FieldInfo } from '../components/ParsedFieldsView';
 import { api } from '../services/api';
@@ -22,6 +23,9 @@ interface PreviewSeedResponse {
 }
 
 function PacketParserPage() {
+  const [searchParams] = useSearchParams();
+  const findingId = searchParams.get('finding');
+
   const [protocols, setProtocols] = useState<string[]>([]);
   const [protocolsLoading, setProtocolsLoading] = useState(true);
   const [selectedProtocol, setSelectedProtocol] = useState('');
@@ -30,6 +34,7 @@ function PacketParserPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hoveredField, setHoveredField] = useState<string | null>(null);
+  const [findingInfo, setFindingInfo] = useState<any>(null);
 
   useEffect(() => {
     api<string[]>('/api/plugins')
@@ -45,6 +50,41 @@ function PacketParserPage() {
         setProtocolsLoading(false);
       });
   }, []);
+
+  // Load finding data if finding parameter is present
+  useEffect(() => {
+    if (!findingId) return;
+
+    const loadFinding = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Fetch finding with binary data
+        const finding = await api<any>(`/api/corpus/findings/${findingId}?include_data=true`);
+        setFindingInfo(finding.report);
+
+        // Set protocol if available in the crash report
+        if (finding.report?.protocol) {
+          setSelectedProtocol(finding.report.protocol);
+        }
+
+        // Set hex input from reproducer data
+        if (finding.reproducer_hex) {
+          // Format hex with spaces for readability
+          const spacedHex = finding.reproducer_hex.match(/.{1,2}/g)?.join(' ') ?? finding.reproducer_hex;
+          setHexInput(spacedHex);
+        }
+
+        setLoading(false);
+      } catch (err) {
+        setError(`Failed to load finding: ${(err as Error).message}`);
+        setLoading(false);
+      }
+    };
+
+    loadFinding();
+  }, [findingId]);
 
   const handleParse = async (e: FormEvent) => {
     e.preventDefault();
@@ -141,6 +181,38 @@ function PacketParserPage() {
       {error && (
         <div className="error-banner">
           <strong>Error:</strong> {error}
+        </div>
+      )}
+
+      {findingInfo && (
+        <div className="finding-banner">
+          <h3>🔍 Viewing Crash Finding</h3>
+          <div className="finding-details">
+            <div className="detail-item">
+              <strong>Finding ID:</strong> {findingInfo.id}
+            </div>
+            <div className="detail-item">
+              <strong>Result:</strong> {findingInfo.result}
+            </div>
+            {findingInfo.severity && (
+              <div className="detail-item">
+                <strong>Severity:</strong> {findingInfo.severity}
+              </div>
+            )}
+            {findingInfo.signal && (
+              <div className="detail-item">
+                <strong>Signal:</strong> {findingInfo.signal}
+              </div>
+            )}
+            {findingInfo.exit_code !== undefined && (
+              <div className="detail-item">
+                <strong>Exit Code:</strong> {findingInfo.exit_code}
+              </div>
+            )}
+          </div>
+          <p className="finding-note">
+            The packet below caused this crash. Parse it to see the decoded structure and mutated fields.
+          </p>
         </div>
       )}
 

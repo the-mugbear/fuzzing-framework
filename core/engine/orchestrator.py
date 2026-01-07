@@ -122,6 +122,11 @@ class FuzzOrchestrator:
             execution_mode=config.execution_mode,
             status=FuzzSessionStatus.IDLE,
             behavior_state=behavior_processor.initialize_state() if behavior_processor.has_behaviors() else {},
+            # NEW: Targeting configuration
+            target_state=config.target_state,
+            fuzzing_mode=config.fuzzing_mode,
+            mutable_fields=config.mutable_fields,
+            field_mutation_config=config.field_mutation_config,
         )
 
         self.sessions[session_id] = session
@@ -338,26 +343,35 @@ class FuzzOrchestrator:
                 else:
                     # Generate test case based on fuzzing mode
                     if use_stateful_fuzzing:
-                        # Stateful fuzzing: select message for current state
-                        message_type = stateful_session.get_message_type_for_state()
-
-                        if message_type is None:
-                            # Terminal state - reset
-                            logger.debug("terminal_state_reached", iteration=iteration)
-                            stateful_session.reset_to_initial_state()
-                            message_type = stateful_session.get_message_type_for_state()
-
-                        # Find seed matching this message type
-                        base_seed = stateful_session.find_seed_for_message_type(message_type, seeds)
+                        # NEW: Use fuzzing mode-aware selection
+                        base_seed = self._select_message_for_fuzzing_mode(
+                            session,
+                            stateful_session,
+                            seeds,
+                            iteration
+                        )
 
                         if base_seed is None:
-                            # No seed found for this message type, use fallback
-                            logger.warning(
-                                "no_seed_for_message_type",
-                                message_type=message_type,
-                                using_random_seed=True
-                            )
-                            base_seed = seeds[iteration % len(seeds)]
+                            # Fallback to standard stateful selection
+                            message_type = stateful_session.get_message_type_for_state()
+
+                            if message_type is None:
+                                # Terminal state - reset
+                                logger.debug("terminal_state_reached", iteration=iteration)
+                                stateful_session.reset_to_initial_state()
+                                message_type = stateful_session.get_message_type_for_state()
+
+                            # Find seed matching this message type
+                            base_seed = stateful_session.find_seed_for_message_type(message_type, seeds)
+
+                            if base_seed is None:
+                                # No seed found for this message type, use fallback
+                                logger.warning(
+                                    "no_seed_for_message_type",
+                                    message_type=message_type,
+                                    using_random_seed=True
+                                )
+                                base_seed = seeds[iteration % len(seeds)]
                     else:
                         # Stateless fuzzing: random seed selection (existing behavior)
                         base_seed = seeds[iteration % len(seeds)]
@@ -365,6 +379,14 @@ class FuzzOrchestrator:
                     # Mutate the selected seed
                     test_case_data = mutation_engine.generate_test_case(base_seed)
                     mutation_meta = mutation_engine.get_last_metadata()
+
+                    # NEW: Track field mutations
+                    if mutation_meta.get("field"):
+                        field_name = mutation_meta["field"]
+                        session.field_mutation_counts[field_name] = (
+                            session.field_mutation_counts.get(field_name, 0) + 1
+                        )
+
                     final_data = self._apply_behaviors(session, test_case_data)
                     seed_reference = (
                         session.seed_corpus[iteration % len(session.seed_corpus)]
@@ -395,7 +417,7 @@ class FuzzOrchestrator:
                     result, response = await self._execute_test_case(session, test_case)
                     timestamp_response = datetime.utcnow()
 
-                    await self._finalize_test_case(session, test_case, result)
+                    await self._finalize_test_case(session, test_case, result, response)
 
                     # Record execution for correlation/replay
                     self._record_execution(
@@ -421,8 +443,14 @@ class FuzzOrchestrator:
                             result.value if result else "unknown"
                         )
 
+                        # NEW: Sync coverage data to session in real-time
+                        session.current_state = stateful_session.current_state
+                        session.state_coverage = stateful_session.get_state_coverage()
+                        session.transition_coverage = stateful_session.get_transition_coverage()
+
                         # Periodically reset state to explore different paths
-                        if stateful_session.should_reset(iteration, reset_interval=100):
+                        reset_interval = self._get_reset_interval(session)
+                        if stateful_session.should_reset(iteration, reset_interval=reset_interval):
                             logger.debug("periodic_state_reset", iteration=iteration)
                             stateful_session.reset_to_initial_state()
                 else:
@@ -447,9 +475,20 @@ class FuzzOrchestrator:
         except asyncio.CancelledError:
             logger.info("fuzzing_loop_cancelled", session_id=session_id)
         except Exception as e:
-            logger.error("fuzzing_loop_error", session_id=session_id, error=str(e))
+            import traceback
+            error_traceback = traceback.format_exc()
+            logger.error(
+                "fuzzing_loop_error",
+                session_id=session_id,
+                error=str(e),
+                error_type=type(e).__name__,
+                total_tests=session.total_tests,
+                iteration=iteration,
+                execution_mode=session.execution_mode.value,
+                traceback=error_traceback,
+            )
             session.status = FuzzSessionStatus.FAILED
-            session.error_message = f"Fuzzing error: {str(e)}"
+            session.error_message = f"Fuzzing error: {type(e).__name__}: {str(e)}"
         finally:
             if session.execution_mode == ExecutionMode.AGENT:
                 await agent_manager.clear_session(session_id)
@@ -482,6 +521,7 @@ class FuzzOrchestrator:
         session: FuzzSession,
         test_case: TestCase,
         result: TestCaseResult,
+        response: Optional[bytes] = None,
         metrics: Optional[Dict[str, float]] = None,
     ) -> None:
         """Update session statistics and persist findings"""
@@ -496,6 +536,7 @@ class FuzzOrchestrator:
                 test_case,
                 cpu_usage=metrics.get("cpu_usage"),
                 memory_usage=metrics.get("memory_usage_mb"),
+                response=response,
             )
             logger.warning(
                 "crash_detected",
@@ -526,11 +567,13 @@ class FuzzOrchestrator:
             )
             return {"status": "stale"}
 
+        response_bytes = payload.response if payload.response else None
         test_case.execution_time_ms = payload.execution_time_ms
         await self._finalize_test_case(
             session,
             test_case,
             payload.result,
+            response=response_bytes,
             metrics={
                 "cpu_usage": payload.cpu_usage or 0.0,
                 "memory_usage_mb": payload.memory_usage_mb or 0.0,
@@ -540,7 +583,6 @@ class FuzzOrchestrator:
         timestamp_response = datetime.utcnow()
         duration_ms = payload.execution_time_ms or 0.0
         timestamp_sent = timestamp_response - timedelta(milliseconds=duration_ms)
-        response_bytes = payload.response if payload.response else None
 
         self._record_execution(
             session,
@@ -632,9 +674,11 @@ class FuzzOrchestrator:
 
         try:
             try:
+                # Use session-specific timeout (convert ms to seconds)
+                timeout_sec = session.timeout_per_test_ms / 1000.0
                 reader, writer = await asyncio.wait_for(
                     asyncio.open_connection(session.target_host, session.target_port),
-                    timeout=settings.mutation_timeout_sec,
+                    timeout=timeout_sec,
                 )
             except (ConnectionRefusedError, OSError) as exc:
                 logger.error(
@@ -646,8 +690,9 @@ class FuzzOrchestrator:
                 if not session.error_message:
                     error_msg = (
                         f"Connection refused to {session.target_host}:{session.target_port}. "
-                        "Target may not be running. If running in Docker and targeting localhost, "
-                        "use '172.17.0.1' (Linux) or 'host.docker.internal' (Mac/Windows) instead."
+                        "Target may not be running. If running in containers and targeting localhost, "
+                        "use '172.17.0.1' (Docker Linux), 'host.docker.internal' (Docker Mac/Windows), "
+                        "or 'host.containers.internal' (Podman 4.1+) instead."
                     )
                     session.error_message = error_msg
                     session.status = FuzzSessionStatus.FAILED
@@ -671,7 +716,7 @@ class FuzzOrchestrator:
                 await writer.drain()
                 response = await self._read_response_stream(
                     reader,
-                    timeout=settings.mutation_timeout_sec,
+                    timeout=timeout_sec,
                     max_bytes=settings.max_response_bytes,
                     session_id=session.id,
                 )
@@ -731,13 +776,15 @@ class FuzzOrchestrator:
 
         transport: Optional[asyncio.transports.DatagramTransport] = None
         try:
+            # Use session-specific timeout (convert ms to seconds)
+            timeout_sec = session.timeout_per_test_ms / 1000.0
             transport, _ = await loop.create_datagram_endpoint(
                 _UDPClient,
                 remote_addr=(session.target_host, session.target_port),
             )
             response = await asyncio.wait_for(
                 response_future,
-                timeout=settings.mutation_timeout_sec,
+                timeout=timeout_sec,
             )
             result = self._classify_response(session.protocol, response)
             return result, response
@@ -834,19 +881,40 @@ class FuzzOrchestrator:
         mutation_strategy: Optional[str] = None,
         mutators_applied: Optional[List[str]] = None,
     ) -> TestCaseExecutionRecord:
-        """Record a test case execution for correlation"""
-        return self.history_store.record(
-            session,
-            test_case,
-            timestamp_sent,
-            timestamp_response,
-            result,
-            response,
-            message_type=message_type,
-            state_at_send=state_at_send,
-            mutation_strategy=mutation_strategy,
-            mutators_applied=mutators_applied,
-        )
+        """Record a test case execution for correlation.
+
+        Note: mutation_strategy and mutators_applied are accepted for backward
+        compatibility but not passed to record() - they're extracted from test_case.
+        """
+        try:
+            record = self.history_store.record(
+                session,
+                test_case,
+                timestamp_sent,
+                timestamp_response,
+                result,
+                response,
+                message_type=message_type,
+                state_at_send=state_at_send,
+            )
+            logger.debug(
+                "execution_recorded",
+                session_id=session.id,
+                test_case_id=test_case.id,
+                result=result.value,
+                mutation_strategy=test_case.mutation_strategy,
+                mutators_applied=test_case.mutators_applied,
+            )
+            return record
+        except Exception as exc:
+            logger.error(
+                "execution_record_failed",
+                session_id=session.id,
+                test_case_id=test_case.id,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            raise
 
     def _resolve_mutators(self, config: FuzzConfig) -> List[str]:
         """Translate config into concrete mutator names"""
@@ -913,6 +981,22 @@ class FuzzOrchestrator:
         """List all sessions"""
         return list(self.sessions.values())
 
+    async def delete_session(self, session_id: str) -> bool:
+        """Delete a session and clean up resources"""
+        session = self.sessions.get(session_id)
+        if not session:
+            return False
+
+        # Stop the session if it's running
+        if session.status == FuzzSessionStatus.RUNNING:
+            await self.stop_session(session_id)
+
+        # Remove from sessions dict
+        del self.sessions[session_id]
+
+        logger.info("session_deleted", session_id=session_id)
+        return True
+
     def get_session_stats(self, session_id: str) -> Optional[Dict]:
         """Get session statistics"""
         session = self.sessions.get(session_id)
@@ -923,7 +1007,7 @@ class FuzzOrchestrator:
 
         stats = {
             "session_id": session_id,
-            "status": session.status,
+            "status": session.status.value,  # Convert enum to string
             "total_tests": session.total_tests,
             "crashes": session.crashes,
             "hangs": session.hangs,
@@ -992,6 +1076,182 @@ class FuzzOrchestrator:
         """Find execution that was running at given timestamp"""
 
         return self.history_store.find_at_time(session_id, timestamp)
+
+    def _get_reset_interval(self, session: FuzzSession) -> int:
+        """
+        Determine state reset interval based on fuzzing mode.
+
+        Args:
+            session: Fuzzing session
+
+        Returns:
+            Reset interval in iterations
+        """
+        if session.fuzzing_mode == "breadth_first":
+            # Reset frequently to explore all states evenly
+            return 20
+        elif session.fuzzing_mode == "depth_first":
+            # Reset rarely to follow deep paths
+            return 500
+        elif session.fuzzing_mode == "targeted" and session.target_state:
+            # Reset rarely when targeting specific state (stay in target state)
+            return 300
+        else:
+            # Default: random mode
+            return 100
+
+    def _should_navigate_to_target_state(
+        self,
+        session: FuzzSession,
+        stateful_session: Any,
+        iteration: int
+    ) -> bool:
+        """
+        Determine if we should navigate to target state.
+
+        Used in targeted mode to reach the target state before fuzzing.
+
+        Args:
+            session: Fuzzing session
+            stateful_session: StatefulFuzzingSession instance
+            iteration: Current iteration
+
+        Returns:
+            True if should navigate to target
+        """
+        if session.fuzzing_mode != "targeted" or not session.target_state:
+            return False
+
+        # Already at target state - no need to navigate
+        if stateful_session.current_state == session.target_state:
+            return False
+
+        # Not at target, need to navigate
+        return True
+
+    def _select_message_for_fuzzing_mode(
+        self,
+        session: FuzzSession,
+        stateful_session: Any,
+        seeds: List[bytes],
+        iteration: int
+    ) -> Optional[bytes]:
+        """
+        Select appropriate message based on fuzzing mode and targeting.
+
+        Args:
+            session: Fuzzing session
+            stateful_session: StatefulFuzzingSession instance
+            seeds: Available seed messages
+            iteration: Current iteration
+
+        Returns:
+            Selected seed message, or None for fallback
+        """
+        if session.fuzzing_mode == "breadth_first":
+            # Select messages that lead to least-visited states
+            valid_transitions = stateful_session.get_valid_transitions()
+            if not valid_transitions:
+                return None
+
+            state_coverage = stateful_session.get_state_coverage()
+
+            # Find transition leading to least-visited state
+            best_transition = min(
+                valid_transitions,
+                key=lambda t: state_coverage.get(t.get("to", ""), 0)
+            )
+
+            message_type = best_transition.get("message_type")
+            if message_type:
+                return stateful_session.find_seed_for_message_type(message_type, seeds)
+
+        elif session.fuzzing_mode == "depth_first":
+            # Always follow the first transition (deep paths)
+            message_type = stateful_session.get_message_type_for_state()
+            if message_type:
+                return stateful_session.find_seed_for_message_type(message_type, seeds)
+
+        elif session.fuzzing_mode == "targeted":
+            # Navigate to target state, then fuzz messages in that state
+            if self._should_navigate_to_target_state(session, stateful_session, iteration):
+                # Navigate: select message that moves toward target
+                message_type = self._select_message_toward_target(
+                    session.target_state,
+                    stateful_session
+                )
+                if message_type:
+                    return stateful_session.find_seed_for_message_type(message_type, seeds)
+            else:
+                # Already at target - select any valid message for target state
+                message_type = stateful_session.get_message_type_for_state()
+                if message_type:
+                    return stateful_session.find_seed_for_message_type(message_type, seeds)
+
+        # Default: use standard stateful selection
+        return None
+
+    def _select_message_toward_target(
+        self,
+        target_state: str,
+        stateful_session: Any
+    ) -> Optional[str]:
+        """
+        Select message type that moves toward target state.
+
+        Simple BFS to find path to target state and return first step.
+
+        Args:
+            target_state: Desired target state
+            stateful_session: StatefulFuzzingSession instance
+
+        Returns:
+            Message type to send, or None if unreachable
+        """
+        from collections import deque
+
+        current = stateful_session.current_state
+        if current == target_state:
+            # Already there
+            return stateful_session.get_message_type_for_state()
+
+        # BFS to find path
+        queue = deque([(current, [])])
+        visited = {current}
+
+        state_model = stateful_session.state_model
+        transitions = state_model.get("transitions", [])
+
+        while queue:
+            state, path = queue.popleft()
+
+            # Get valid transitions from this state
+            for transition in transitions:
+                if transition.get("from") != state:
+                    continue
+
+                to_state = transition.get("to")
+                message_type = transition.get("message_type")
+
+                if to_state == target_state:
+                    # Found path! Return first message type in path
+                    if path:
+                        return path[0]
+                    else:
+                        return message_type
+
+                if to_state not in visited:
+                    visited.add(to_state)
+                    new_path = path + [message_type] if path else [message_type]
+                    queue.append((to_state, new_path))
+
+        # No path found
+        logger.warning(
+            "no_path_to_target_state",
+            current=current,
+            target=target_state
+        )
+        return None
 
     async def replay_executions(
         self,

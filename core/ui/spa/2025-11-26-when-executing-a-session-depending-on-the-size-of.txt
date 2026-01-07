@@ -1,0 +1,19 @@
+
+ ▐▛███▜▌   Claude Code v2.0.54
+▝▜█████▛▘  Sonnet 4.5 · Claude Pro
+  ▘▘ ▝▝    ~/Projects/Fuzzing/core/ui/spa
+══════════════════ Conversation compacted · ctrl+o for history ═════════════════
+  ⎿  Read ../../../../../../../tmp/current_session_id.txt (2 lines)
+  ⎿  Read ../../../tests/feature_showcase_server.py (421 lines)
+  ⎿  Read src/pages/CorrelationPage.css (398 lines)
+  ⎿  Referenced file src/pages/CorrelationPage.tsx
+  ⎿  Read ../../../../../../../tmp/sid.txt (1 lines)
+  ⎿  5-hour limit reached · resets 6am (America/Phoenix) · /upgrade to Max or 
+     turn on /extra-usage
+     /upgrade to increase your usage limit.
+
+> /resume 
+  ⎿  Resume cancelled
+
+
+

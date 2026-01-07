@@ -1,7 +1,7 @@
 """Plugin and preview endpoints."""
 import base64
 import random
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -86,6 +86,86 @@ async def reload_plugin(plugin_name: str, plugin_manager=Depends(get_plugin_mana
     except Exception as exc:
         logger.error("failed_to_reload_plugin", plugin=plugin_name, error=str(exc))
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/plugins/{plugin_name}/validate")
+async def validate_plugin_endpoint(plugin_name: str, plugin_manager=Depends(get_plugin_manager)):
+    """
+    Validate a protocol plugin for errors and warnings.
+
+    Returns detailed validation results including:
+    - Syntax errors
+    - Data model issues (missing fields, invalid types, broken references)
+    - State model issues (unreachable states, invalid transitions)
+    - Best practice warnings
+    """
+    try:
+        from core.engine.plugin_validator import PluginValidator
+
+        # Load plugin
+        plugin = plugin_manager.load_plugin(plugin_name)
+
+        # Validate
+        validator = PluginValidator()
+        result = validator.validate_plugin(plugin.data_model, plugin.state_model)
+
+        # Transform result to UI-friendly format
+        result_dict = result.to_dict()
+        issues = []
+
+        # Combine errors and warnings into single issues array
+        for error in result_dict.get("errors", []):
+            issues.append({
+                "severity": "error",
+                "category": error.get("category", "unknown"),
+                "message": error.get("message", ""),
+                "suggestion": error.get("suggestion")
+            })
+
+        for warning in result_dict.get("warnings", []):
+            issues.append({
+                "severity": "warning",
+                "category": warning.get("category", "unknown"),
+                "message": warning.get("message", ""),
+                "suggestion": warning.get("suggestion")
+            })
+
+        return {
+            "valid": result_dict["valid"],
+            "plugin_name": plugin_name,
+            "error_count": result_dict["error_count"],
+            "warning_count": result_dict["warning_count"],
+            "issues": issues
+        }
+
+    except Exception as exc:
+        logger.error("failed_to_validate_plugin", plugin=plugin_name, error=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class ValidateCodeRequest(BaseModel):
+    code: str
+
+
+@router.post("/plugins/validate_code")
+async def validate_plugin_code(request: ValidateCodeRequest):
+    """
+    Validate plugin Python source code without loading it.
+
+    Useful for the visual protocol editor to validate generated code
+    or for users to check their plugin before saving.
+    """
+    from core.engine.plugin_validator import validate_plugin_code
+
+    is_valid, issues, plugin_name = validate_plugin_code(request.code)
+
+    return {
+        "valid": is_valid,
+        "plugin_name": plugin_name,
+        "error_count": sum(1 for issue in issues if issue["severity"] == "error"),
+        "warning_count": sum(1 for issue in issues if issue["severity"] == "warning"),
+        "issues": issues
+    }
 
 
 @router.post("/plugins/{plugin_name}/preview", response_model=PreviewResponse)
@@ -296,6 +376,84 @@ def _get_mutator_description(mutator_name: str) -> str:
     return descriptions.get(mutator_name, f"Byte-level mutation: {mutator_name}")
 
 
+def _infer_field_size(block: dict, value: Any) -> int:
+    field_type = block.get("type", "")
+    if field_type.startswith("uint") or field_type.startswith("int"):
+        if field_type.endswith("8"):
+            return 1
+        if field_type.endswith("16"):
+            return 2
+        if field_type.endswith("32"):
+            return 4
+        if field_type.endswith("64"):
+            return 8
+        return 0
+
+    if field_type == "bytes":
+        if isinstance(value, (bytes, bytearray)):
+            return len(value)
+        return block.get("size") or block.get("max_size") or 0
+
+    if field_type == "string":
+        if isinstance(value, str):
+            return len(value.encode(block.get("encoding", "utf-8")))
+        if isinstance(value, (bytes, bytearray)):
+            return len(value)
+        return 0
+
+    return 0
+
+
+def _format_parsed_fields(
+    blocks: List[dict],
+    parsed_fields: Dict[str, Any],
+    packet_bytes: bytes,
+) -> Tuple[List["ParsedField"], int]:
+    """Normalize parsed fields into API response format."""
+    fields: List[ParsedField] = []
+    offset = 0
+
+    for block in blocks:
+        field_name = block["name"]
+        field_type = block["type"]
+        value = parsed_fields.get(field_name)
+
+        size = _infer_field_size(block, value)
+        if field_type == "bytes" and size == 0 and offset < len(packet_bytes):
+            size = len(packet_bytes) - offset
+
+        if size and offset + size <= len(packet_bytes):
+            field_bytes = packet_bytes[offset : offset + size]
+        elif size and offset < len(packet_bytes):
+            field_bytes = packet_bytes[offset:]
+        else:
+            field_bytes = b""
+
+        field_hex = field_bytes.hex()
+
+        display_value = value
+        if isinstance(value, bytes):
+            try:
+                display_value = value.decode("utf-8")
+            except Exception:
+                display_value = value.hex()
+
+        fields.append(
+            ParsedField(
+                name=field_name,
+                value=display_value,
+                hex=field_hex,
+                offset=offset,
+                size=size,
+                type=field_type,
+            )
+        )
+
+        offset += size
+
+    return fields, offset
+
+
 def _detect_mutated_field(original: bytes, mutated: bytes, parser: ProtocolParser, blocks: List[dict]) -> Optional[str]:
     try:
         original_fields = parser.parse(original)
@@ -464,72 +622,9 @@ async def parse_packet_endpoint(
         try:
             parsed_fields_dict = parser.parse(packet_bytes)
 
-            # Build response with field offsets
-            fields = []
-            offset = 0
             blocks = denormalized_model.get("blocks", [])
+            fields, offset = _format_parsed_fields(blocks, parsed_fields_dict, packet_bytes)
 
-            for block in blocks:
-                field_name = block["name"]
-                field_type = block["type"]
-                value = parsed_fields_dict.get(field_name)
-
-                # Calculate size
-                if field_type == "bytes":
-                    if isinstance(value, bytes):
-                        size = len(value)
-                    else:
-                        size = block.get("size", 0)
-                elif field_type.startswith("uint") or field_type.startswith("int"):
-                    # Determine integer size
-                    if field_type.endswith("8"):
-                        size = 1
-                    elif field_type.endswith("16"):
-                        size = 2
-                    elif field_type.endswith("32"):
-                        size = 4
-                    elif field_type.endswith("64"):
-                        size = 8
-                    else:
-                        size = 0
-                elif field_type == "string":
-                    if isinstance(value, str):
-                        size = len(value.encode("utf-8"))
-                    else:
-                        size = 0
-                else:
-                    size = 0
-
-                # Extract hex for this field
-                if offset + size <= len(packet_bytes):
-                    field_bytes = packet_bytes[offset : offset + size]
-                    field_hex = field_bytes.hex()
-                else:
-                    field_hex = ""
-
-                # Format value for display
-                display_value = value
-                if isinstance(value, bytes):
-                    # Try to decode as string, otherwise show hex
-                    try:
-                        display_value = value.decode("utf-8")
-                    except:
-                        display_value = value.hex()
-
-                fields.append(
-                    ParsedField(
-                        name=field_name,
-                        value=display_value,
-                        hex=field_hex,
-                        offset=offset,
-                        size=size,
-                        type=field_type,
-                    )
-                )
-
-                offset += size
-
-            # Check for unparsed bytes
             warnings = []
             if offset < len(packet_bytes):
                 warnings.append(f"{len(packet_bytes) - offset} trailing bytes not parsed")
@@ -734,60 +829,7 @@ async def mutate_with_endpoint(
             try:
                 parsed_fields_dict = parser.parse(mutated)
                 blocks = denormalized_model.get("blocks", [])
-
-                fields = []
-                offset = 0
-                for block in blocks:
-                    field_name = block["name"]
-                    field_type = block["type"]
-                    value = parsed_fields_dict.get(field_name)
-
-                    # Calculate size
-                    if field_type == "bytes":
-                        size = len(value) if isinstance(value, bytes) else block.get("size", 0)
-                    elif field_type.startswith("uint") or field_type.startswith("int"):
-                        if field_type.endswith("8"):
-                            size = 1
-                        elif field_type.endswith("16"):
-                            size = 2
-                        elif field_type.endswith("32"):
-                            size = 4
-                        elif field_type.endswith("64"):
-                            size = 8
-                        else:
-                            size = 0
-                    elif field_type == "string":
-                        size = len(value.encode("utf-8")) if isinstance(value, str) else 0
-                    else:
-                        size = 0
-
-                    # Extract hex for this field
-                    if offset + size <= len(mutated):
-                        field_bytes = mutated[offset : offset + size]
-                        field_hex = field_bytes.hex()
-                    else:
-                        field_hex = ""
-
-                    # Format value for display
-                    display_value = value
-                    if isinstance(value, bytes):
-                        try:
-                            display_value = value.decode("utf-8")
-                        except:
-                            display_value = value.hex()
-
-                    fields.append(
-                        ParsedField(
-                            name=field_name,
-                            value=display_value,
-                            hex=field_hex,
-                            offset=offset,
-                            size=size,
-                            type=field_type,
-                        )
-                    )
-
-                    offset += size
+                fields, _ = _format_parsed_fields(blocks, parsed_fields_dict, mutated)
 
             except Exception as e:
                 logger.warning("mutated_parse_failed", error=str(e))

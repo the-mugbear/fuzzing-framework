@@ -78,6 +78,30 @@ class ResponsePlanner:
 
         return followups
 
+    def extract_overrides(
+        self, parsed_response: Dict[str, Any]
+    ) -> tuple[Dict[str, Any], List[Dict[str, Any]]]:
+        """
+        Public helper to compute field overrides from response handlers.
+
+        Returns:
+            Tuple of (overrides dict, matched handler definitions)
+        """
+        updates: Dict[str, Any] = {}
+        matched: List[Dict[str, Any]] = []
+
+        for handler in self.handlers:
+            if not self._matches(handler.get("match", {}), parsed_response):
+                continue
+
+            matched.append(handler)
+            for field_name, spec in (handler.get("set_fields") or {}).items():
+                value = self._resolve_field_value(spec, parsed_response)
+                if value is not None:
+                    updates[field_name] = value
+
+        return updates, matched
+
     def _matches(self, match: Dict[str, Any], parsed_response: Dict[str, Any]) -> bool:
         if not match:
             return True

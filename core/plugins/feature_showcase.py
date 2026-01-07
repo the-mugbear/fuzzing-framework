@@ -1098,64 +1098,34 @@ def validate_response(response: bytes) -> bool:
         - Required fields are populated
     """
 
-    # Check 1: Minimum length
-    # A valid response must have at least the magic bytes (4 bytes).
-    if len(response) < 4:
-        # Too short to be a valid response. This could indicate:
-        #   - Server crashed mid-response
-        #   - Network truncation
-        #   - Server sent error without proper framing
-        return False
+    import functools
+    from core.engine.protocol_parser import ProtocolParser
 
-    # Check 2: Magic bytes
-    # In this example, we expect responses to start with "RESP" magic.
-    # NOTE: This is DIFFERENT from the request magic ("SHOW").
-    # Many protocols use different magic for request vs response.
-    if response[:4] != b"RESP":
-        # Wrong magic bytes. This could indicate:
-        #   - Server sent response in wrong format
-        #   - We're talking to wrong service
-        #   - Protocol version mismatch
-        #   - Data corruption
-        return False
+    @functools.lru_cache(maxsize=1)
+    def _response_parser() -> ProtocolParser:
+        return ProtocolParser(response_model)
 
-    # Check 3: Response type specific validation
-    # For more sophisticated validation, parse specific fields.
     try:
-        # Extract response type (assuming it's at offset 4, like our request)
-        # NOTE: In real code, you'd use ProtocolParser with response_model!
-        response_type = response[4]
-
-        # Extract payload length (assuming uint32 at offset 5-8, big-endian)
-        payload_len = int.from_bytes(response[5:9], 'big')
-
-        # Check 4: Error messages should have explanatory payload
-        # If response_type is 0xFF (ERROR), there MUST be a payload explaining why.
-        if response_type == 0xFF and payload_len == 0:
-            # This is a LOGIC BUG in the server:
-            #   - Server signaled an error
-            #   - But didn't explain what went wrong
-            #   - This violates the protocol specification
-            #
-            # While not a crash, this is worth investigating because:
-            #   - Client can't debug the issue
-            #   - Might indicate unhandled exception path
-            #   - Could lead to client-side confusion
-            return False
-
-        # Additional checks you might add:
-        #   - payload_len matches actual remaining bytes
-        #   - Session tokens are non-zero when expected
-        #   - Status codes are in valid range (0x00, 0x01, 0xFF only)
-        #   - Sequence numbers increment correctly
-        #   - Checksums are valid
-
-    except IndexError:
-        # Response was too short to extract the fields we expected.
-        # This is a malformed response.
+        fields = _response_parser().parse(response)
+    except Exception:
+        # Parsing failed – response not shaped like our response_model
         return False
 
-    # If we got here, response passed all checks
+    if fields.get("magic") != b"SHOW":
+        return False
+
+    if fields.get("protocol_version") not in (1,):
+        return False
+
+    status = fields.get("status")
+    if status not in (0x00, 0x01, 0xFF):
+        return False
+
+    # On error responses, require an explanatory details payload.
+    details = fields.get("details") or b""
+    if status == 0xFF and len(details) == 0:
+        return False
+
     return True
 
 

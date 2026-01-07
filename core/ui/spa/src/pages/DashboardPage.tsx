@@ -16,6 +16,19 @@ interface FuzzSession {
   crashes: number;
   hangs: number;
   anomalies: number;
+  // NEW: Coverage and targeting
+  current_state?: string;
+  state_coverage?: Record<string, number>;
+  transition_coverage?: Record<string, number>;
+  field_mutation_counts?: Record<string, number>;
+  fuzzing_mode?: string;
+  target_state?: string;
+}
+
+interface ProtocolField {
+  name: string;
+  type: string;
+  mutable: boolean;
 }
 
 interface CreateSessionForm {
@@ -28,6 +41,12 @@ interface CreateSessionForm {
   rate_limit_per_second: number | '';
   max_iterations: number | '';
   timeout_per_test_ms: number;
+  // NEW: Targeting options
+  fuzzing_mode: string;
+  target_state: string;
+  show_advanced: boolean;
+  show_field_controls: boolean;
+  mutable_fields: string[];  // Field names that should be mutated
 }
 
 type FormAction =
@@ -44,6 +63,12 @@ const initialForm: CreateSessionForm = {
   rate_limit_per_second: '',
   max_iterations: '',
   timeout_per_test_ms: 5000,
+  // NEW: Targeting options
+  fuzzing_mode: 'random',
+  target_state: '',
+  show_advanced: false,
+  show_field_controls: false,
+  mutable_fields: [],
 };
 
 function formReducer(state: CreateSessionForm, action: FormAction): CreateSessionForm {
@@ -65,6 +90,7 @@ function DashboardPage() {
   const [toast, setToast] = useState<{ variant: ToastVariant; message: string } | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string>('');
   const [form, dispatch] = useReducer(formReducer, initialForm);
+  const [protocolFields, setProtocolFields] = useState<ProtocolField[]>([]);
   const refreshTimer = useRef<number>();
 
   const refreshSessions = () => {
@@ -128,6 +154,8 @@ function DashboardPage() {
         mutation_mode: form.mutation_mode,
         structure_aware_weight: form.structure_aware_weight,
         timeout_per_test_ms: form.timeout_per_test_ms,
+        // NEW: Targeting options
+        fuzzing_mode: form.fuzzing_mode,
       } as Record<string, unknown>;
 
       if (form.rate_limit_per_second !== '') {
@@ -135,6 +163,9 @@ function DashboardPage() {
       }
       if (form.max_iterations !== '') {
         payload.max_iterations = Number(form.max_iterations);
+      }
+      if (form.target_state && form.target_state.trim() !== '') {
+        payload.target_state = form.target_state.trim();
       }
 
       await api('/api/sessions', {
@@ -169,6 +200,23 @@ function DashboardPage() {
       refreshSessions();
     } catch (err) {
       setToast({ variant: 'error', message: `Stop failed: ${(err as Error).message}` });
+    } finally {
+      setActionInProgress(null);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this session? This cannot be undone.')) {
+      return;
+    }
+
+    setActionInProgress(id);
+    try {
+      await api(`/api/sessions/${id}`, { method: 'DELETE' });
+      setToast({ variant: 'success', message: 'Session deleted.' });
+      refreshSessions();
+    } catch (err) {
+      setToast({ variant: 'error', message: `Delete failed: ${(err as Error).message}` });
     } finally {
       setActionInProgress(null);
     }
@@ -294,6 +342,55 @@ function DashboardPage() {
               onChange={(e) => dispatch({ type: 'set_field', field: 'timeout_per_test_ms', value: Number(e.target.value) })}
             />
           </label>
+
+          {/* NEW: Advanced Targeting Options */}
+          <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color, #ddd)' }}>
+            <button
+              type="button"
+              onClick={() => dispatch({ type: 'set_field', field: 'show_advanced', value: !form.show_advanced })}
+              style={{ marginBottom: '0.5rem', background: 'transparent', border: '1px solid', padding: '0.5rem 1rem' }}
+            >
+              {form.show_advanced ? '▼' : '▶'} Advanced Targeting Options
+            </button>
+
+            {form.show_advanced && (
+              <>
+                <label>
+                  Fuzzing Mode
+                  <select
+                    value={form.fuzzing_mode}
+                    onChange={(e) => dispatch({ type: 'set_field', field: 'fuzzing_mode', value: e.target.value })}
+                  >
+                    <option value="random">Random (Default)</option>
+                    <option value="breadth_first">Breadth-First (Explore all states evenly)</option>
+                    <option value="depth_first">Depth-First (Follow deep paths)</option>
+                    <option value="targeted">Targeted (Focus on specific state)</option>
+                  </select>
+                  <span className="hint">
+                    Strategy for exploring protocol states. Breadth-first ensures all states are tested;
+                    depth-first follows deep execution paths; targeted focuses on a specific state.
+                  </span>
+                </label>
+
+                {form.fuzzing_mode === 'targeted' && (
+                  <label>
+                    Target State
+                    <input
+                      type="text"
+                      placeholder="e.g., AUTHENTICATED"
+                      value={form.target_state}
+                      onChange={(e) => dispatch({ type: 'set_field', field: 'target_state', value: e.target.value })}
+                    />
+                    <span className="hint">
+                      State to focus testing on (required for targeted mode). The fuzzer will navigate to this state
+                      and concentrate mutations there.
+                    </span>
+                  </label>
+                )}
+              </>
+            )}
+          </div>
+
           <button type="submit">Create Session</button>
         </form>
         {toast && <Toast message={toast.message} variant={toast.variant} onClose={() => setToast(null)} />}
@@ -340,42 +437,83 @@ function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {sessions.map((session) => (
-                <tr key={session.id}>
-                  <td>
-                    <Link className="session-link" to={`/correlation?session=${encodeURIComponent(session.id)}`}>
-                      {session.id.slice(0, 8)}…
-                    </Link>
-                  </td>
-                  <td>{session.protocol}</td>
-                  <td>
-                    <StatusBadge value={session.status} />
-                  </td>
-                  <td>
-                    {session.target_host}:{session.target_port}
-                  </td>
-                  <td>
-                    {session.total_tests} tests · {session.crashes} crashes
-                  </td>
-                  <td>
-                    <div className="session-actions">
-                      <button
-                        onClick={() => handleStart(session.id)}
-                        disabled={actionInProgress === session.id}
-                      >
-                        {actionInProgress === session.id ? 'Starting...' : 'Start'}
-                      </button>
-                      <button
-                        onClick={() => handleStop(session.id)}
-                        className="ghost"
-                        disabled={actionInProgress === session.id}
-                      >
-                        {actionInProgress === session.id ? 'Stopping...' : 'Stop'}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {sessions.map((session) => {
+                const hasCoverage = session.state_coverage && Object.keys(session.state_coverage).length > 0;
+                const totalStates = hasCoverage && session.state_coverage ? Object.keys(session.state_coverage).length : 0;
+                const visitedStates = hasCoverage && session.state_coverage
+                  ? Object.values(session.state_coverage).filter(count => count > 0).length
+                  : 0;
+                const coveragePct = totalStates > 0 ? Math.round((visitedStates / totalStates) * 100) : 0;
+
+                return (
+                  <tr key={session.id}>
+                    <td>
+                      <Link className="session-link" to={`/correlation?session=${encodeURIComponent(session.id)}`}>
+                        {session.id.slice(0, 8)}…
+                      </Link>
+                    </td>
+                    <td>{session.protocol}</td>
+                    <td>
+                      <StatusBadge value={session.status} />
+                      {session.current_state && (
+                        <div style={{ fontSize: '0.85em', color: '#666', marginTop: '0.25rem' }}>
+                          State: {session.current_state}
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      {session.target_host}:{session.target_port}
+                      {session.target_state && (
+                        <div style={{ fontSize: '0.85em', color: '#666', marginTop: '0.25rem' }}>
+                          → {session.target_state}
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <div>{session.total_tests} tests · {session.crashes} crashes</div>
+                      {hasCoverage && (
+                        <div style={{ fontSize: '0.85em', color: '#0066cc', marginTop: '0.25rem' }}>
+                          Coverage: {visitedStates}/{totalStates} states ({coveragePct}%)
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <div className="session-actions">
+                        <button
+                          onClick={() => handleStart(session.id)}
+                          disabled={actionInProgress === session.id}
+                        >
+                          {actionInProgress === session.id ? 'Starting...' : 'Start'}
+                        </button>
+                        <button
+                          onClick={() => handleStop(session.id)}
+                          className="ghost"
+                          disabled={actionInProgress === session.id}
+                        >
+                          {actionInProgress === session.id ? 'Stopping...' : 'Stop'}
+                        </button>
+                        <button
+                          onClick={() => handleDelete(session.id)}
+                          className="danger"
+                          disabled={actionInProgress === session.id}
+                          title="Delete session"
+                        >
+                          🗑️
+                        </button>
+                        {hasCoverage && (
+                          <Link
+                            to={`/state-graph?session=${encodeURIComponent(session.id)}`}
+                            className="graph-link"
+                            title="View State Graph"
+                          >
+                            📊 Graph
+                          </Link>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

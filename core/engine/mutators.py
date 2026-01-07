@@ -270,10 +270,11 @@ class MutationEngine:
 
         self._last_metadata: Dict[str, Any] = {"strategy": None, "mutators": []}
 
-    def _set_last_metadata(self, strategy: Optional[str], mutators: Optional[List[str]]) -> None:
+    def _set_last_metadata(self, strategy: Optional[str], mutators: Optional[List[str]], field: Optional[str] = None) -> None:
         self._last_metadata = {
             "strategy": strategy,
             "mutators": list(mutators or []),
+            "field": field,
         }
 
     def get_last_metadata(self) -> Dict[str, Any]:
@@ -281,6 +282,7 @@ class MutationEngine:
         return {
             "strategy": self._last_metadata.get("strategy"),
             "mutators": list(self._last_metadata.get("mutators", [])),
+            "field": self._last_metadata.get("field"),
         }
 
     def generate_test_case(self, base_seed: bytes, num_mutations: int = 1) -> bytes:
@@ -313,12 +315,15 @@ class MutationEngine:
             # Structure-aware mutation
             try:
                 mutated = self.structure_mutator.mutate(base_seed)
-                self._set_last_metadata("structure_aware", ["structure_aware"])
+                # Get the actual strategy and field that were applied
+                strategy_used = self.structure_mutator.last_strategy or "unknown"
+                field_mutated = self.structure_mutator.last_mutated_field
+                self._set_last_metadata("structure_aware", [strategy_used], field=field_mutated)
                 return mutated
             except Exception as e:
                 logger.error("structure_mutation_failed", error=str(e))
                 if not settings.fallback_on_parse_error:
-                    self._set_last_metadata("structure_aware", ["structure_aware", "fallback"])
+                    self._set_last_metadata("structure_aware", ["parse_error_fallback"])
                     return base_seed
                 # Fall through to byte-level
 

@@ -1,5 +1,7 @@
 # 1. Architectural Overview
 
+**Last Updated: 2025-11-25**
+
 This document provides a high-level technical overview of the fuzzer's architecture. It is intended for developers who want to understand how the system works, contribute to its development, or debug complex issues.
 
 ## Core Philosophy
@@ -31,60 +33,59 @@ The system is composed of several key Python modules that work in concert.
 ### 1. Core API & Orchestrator (`core/api/` & `core/engine/orchestrator.py`)
 
 *   **Core API (`server.py`)**: A FastAPI application that serves as the main entry point to the system. It exposes a REST API for managing fuzzing sessions, viewing results, and configuring the fuzzer. It also serves the React-based web UI.
-*   **Fuzz Orchestrator (`orchestrator.py`)**: The brain of the fuzzer. It is responsible for running the main fuzzing loop, which consists of several key stages:
-    1.  **Session Management**: Starts, stops, and monitors fuzzing sessions based on user requests.
-    2.  **Test Case Generation**: In each iteration, it selects a "seed" from the corpus and passes it to the `MutationEngine` to create a new, unique test case.
-    3.  **Execution**: It sends the generated test case to the target application. This can be done directly from the core or delegated to a remote agent.
-    4.  **Result Handling**: It monitors the outcome of the execution (e.g., success, hang, crash) and records the results. Crash-inducing test cases are saved as "findings."
+*   **Fuzz Orchestrator (`orchestrator.py`)**: The brain of the fuzzer. It is responsible for running the main fuzzing loop, which consists of several key stages, including session management, test case generation, execution, and result handling.
 
 ### 2. Mutation Engine (`core/engine/mutators.py` & `structure_mutators.py`)
 
-This component is responsible for altering seed data to create new test cases. It supports a hybrid approach to mutation:
-
-*   **Byte-Level Mutations**: Simple, fast, and protocol-agnostic mutations that operate directly on raw bytes (e.g., bit flips, byte flips, arithmetic operations). These are effective at finding shallow bugs.
-*   **Structure-Aware Mutations**: An intelligent mode that uses the protocol's `data_model` (from a plugin) to perform "smart" mutations. It parses a seed into its constituent fields, mutates a field's value in a type-aware manner, and then serializes it back into a valid message, automatically fixing dependent fields like lengths and checksums.
+This component is responsible for altering seed data to create new test cases. It supports byte-level mutations and structure-aware mutations.
 
 ### 3. Protocol Plugins & Parser (`core/plugins/` & `core/engine/protocol_parser.py`)
 
-*   **Plugins**: Self-contained Python files that provide the fuzzer with the domain-specific knowledge required to test a protocol. Each plugin defines:
-    *   A **`data_model`**: Describes the structure of the protocol's messages.
-    *   A **`state_model`** (optional): Describes the protocol's state machine for stateful fuzzing.
-    *   A **`validate_response`** function (optional): A "specification oracle" to detect logical bugs in the target's responses.
-*   **Protocol Parser**: This component uses the `data_model` to perform bidirectional conversion between raw bytes and a structured dictionary of fields. This is the key that enables structure-aware fuzzing.
+*   **Plugins**: Self-contained Python files that provide the fuzzer with the domain-specific knowledge required to test a protocol. They define a `data_model`, an optional `state_model`, and an optional `validate_response` function.
+*   **Protocol Parser**: Uses the `data_model` to perform bidirectional conversion between raw bytes and a structured dictionary of fields.
 
-### 4. Stateful Fuzzer (`core/engine/stateful_fuzzer.py`)
+### 4. Stateful Fuzzing (`core/engine/stateful_fuzzer.py`)
 
-This module manages fuzzing for stateful protocols. When a plugin provides a `state_model`, this component ensures that the fuzzer sends messages in a valid sequence, allowing it to bypass initial validation and test deeper application logic.
+*   **StatefulFuzzingSession**: When a plugin provides a `state_model`, the orchestrator uses this class to manage the fuzzing session according to the protocol's state machine, ensuring messages are sent in a valid sequence.
 
-### 5. Corpus & Crash Triage (`core/corpus/store.py`)
+### 5. Corpus & Crash Triage (`core/corpus/store.py` & `core/engine/crash_handler.py`)
 
-*   **Corpus Store**: Manages the collection of test cases. This includes the initial seeds provided by the user and any new, interesting test cases discovered by the fuzzer.
-*   **Crash Reporter**: When a crash is detected, this component saves the exact input that caused it, along with detailed metadata, to the `data/crashes` directory. This ensures all findings are reproducible.
+*   **CorpusStore**: Manages the collection of seeds and crash-inducing test cases (findings).
+*   **CrashReporter**: Saves the details of any crash-inducing test case to the `data/crashes` directory.
 
-### 6. Agents (`agent/`)
+### 6. Advanced Logic Components
 
-*   **Agent (`main.py`)**: A lightweight, standalone Python process that can be run on a remote machine. It polls the Core API for work, executes test cases against its assigned target, and reports back the results, including health telemetry like CPU and memory usage.
-*   **Agent Manager (`core/agents/manager.py`)**: Resides in the core and manages the pool of registered agents. It queues work for agents and tracks their status.
+*   **ResponsePlanner (`core/engine/response_planner.py`)**: When a plugin defines `response_handlers`, this component evaluates server responses and queues follow-up messages, enabling the fuzzer to navigate complex, interactive protocols.
+*   **BehaviorProcessor (`core/protocol_behavior.py`)**: Applies deterministic transformations to a test case before it is sent, such as updating a sequence number or timestamp, based on `behavior` rules in the plugin.
+*   **ExecutionHistoryStore (`core/engine/history_store.py`)**: Records every test case execution, including sent data, received data, and timestamps, for later analysis and replay.
 
-### 7. Web UI (`core/ui/spa/`)
+### 7. Agents (`agent/main.py` & `core/agents/manager.py`)
 
-A modern React-based Single Page Application (SPA) that provides a user-friendly interface for controlling the fuzzer and visualizing results. It communicates with the Core API via REST calls. The UI also now integrates all user guides, providing a seamless documentation experience.
+*   **Agent**: A lightweight, standalone process that polls the Core API for work, executes test cases against its assigned target, and reports back the results.
+*   **Agent Manager**: Manages the pool of registered agents and queues work for them.
+
+### 8. Web UI (`core/ui/spa/`)
+
+A React-based Single Page Application that provides a user-friendly interface for controlling the fuzzer and visualizing results.
 
 ## The Fuzzing Lifecycle
 
 A typical fuzzing session proceeds as follows:
 
-1.  **User Action**: A user initiates a fuzzing session through the Web UI or by calling the REST API, specifying the protocol, target, and other configuration options.
-2.  **Session Initialization**: The `FuzzOrchestrator` creates a new session. It loads the specified protocol plugin and its associated `data_model` and seeds.
+1.  **User Action**: A user initiates a fuzzing session through the Web UI or REST API.
+2.  **Session Initialization**: The `FuzzOrchestrator` creates a new session and loads the protocol plugin.
 3.  **The Fuzzing Loop Begins**: The orchestrator enters its main loop.
-4.  **Seed Selection**: An initial seed is selected from the corpus. In a stateful session, a seed is chosen that is valid for the protocol's current state.
-5.  **Mutation**: The seed is passed to the `MutationEngine`, which applies one or more mutation strategies to generate a new test case.
-6.  **Execution**:
-    *   **Core Mode**: The orchestrator sends the test case directly to the target.
-    *   **Agent Mode**: The orchestrator enqueues the test case with the `AgentManager`. A polling agent retrieves the test case and sends it to the target.
-7.  **Monitoring & Response**: The component that executed the test (either the core or an agent) monitors the target's response. It looks for crashes (e.g., connection closed unexpectedly), hangs (e.g., no response within a timeout), or other anomalies.
-8.  **Result Reporting**: The result is reported back to the `FuzzOrchestrator`.
-9.  **Crash Handling**: If a crash was detected, the `CrashReporter` saves the test case and all relevant metadata as a "finding" in the `data/crashes` directory.
-10. **Iteration**: The loop repeats, continuously generating and executing new test cases until the user stops the session or a predefined limit is reached.
+4.  **Test Case Selection**: An input is selected for mutation. This could be:
+    *   A seed from the corpus, chosen based on the protocol's current state if a `state_model` is used.
+    *   A follow-up message queued by the `ResponsePlanner` based on a previous server response.
+5.  **Mutation**: The selected input is passed to the `MutationEngine` to generate a new test case.
+6.  **Behavior Application**: The `BehaviorProcessor` applies any deterministic rules (e.g., incrementing sequence numbers) to the mutated data.
+7.  **Execution**: The final test case is sent to the target, either directly from the core or via an agent.
+8.  **Monitoring & Response**: The executor monitors the target for crashes, hangs, or other anomalies.
+9.  **Result Reporting**: The result is reported back to the `FuzzOrchestrator`.
+10. **Crash Handling**: If a crash was detected, the `CrashReporter` saves the finding.
+11. **History Recording**: The `ExecutionHistoryStore` records the details of the sent test case and the received response.
+12. **Response Planning**: The `ResponsePlanner` analyzes the server's response and, if it matches a rule in the plugin, queues a new follow-up message.
+13. **Iteration**: The loop repeats until the user stops the session or a limit is reached.
 
 This modular architecture allows each component to be developed, tested, and improved independently, while the plugin-driven design makes the entire system highly extensible to new and unknown protocols.

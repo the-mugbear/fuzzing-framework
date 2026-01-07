@@ -236,6 +236,14 @@ def validate_response(response: bytes) -> bool:
     if len(response) < 9:
         return False
 
+    # Validate length field matches remaining payload
+    declared_length = int.from_bytes(response[4:8], "big")
+    payload = response[9:]
+    if declared_length != len(payload):
+        return False
+    if declared_length > 512:  # max payload from data_model
+        return False
+
     # Extract and validate command byte
     command = response[8]
     valid_commands = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A]
@@ -247,7 +255,7 @@ def validate_response(response: bytes) -> bool:
     # This is a logical constraint - ERROR command (0x09) should
     # indicate a state transition to ERROR state
     if command == 0x09:
-        # Could add additional validation here
-        pass
+        if not payload:
+            return False  # errors should carry a reason code/payload
 
     return True

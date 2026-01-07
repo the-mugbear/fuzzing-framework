@@ -5,7 +5,7 @@ Mutates protocol messages intelligently using data_model specification.
 Maintains message validity by respecting field types and auto-fixing dependent fields.
 """
 import random
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import structlog
 
@@ -52,6 +52,10 @@ class StructureAwareMutator:
         for strategy, weight in self.STRATEGIES.items():
             self.strategy_list.extend([strategy] * weight)
 
+        # Track last applied strategy and field for metadata
+        self.last_strategy: Optional[str] = None
+        self.last_mutated_field: Optional[str] = None
+
     def mutate(self, seed: bytes) -> bytes:
         """
         Generate mutated test case from seed.
@@ -77,6 +81,8 @@ class StructureAwareMutator:
 
             # 3. Select and apply mutation strategy
             strategy = random.choice(self.strategy_list)
+            self.last_strategy = strategy  # Track for metadata
+            self.last_mutated_field = field_name  # Track which field was mutated
             original_value = fields[field_name]
 
             try:

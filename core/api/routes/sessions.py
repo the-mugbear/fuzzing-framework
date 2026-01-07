@@ -62,6 +62,15 @@ async def stop_session(session_id: str, orchestrator=Depends(get_orchestrator)):
     return {"status": "stopped", "session_id": session_id}
 
 
+@router.delete("/{session_id}")
+async def delete_session(session_id: str, orchestrator=Depends(get_orchestrator)):
+    success = await orchestrator.delete_session(session_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Session not found")
+    logger.info("session_deleted_via_api", session_id=session_id)
+    return {"status": "deleted", "session_id": session_id}
+
+
 @router.get("/{session_id}/stats")
 async def get_session_stats(session_id: str, orchestrator=Depends(get_orchestrator)):
     stats = orchestrator.get_session_stats(session_id)
@@ -167,3 +176,129 @@ async def replay_executions(session_id: str, request: ReplayRequest, orchestrato
         delay_ms=request.delay_ms,
     )
     return ReplayResponse(replayed_count=len(results), results=results)
+
+
+@router.get("/{session_id}/state_graph")
+async def get_state_graph(session_id: str, orchestrator=Depends(get_orchestrator)):
+    """
+    Get state graph data for visualization.
+
+    Returns nodes (states) and edges (transitions) with coverage information.
+    """
+    from core.plugin_loader import plugin_manager
+
+    session = orchestrator.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Load protocol to get state model
+    try:
+        protocol = plugin_manager.load_plugin(session.protocol)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load protocol: {str(e)}")
+
+    if not protocol.state_model:
+        raise HTTPException(
+            status_code=404,
+            detail="Protocol does not have a state model"
+        )
+
+    state_model = protocol.state_model
+    state_coverage = session.state_coverage or {}
+    transition_coverage = session.transition_coverage or {}
+
+    # Calculate total tests per state and result breakdown
+    total_tests = session.total_tests or 0
+
+    # Build nodes (states)
+    nodes = []
+    for state in state_model.get("states", []):
+        visit_count = state_coverage.get(state, 0)
+
+        # Determine node color based on coverage and results
+        if visit_count == 0:
+            color = "#cccccc"  # Gray - never visited
+            group = "unvisited"
+        elif state == session.current_state:
+            color = "#4CAF50"  # Green - current state
+            group = "current"
+        elif visit_count > 0:
+            # Blue gradient based on visit frequency
+            intensity = min(visit_count / max(state_coverage.values()) if state_coverage.values() else 1, 1.0)
+            blue_value = int(100 + (155 * intensity))
+            color = f"#{blue_value:02x}{blue_value:02x}ff"
+            group = "visited"
+        else:
+            color = "#2196F3"  # Blue - visited
+            group = "visited"
+
+        nodes.append({
+            "id": state,
+            "label": state,
+            "title": f"{state}\nVisits: {visit_count}",
+            "value": visit_count,  # Size based on visit count
+            "color": color,
+            "group": group,
+            "visits": visit_count
+        })
+
+    # Build edges (transitions)
+    edges = []
+    for idx, transition in enumerate(state_model.get("transitions", [])):
+        from_state = transition.get("from")
+        to_state = transition.get("to")
+        message_type = transition.get("message_type", "")
+
+        transition_key = f"{from_state}->{to_state}"
+        usage_count = transition_coverage.get(transition_key, 0)
+
+        # Edge color and width based on usage
+        if usage_count == 0:
+            color = "#dddddd"
+            width = 1
+            dashes = True
+        else:
+            color = "#2196F3"
+            # Width based on usage frequency
+            max_usage = max(transition_coverage.values()) if transition_coverage.values() else 1
+            width = 1 + (5 * (usage_count / max_usage))
+            dashes = False
+
+        edges.append({
+            "id": f"edge_{idx}",
+            "from": from_state,
+            "to": to_state,
+            "label": message_type,
+            "title": f"{from_state} → {to_state}\n{message_type}\nCount: {usage_count}",
+            "value": usage_count,
+            "color": color,
+            "width": width,
+            "dashes": dashes,
+            "arrows": "to"
+        })
+
+    # Calculate graph statistics
+    total_states = len(state_model.get("states", []))
+    visited_states = sum(1 for count in state_coverage.values() if count > 0)
+    coverage_pct = (visited_states / total_states * 100) if total_states > 0 else 0
+
+    total_transitions = len(state_model.get("transitions", []))
+    taken_transitions = sum(1 for count in transition_coverage.values() if count > 0)
+    transition_coverage_pct = (taken_transitions / total_transitions * 100) if total_transitions > 0 else 0
+
+    return {
+        "session_id": session_id,
+        "protocol": session.protocol,
+        "current_state": session.current_state,
+        "nodes": nodes,
+        "edges": edges,
+        "statistics": {
+            "total_states": total_states,
+            "visited_states": visited_states,
+            "state_coverage_pct": round(coverage_pct, 1),
+            "total_transitions": total_transitions,
+            "taken_transitions": taken_transitions,
+            "transition_coverage_pct": round(transition_coverage_pct, 1),
+            "total_tests": total_tests
+        }
+    }

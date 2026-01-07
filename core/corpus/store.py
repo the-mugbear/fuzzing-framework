@@ -110,6 +110,11 @@ class CorpusStore:
         with open(finding_dir / "input.bin", "wb") as f:
             f.write(test_case_data)
 
+        # Save response if available
+        if crash_report.response_data:
+            with open(finding_dir / "response.bin", "wb") as f:
+                f.write(crash_report.response_data)
+
         # Save crash report as JSON
         with open(finding_dir / "report.json", "w") as f:
             f.write(crash_report.model_dump_json(indent=2))
@@ -164,10 +169,19 @@ class CorpusStore:
                 # Check if this finding belongs to the session
                 report_file = finding_dir / "report.json"
                 if report_file.exists():
-                    with open(report_file, "r") as f:
-                        report_data = json.load(f)
-                        if report_data.get("session_id") == session_id:
-                            findings.append(finding_dir.name)
+                    try:
+                        with open(report_file, "r") as f:
+                            report_data = json.load(f)
+                            if report_data.get("session_id") == session_id:
+                                findings.append(finding_dir.name)
+                    except (json.JSONDecodeError, KeyError) as e:
+                        logger.warning(
+                            "corrupted_finding_report",
+                            finding_id=finding_dir.name,
+                            error=str(e)
+                        )
+                        # Skip corrupted findings
+                        continue
             else:
                 findings.append(finding_dir.name)
 

@@ -8,6 +8,7 @@ const links = [
   { to: '/packet-parser', label: 'Packet Parser', description: 'Decode binary packets' },
   { to: '/mutation-workbench', label: 'Mutation Workbench', description: 'Craft & mutate packets' },
   { to: '/state-walker', label: 'State Walker', description: 'Validate state machines' },
+  { to: '/plugin-validation', label: 'Plugin Validation', description: 'Lint & validate plugins' },
   { to: '/one-off', label: 'One-Off Test', description: 'Fire single payloads' },
   { to: '/correlation', label: 'Correlation', description: 'Execution digests' },
 ];
@@ -62,10 +63,6 @@ function Layout() {
               </p>
             </div>
             <div className="masthead-meta">
-              <div>
-                <span>API</span>
-                <strong>http://localhost:8000</strong>
-              </div>
               <div>
                 <span>Targets</span>
                 <strong>Simple TCP · Feature Showcase</strong>

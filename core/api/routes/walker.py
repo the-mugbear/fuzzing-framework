@@ -365,23 +365,15 @@ async def execute_transition(
                     # Parse the response
                     parsed_response = planner.response_parser.parse(response_bytes)
 
-                    # Check which handlers match and extract field updates
-                    new_overrides = {}
-                    for handler in planner.handlers:
-                        if planner._matches(handler.get("match", {}), parsed_response):
-                            # Extract field updates from this handler
-                            set_fields = handler.get("set_fields", {})
-                            for field_name, spec in set_fields.items():
-                                value = planner._resolve_field_value(spec, parsed_response)
-                                if value is not None:
-                                    new_overrides[field_name] = value
+                    new_overrides, matched_handlers = planner.extract_overrides(parsed_response)
 
-                            logger.info(
-                                "response_handler_matched",
-                                session_id=request.session_id,
-                                handler=handler.get("name"),
-                                fields_updated=list(set_fields.keys())
-                            )
+                    for handler in matched_handlers:
+                        logger.info(
+                            "response_handler_matched",
+                            session_id=request.session_id,
+                            handler=handler.get("name"),
+                            fields_updated=list((handler.get("set_fields") or {}).keys()),
+                        )
 
                     # Update field overrides for next message
                     if new_overrides:

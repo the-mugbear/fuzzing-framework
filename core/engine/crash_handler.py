@@ -17,6 +17,7 @@ class CrashReporter:
         test_case: TestCase,
         cpu_usage: Optional[float] = None,
         memory_usage: Optional[float] = None,
+        response: Optional[bytes] = None,
     ) -> CrashReport:
         crash_report = CrashReport(
             id=test_case.id,
@@ -24,6 +25,8 @@ class CrashReporter:
             test_case_id=test_case.id,
             result_type=test_case.result or TestCaseResult.CRASH,
             reproducer_data=test_case.data,
+            response_data=response,
+            response_preview=response[:64].hex() if response else None,
             severity="medium",
             cpu_usage=cpu_usage,
             memory_usage_mb=memory_usage,
