@@ -2,7 +2,7 @@
 
 **Last Updated: 2025-11-25**
 ...
-For a complete guide on creating plugins, see the **[Plugin Authoring Guide](PLUGIN_AUTHORING_GUIDE.md)**.
+For a complete guide on creating plugins, see the **[Protocol Plugin Guide](PROTOCOL_PLUGIN_GUIDE.md)**.
 
 ### 3. The Initial Fuzzing Session
 

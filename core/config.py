@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     tls_key_path: Optional[Path] = None
     agent_auth_token: Optional[str] = None
 
+    # CORS - permissive by default since this is a local tool
+    # If you expose this to a network, restrict cors_origins to specific domains
+    cors_enabled: bool = True
+    cors_origins: list[str] = ["*"]  # Allow all origins for local development
+    # To restrict: set FUZZER_CORS_ORIGINS='["http://localhost:3000"]'
+
     # Paths
     project_root: Path = Path(__file__).parent.parent
     plugins_dir: Path = project_root / "core" / "plugins"
@@ -30,6 +36,11 @@ class Settings(BaseSettings):
     mutation_timeout_sec: int = 5
     max_concurrent_tests: int = 10
     max_response_bytes: int = 1024 * 1024
+
+    # Session concurrency
+    max_concurrent_sessions: int = 1  # Default: single session for stability
+    # Set to higher value (2-5) only if you have sufficient resources
+    # Consider: CPU cores, RAM (500MB-2GB per session), network bandwidth
 
     # Mutation strategy
     mutation_mode: str = "hybrid"  # "structure_aware", "byte_level", "hybrid"

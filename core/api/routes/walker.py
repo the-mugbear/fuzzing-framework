@@ -2,7 +2,7 @@
 import asyncio
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict
 
 import structlog
@@ -29,12 +29,90 @@ from core.plugin_loader import (
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/walker", tags=["walker"])
 
+# Configuration
+MAX_EXECUTION_HISTORY_PER_SESSION = 1000  # Limit history size per session
+SESSION_TTL_HOURS = 96  # Auto-cleanup sessions older than this
+CLEANUP_INTERVAL_SECONDS = 300  # Run cleanup every 5 minutes
+
 # In-memory storage for walker sessions (could be moved to Redis in production)
 _walker_sessions: Dict[str, StatefulFuzzingSession] = {}
 _session_protocols: Dict[str, str] = {}  # Maps session_id -> protocol_name
 _execution_history: Dict[str, list] = {}  # Maps session_id -> list of execution results
 _response_planners: Dict[str, ResponsePlanner] = {}  # Maps session_id -> ResponsePlanner
 _field_overrides: Dict[str, Dict[str, any]] = {}  # Maps session_id -> field overrides from response handlers
+
+# Session metadata for cleanup
+_session_metadata: Dict[str, Dict[str, datetime]] = {}  # Maps session_id -> {created_at, last_accessed_at}
+
+# Cleanup task
+_cleanup_task: asyncio.Task = None
+
+
+def _record_session_access(session_id: str) -> None:
+    """Update last accessed timestamp for session."""
+    if session_id in _session_metadata:
+        _session_metadata[session_id]["last_accessed_at"] = datetime.utcnow()
+
+
+def _cleanup_stale_sessions() -> int:
+    """
+    Remove sessions that haven't been accessed in SESSION_TTL_HOURS.
+
+    Returns:
+        Number of sessions cleaned up
+    """
+    now = datetime.utcnow()
+    cutoff = now - timedelta(hours=SESSION_TTL_HOURS)
+
+    stale_sessions = [
+        session_id
+        for session_id, metadata in _session_metadata.items()
+        if metadata["last_accessed_at"] < cutoff
+    ]
+
+    for session_id in stale_sessions:
+        # Capture metadata before deletion for logging
+        metadata = _session_metadata.get(session_id, {})
+        age_hours = (now - metadata["created_at"]).total_seconds() / 3600 if metadata.get("created_at") else 0
+
+        _delete_session_data(session_id)
+        logger.info(
+            "walker_session_auto_cleanup",
+            session_id=session_id,
+            age_hours=age_hours
+        )
+
+    return len(stale_sessions)
+
+
+def _delete_session_data(session_id: str) -> None:
+    """Delete all data associated with a session."""
+    _walker_sessions.pop(session_id, None)
+    _session_protocols.pop(session_id, None)
+    _execution_history.pop(session_id, None)
+    _response_planners.pop(session_id, None)
+    _field_overrides.pop(session_id, None)
+    _session_metadata.pop(session_id, None)
+
+
+async def _cleanup_loop():
+    """Background task to periodically cleanup stale sessions."""
+    while True:
+        try:
+            await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
+            cleaned = _cleanup_stale_sessions()
+            if cleaned > 0:
+                logger.info("walker_cleanup_completed", sessions_cleaned=cleaned)
+        except Exception as e:
+            logger.error("walker_cleanup_error", error=str(e))
+
+
+def _start_cleanup_task():
+    """Start the background cleanup task if not already running."""
+    global _cleanup_task
+    if _cleanup_task is None or _cleanup_task.done():
+        _cleanup_task = asyncio.create_task(_cleanup_loop())
+        logger.info("walker_cleanup_task_started", interval_seconds=CLEANUP_INTERVAL_SECONDS)
 
 
 def _serialize_parsed_fields(fields: Dict[str, any], data_model: Dict[str, any]) -> Dict[str, any]:
@@ -169,6 +247,9 @@ async def initialize_walker(
     with available transitions.
     """
     try:
+        # Start cleanup task on first walker session
+        _start_cleanup_task()
+
         plugin = plugin_manager.load_plugin(request.protocol)
 
         if not plugin.state_model:
@@ -198,6 +279,13 @@ async def initialize_walker(
         _execution_history[session_id] = []  # Initialize empty execution history
         _field_overrides[session_id] = {}  # Initialize empty field overrides
 
+        # Record session metadata for cleanup
+        now = datetime.utcnow()
+        _session_metadata[session_id] = {
+            "created_at": now,
+            "last_accessed_at": now,
+        }
+
         # Create response planner if protocol has response handlers
         if plugin.response_handlers:
             response_planner = ResponsePlanner(
@@ -217,6 +305,7 @@ async def initialize_walker(
             session_id=session_id,
             protocol=request.protocol,
             initial_state=walker_session.current_state,
+            ttl_hours=SESSION_TTL_HOURS,
         )
 
         return _build_state_response(session_id, walker_session)
@@ -479,10 +568,25 @@ async def execute_transition(
             timestamp=datetime.utcnow().isoformat(),
         )
 
-        # Store in execution history
+        # Store in execution history with size limit
         if request.session_id not in _execution_history:
             _execution_history[request.session_id] = []
-        _execution_history[request.session_id].append(execution_record)
+
+        history = _execution_history[request.session_id]
+        history.append(execution_record)
+
+        # Trim history if it exceeds max size (FIFO)
+        if len(history) > MAX_EXECUTION_HISTORY_PER_SESSION:
+            removed = history.pop(0)
+            logger.debug(
+                "execution_history_trimmed",
+                session_id=request.session_id,
+                removed_execution=removed.execution_number,
+                max_size=MAX_EXECUTION_HISTORY_PER_SESSION
+            )
+
+        # Record session access
+        _record_session_access(request.session_id)
 
         # Build response
         return WalkerExecuteResponse(
@@ -528,6 +632,9 @@ async def reset_walker(session_id: str):
         if session_id in _field_overrides:
             _field_overrides[session_id] = {}
 
+        # Record session access
+        _record_session_access(session_id)
+
         logger.info("walker_session_reset", session_id=session_id)
 
         return _build_state_response(session_id, session)
@@ -549,6 +656,9 @@ async def get_walker_state(session_id: str):
         if not session:
             raise HTTPException(status_code=404, detail="Walker session not found")
 
+        # Record session access
+        _record_session_access(session_id)
+
         return _build_state_response(session_id, session)
 
     except HTTPException:
@@ -558,24 +668,53 @@ async def get_walker_state(session_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to get walker state: {str(exc)}")
 
 
+@router.get("/")
+async def list_walker_sessions():
+    """
+    List all active walker sessions with metadata.
+
+    Returns:
+        List of session info including ID, protocol, age, and last access time
+    """
+    now = datetime.utcnow()
+    sessions = []
+
+    for session_id in _walker_sessions.keys():
+        metadata = _session_metadata.get(session_id, {})
+        protocol = _session_protocols.get(session_id, "unknown")
+        history_count = len(_execution_history.get(session_id, []))
+
+        created_at = metadata.get("created_at")
+        last_accessed = metadata.get("last_accessed_at")
+
+        sessions.append({
+            "session_id": session_id,
+            "protocol": protocol,
+            "created_at": created_at.isoformat() if created_at else None,
+            "last_accessed_at": last_accessed.isoformat() if last_accessed else None,
+            "age_hours": (now - created_at).total_seconds() / 3600 if created_at else None,
+            "idle_hours": (now - last_accessed).total_seconds() / 3600 if last_accessed else None,
+            "execution_count": history_count,
+        })
+
+    return {
+        "total_sessions": len(sessions),
+        "sessions": sessions,
+        "cleanup_config": {
+            "ttl_hours": SESSION_TTL_HOURS,
+            "max_history_per_session": MAX_EXECUTION_HISTORY_PER_SESSION,
+            "cleanup_interval_seconds": CLEANUP_INTERVAL_SECONDS,
+        }
+    }
+
+
 @router.delete("/{session_id}")
 async def delete_walker(session_id: str):
     """
     Delete a walker session and free resources.
     """
     if session_id in _walker_sessions:
-        del _walker_sessions[session_id]
-
-        # Clean up associated data
-        if session_id in _session_protocols:
-            del _session_protocols[session_id]
-        if session_id in _execution_history:
-            del _execution_history[session_id]
-        if session_id in _response_planners:
-            del _response_planners[session_id]
-        if session_id in _field_overrides:
-            del _field_overrides[session_id]
-
+        _delete_session_data(session_id)
         logger.info("walker_session_deleted", session_id=session_id)
         return {"status": "deleted"}
 

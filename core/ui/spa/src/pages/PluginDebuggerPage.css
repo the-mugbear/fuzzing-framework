@@ -13,6 +13,23 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+.plugin-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 220px;
+}
+
+.selector-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+}
+
 .plugin-details {
   margin-top: 24px;
   display: flex;
@@ -71,6 +88,12 @@
   margin-bottom: 12px;
 }
 
+.header-with-tooltip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .blocks-table {
   width: 100%;
   border-collapse: collapse;
@@ -126,6 +149,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.tooltip-trigger.inline {
+  width: 20px;
+  height: 20px;
+  font-size: 0.7rem;
 }
 
 .tooltip-trigger:focus {
@@ -186,6 +215,14 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.control-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: #e2e8f0;
 }
 
 .control-grid input,
@@ -320,6 +357,36 @@
 .validate-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.validation-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.validation-detail-item {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(2, 6, 23, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.validation-detail-item span {
+  display: block;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #93c5fd;
+  margin-bottom: 6px;
+}
+
+.validation-detail-item p {
+  margin: 0;
+  color: #cbd5f5;
+  font-size: 0.9rem;
+  line-height: 1.4;
 }
 
 .validation-loading {

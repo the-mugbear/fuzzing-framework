@@ -33,18 +33,9 @@
   top: 16px;
 }
 
-.sidebar.collapsed {
-  padding: 12px;
-  width: 64px;
-}
-
 @media (max-width: 960px) {
   .sidebar {
     position: static;
-    width: 100%;
-  }
-
-  .sidebar.collapsed {
     width: 100%;
   }
 }
@@ -60,16 +51,6 @@
   font-size: 0.9rem;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.9);
-}
-
-.sidebar-toggle {
-  border: none;
-  background: rgba(59, 130, 246, 0.25);
-  color: white;
-  border-radius: 999px;
-  padding: 6px 12px;
-  font-weight: 600;
-  cursor: pointer;
 }
 
 .sidebar-nav {
@@ -105,10 +86,6 @@
 .nav-link .description {
   font-size: 0.8rem;
   color: rgba(255, 255, 255, 0.75);
-}
-
-.sidebar.collapsed .nav-link .description {
-  display: none;
 }
 
 .content-region {

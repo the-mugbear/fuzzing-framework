@@ -58,6 +58,12 @@ class StatefulFuzzingSession:
         # Response parser if response_model is provided
         self.response_parser = ProtocolParser(response_model) if response_model else None
 
+        # Coverage offsets for resumed sessions without full history
+        self.coverage_offset: Dict[str, int] = {}
+        self.transition_offset: Dict[str, int] = {}
+        self.resumed_from_offsets = False
+        self.has_new_activity = False
+
         # Build message type to command/message mapping
         self.message_type_field: Optional[str] = None
         self._build_message_type_mapping()
@@ -68,6 +74,57 @@ class StatefulFuzzingSession:
             num_states=len(state_model.get("states", [])),
             num_transitions=len(state_model.get("transitions", []))
         )
+
+    def restore_state(
+        self,
+        current_state: Optional[str],
+        state_history: Optional[List[Dict[str, Any]]],
+        state_coverage: Optional[Dict[str, int]] = None,
+        transition_coverage: Optional[Dict[str, int]] = None
+    ) -> None:
+        """
+        Restore stateful session state from persisted data.
+
+        Used when resuming a session after restart to continue from where it left off
+        instead of resetting to initial state.
+
+        Args:
+            current_state: The state to restore (if None, keeps initial state)
+            state_history: The state transition history to restore (if None, keeps empty)
+            state_coverage: State visit counts to restore (optional, will be recalculated if None)
+            transition_coverage: Transition counts to restore (optional, will be recalculated if None)
+
+        Note: state_history is not persisted to disk, so coverage dicts must be provided
+        to avoid losing coverage data on resume. If state_history is provided, coverage
+        can be recalculated from it.
+        """
+        if current_state:
+            self.current_state = current_state
+            logger.info(
+                "stateful_session_state_restored",
+                restored_state=current_state,
+                original_initial_state=self.state_model.get("initial_state", "INIT")
+            )
+
+        if state_history:
+            self.state_history = state_history
+            self.resumed_from_offsets = False
+            logger.info(
+                "stateful_session_history_restored",
+                history_entries=len(state_history)
+            )
+        else:
+            if state_coverage:
+                self.coverage_offset = dict(state_coverage)
+            if transition_coverage:
+                self.transition_offset = dict(transition_coverage)
+            if state_coverage or transition_coverage:
+                self.resumed_from_offsets = True
+                logger.info(
+                    "stateful_session_coverage_restored",
+                    state_coverage_entries=len(state_coverage or {}),
+                    transition_coverage_entries=len(transition_coverage or {}),
+                )
 
     def _build_message_type_mapping(self) -> None:
         """
@@ -98,6 +155,13 @@ class StatefulFuzzingSession:
 
         if fallback_block and self.message_type_field:
             for cmd_value, cmd_name in fallback_block["values"].items():
+                # Convert string keys to integers (JSON serialization converts int keys to strings)
+                if isinstance(cmd_value, str):
+                    try:
+                        cmd_value = int(cmd_value)
+                    except ValueError:
+                        logger.warning("invalid_command_value", value=cmd_value, name=cmd_name)
+                        continue
                 self.message_type_to_command[cmd_name] = cmd_value
 
             logger.debug(
@@ -349,6 +413,7 @@ class StatefulFuzzingSession:
             transition_record["reason"] = execution_result
 
         self.state_history.append(transition_record)
+        self.has_new_activity = True
 
     def _find_transition(
         self,
@@ -404,9 +469,13 @@ class StatefulFuzzingSession:
             if record.get("success") and record.get("to")
         )
 
-        # Include current state
-        if self.current_state:
+        # Include current state unless we're resuming from offsets with no new activity yet
+        if self.current_state and not (self.resumed_from_offsets and not self.has_new_activity):
             visits[self.current_state] = visits.get(self.current_state, 0) + 1
+
+        # Apply coverage offsets from resumed sessions
+        for state, count in self.coverage_offset.items():
+            visits[state] = visits.get(state, 0) + count
 
         # Add zeros for unvisited states
         for state in self.state_model.get("states", []):
@@ -432,7 +501,13 @@ class StatefulFuzzingSession:
             for record in successful_transitions
         ]
 
-        return dict(Counter(transition_keys))
+        counts = Counter(transition_keys)
+
+        # Apply transition offsets from resumed sessions
+        for transition, count in self.transition_offset.items():
+            counts[transition] = counts.get(transition, 0) + count
+
+        return dict(counts)
 
     def get_coverage_stats(self) -> Dict[str, Any]:
         """

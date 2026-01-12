@@ -2,6 +2,21 @@
 
 This document outlines the future direction and planned features for the protocol fuzzer.
 
+## Recently Completed
+
+*   **Checksum Support** ✅ (2025)
+    *   Built-in support for 6 checksum algorithms (CRC32, Adler32, sum, XOR, sum8, sum16) in `ProtocolParser`
+    *   Two-pass serialization with automatic checksum calculation
+    *   Configurable checksum scope (all, header, payload, before, after)
+*   **Session Persistence** ✅ (2026-01-06)
+    *   SQLite-backed session storage surviving container restarts
+    *   Automatic session recovery with state preservation
+    *   Periodic checkpointing every 1000 iterations
+*   **State Graph Visualization** ✅ (2025)
+    *   Interactive network graphs showing protocol state machines
+    *   Real-time coverage visualization with color-coded nodes/edges
+    *   Detailed statistics and hover tooltips
+
 ## Near-Term (1-3 Months)
 
 *   **Richer Crash Triage:**
@@ -10,8 +25,6 @@ This document outlines the future direction and planned features for the protoco
 *   **Improved Protocol Definition Workflow:**
     *   Create a UI-based protocol definition editor to lower the barrier to entry.
     *   Develop a plugin validation tool to provide better feedback on custom plugins.
-*   **Checksum Support:**
-    *   Add built-in support for common checksum algorithms (CRC32, Fletcher-16) in the `ProtocolParser`.
 
 ## Mid-Term (3-6 Months)
 

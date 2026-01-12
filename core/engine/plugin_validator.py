@@ -419,17 +419,40 @@ class PluginValidator:
             # Validate size_of references
             if block.get("is_size_field") and "size_of" in block:
                 target = block["size_of"]
-                if target not in block_names:
+
+                # Handle both single field (string) and multiple fields (list)
+                target_fields = [target] if isinstance(target, str) else target
+
+                if not isinstance(target, (str, list)):
                     self.result.add_error(
                         "data_model",
-                        f"Block '{name}' size_of references non-existent field: '{target}'",
+                        f"Block '{name}' size_of must be a string or list of strings",
                         field=name,
-                        suggestion="Ensure the referenced field exists in your data_model",
                     )
+                else:
+                    # Validate each target field exists
+                    for target_field in target_fields:
+                        if not isinstance(target_field, str):
+                            self.result.add_error(
+                                "data_model",
+                                f"Block '{name}' size_of contains non-string value: {target_field}",
+                                field=name,
+                            )
+                        elif target_field not in block_names:
+                            self.result.add_error(
+                                "data_model",
+                                f"Block '{name}' size_of references non-existent field: '{target_field}'",
+                                field=name,
+                                suggestion="Ensure the referenced field exists in your data_model",
+                            )
 
-                # Check for circular dependencies (simple check)
-                if target == name:
-                    self.result.add_error("data_model", f"Block '{name}' has circular size_of reference", field=name)
+                        # Check for circular dependencies
+                        if target_field == name:
+                            self.result.add_error(
+                                "data_model",
+                                f"Block '{name}' has circular size_of reference",
+                                field=name
+                            )
 
         # Check for all-immutable fields
         mutable_count = sum(1 for b in blocks if b.get("mutable", True))

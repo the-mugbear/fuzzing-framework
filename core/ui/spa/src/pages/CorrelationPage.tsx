@@ -322,6 +322,8 @@ function CorrelationPage() {
 
   const handleTimelineSelect = (execution: TestCaseExecutionRecord) => {
     setSelectedExecution(execution);
+    const timestamp = new Date(execution.timestamp_sent).toLocaleString();
+    setReplayLog((prev) => [`Selected sequence ${execution.sequence_number} (${timestamp})`, ...prev]);
   };
 
   const handleSequenceSearch = async (event: FormEvent) => {
@@ -654,14 +656,14 @@ function CorrelationPage() {
       {coverageError && <p className="error insights-error">{coverageError}</p>}
 
       <div className="search-grid">
-        <form onSubmit={handleSequenceSearch}>
+        <form onSubmit={handleSequenceSearch} className="search-card search-form">
           <label>
             Sequence #
             <input value={sequenceQuery} onChange={(e) => setSequenceQuery(e.target.value)} placeholder="e.g., 847" />
           </label>
           <button type="submit">Find Test Case</button>
         </form>
-        <form onSubmit={handleTimeSearch}>
+        <form onSubmit={handleTimeSearch} className="search-card search-form">
           <label>
             Timestamp
             <input
@@ -680,47 +682,53 @@ function CorrelationPage() {
           </label>
           <button type="submit">Find at Time</button>
         </form>
-        <form onSubmit={handleRangeReplay} className="range-form">
-          <label>
-            Time Range Start
-            <input type="datetime-local" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} />
-          </label>
-          <label>
-            Time Range End
-            <input type="datetime-local" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} />
-          </label>
-          <label>
-            Delay (ms)
-            <input
-              type="number"
-              min={0}
-              value={rangeDelay}
-              onChange={(e) => setRangeDelay(Number(e.target.value))}
-            />
-          </label>
-          <button type="submit">Replay Time Range</button>
-        </form>
-        <form onSubmit={handleSequenceRangeReplay}>
-          <label>
-            Sequence Start
-            <input
-              type="number"
-              min={1}
-              value={sequenceRangeStart}
-              onChange={(e) => setSequenceRangeStart(e.target.value)}
-            />
-          </label>
-          <label>
-            Sequence End
-            <input
-              type="number"
-              min={1}
-              value={sequenceRangeEnd}
-              onChange={(e) => setSequenceRangeEnd(e.target.value)}
-            />
-          </label>
-          <button type="submit">Replay Sequence Range</button>
-        </form>
+        <div className="search-card replay-card">
+          <div className="replay-card-header">
+            <p className="eyebrow">Replay Controls</p>
+            <h3>Time &amp; Sequence Ranges</h3>
+          </div>
+          <form onSubmit={handleRangeReplay} className="replay-form">
+            <label>
+              Time Start
+              <input type="datetime-local" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} />
+            </label>
+            <label>
+              Time End
+              <input type="datetime-local" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} />
+            </label>
+            <label>
+              Delay (ms)
+              <input
+                type="number"
+                min={0}
+                value={rangeDelay}
+                onChange={(e) => setRangeDelay(Number(e.target.value))}
+              />
+            </label>
+            <button type="submit">Replay Time Range</button>
+          </form>
+          <form onSubmit={handleSequenceRangeReplay} className="replay-form sequence-form">
+            <label>
+              Sequence Start
+              <input
+                type="number"
+                min={1}
+                value={sequenceRangeStart}
+                onChange={(e) => setSequenceRangeStart(e.target.value)}
+              />
+            </label>
+            <label>
+              Sequence End
+              <input
+                type="number"
+                min={1}
+                value={sequenceRangeEnd}
+                onChange={(e) => setSequenceRangeEnd(e.target.value)}
+              />
+            </label>
+            <button type="submit">Replay Sequence Range</button>
+          </form>
+        </div>
       </div>
 
       {error && <p className="error">{error}</p>}
@@ -768,17 +776,24 @@ function CorrelationPage() {
       <Modal
         open={Boolean(selectedExecution)}
         onClose={() => setSelectedExecution(null)}
-        title={selectedExecution ? `Sequence ${selectedExecution.sequence_number}` : ''}
+        title={selectedExecution ? `Sequence ${selectedExecution.sequence_number} · ${new Date(selectedExecution.timestamp_sent).toLocaleString()}` : ''}
       >
         {selectedExecution && (
           <>
             <div className="detail-header">
-              <div>
-                <p>
-                  {new Date(selectedExecution.timestamp_sent).toLocaleString()} · State{' '}
-                  {selectedExecution.state_at_send || 'N/A'}
-                </p>
-                <StatusBadge value={selectedExecution.result} />
+              <div className="detail-header-info">
+                <div>
+                  <span className="detail-label">State at Send</span>
+                  <strong>{selectedExecution.state_at_send || 'N/A'}</strong>
+                </div>
+                <div>
+                  <span className="detail-label">Result</span>
+                  <StatusBadge value={selectedExecution.result} />
+                </div>
+                <div>
+                  <span className="detail-label">Duration</span>
+                  <strong>{selectedExecution.duration_ms.toFixed(1)} ms</strong>
+                </div>
               </div>
               <button type="button" onClick={handleReplaySingle}>
                 Replay

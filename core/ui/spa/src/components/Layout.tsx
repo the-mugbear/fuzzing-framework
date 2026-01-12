@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import './Layout.css';
 
@@ -8,33 +7,19 @@ const links = [
   { to: '/packet-parser', label: 'Packet Parser', description: 'Decode binary packets' },
   { to: '/mutation-workbench', label: 'Mutation Workbench', description: 'Craft & mutate packets' },
   { to: '/state-walker', label: 'State Walker', description: 'Validate state machines' },
-  { to: '/plugin-validation', label: 'Plugin Validation', description: 'Lint & validate plugins' },
   { to: '/one-off', label: 'One-Off Test', description: 'Fire single payloads' },
   { to: '/correlation', label: 'Correlation', description: 'Execution digests' },
 ];
 
 function Layout() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-
-  const toggleSidebar = () => setSidebarCollapsed((prev) => !prev);
-
   return (
     <div className="app-shell">
       <div className="shell-grid">
-        <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : 'expanded'}`}>
+        <aside className="sidebar">
           <div className="sidebar-toggle-row">
-            {!sidebarCollapsed && <span className="sidebar-title">Navigate</span>}
-            <button
-              type="button"
-              className="sidebar-toggle"
-              aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}
-              aria-expanded={!sidebarCollapsed}
-              onClick={toggleSidebar}
-            >
-              {sidebarCollapsed ? 'Show' : 'Hide'}
-            </button>
+            <span className="sidebar-title">Navigate</span>
           </div>
-          <nav className="sidebar-nav" aria-label="Primary" hidden={sidebarCollapsed}>
+          <nav className="sidebar-nav" aria-label="Primary">
             {links.map((link) => (
               <NavLink
                 key={link.to}

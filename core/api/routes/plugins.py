@@ -9,7 +9,6 @@ from pydantic import BaseModel
 
 from core.api.deps import get_plugin_manager
 from core.plugin_loader import decode_seeds_from_json, denormalize_data_model_from_json
-from core.engine.plugin_validator import validate_plugin
 from core.engine.mutators import (
     ArithmeticMutator,
     BitFlipMutator,
@@ -506,45 +505,6 @@ def _build_state_machine_info(plugin: ProtocolPlugin) -> Optional[StateMachineIn
         transitions=transitions,
         message_type_to_command=message_type_to_command,
     )
-
-
-# ============================================================================
-# Plugin Validation Endpoint
-# ============================================================================
-
-
-@router.get("/plugins/{plugin_name}/validate")
-async def validate_plugin_endpoint(
-    plugin_name: str,
-    plugin_manager=Depends(get_plugin_manager),
-):
-    """
-    Validate a protocol plugin for errors and warnings.
-
-    Performs static analysis to catch:
-    - Missing or invalid fields
-    - Broken references (size_of, etc.)
-    - Unparseable seeds
-    - State machine issues
-    - Best practice violations
-    """
-    try:
-        plugin = plugin_manager.load_plugin(plugin_name)
-        result = validate_plugin(plugin.data_model, plugin.state_model)
-
-        logger.info(
-            "plugin_validated",
-            plugin=plugin_name,
-            valid=result.is_valid,
-            errors=len(result.errors),
-            warnings=len(result.warnings),
-        )
-
-        return result.to_dict()
-
-    except Exception as e:
-        logger.error("plugin_validation_failed", plugin=plugin_name, error=str(e))
-        raise HTTPException(status_code=500, detail=f"Validation failed: {str(e)}")
 
 
 # ============================================================================

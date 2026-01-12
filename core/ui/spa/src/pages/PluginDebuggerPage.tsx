@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useReducer, useState } from 'react';
 import StateMachineCard from '../components/StateMachineCard';
+import ValidationPanel, { ValidationIssue } from '../components/ValidationPanel';
 import { useDebounce } from '../hooks/useDebounce';
 import { api } from '../services/api';
 import './PluginDebuggerPage.css';
@@ -68,6 +69,14 @@ interface PreviewResponse {
   previews: TestCasePreview[];
 }
 
+interface ValidationResult {
+  valid: boolean;
+  plugin_name: string;
+  error_count: number;
+  warning_count: number;
+  issues: ValidationIssue[];
+}
+
 interface DebuggerState {
   plugins: string[];
   selected: string;
@@ -77,6 +86,9 @@ interface DebuggerState {
   previews: TestCasePreview[];
   previewLoading: boolean;
   previewError: string | null;
+  validationResult: ValidationResult | null;
+  validationLoading: boolean;
+  validationError: string | null;
 }
 
 const initialState: DebuggerState = {
@@ -88,6 +100,9 @@ const initialState: DebuggerState = {
   previews: [],
   previewLoading: false,
   previewError: null,
+  validationResult: null,
+  validationLoading: false,
+  validationError: null,
 };
 
  type Action =
@@ -98,14 +113,24 @@ const initialState: DebuggerState = {
   | { type: 'set_error'; payload: string | null }
   | { type: 'loading_preview' }
   | { type: 'set_preview'; payload: TestCasePreview[] }
-  | { type: 'set_preview_error'; payload: string | null };
+  | { type: 'set_preview_error'; payload: string | null }
+  | { type: 'loading_validation' }
+  | { type: 'set_validation'; payload: ValidationResult | null }
+  | { type: 'set_validation_error'; payload: string | null };
 
 function reducer(state: DebuggerState, action: Action): DebuggerState {
   switch (action.type) {
     case 'set_plugins':
       return { ...state, plugins: action.payload };
     case 'set_selected':
-      return { ...state, selected: action.payload, previews: [] };
+      return {
+        ...state,
+        selected: action.payload,
+        previews: [],
+        previewError: null,
+        validationResult: null,
+        validationError: null,
+      };
     case 'loading_details':
       return { ...state, loadingDetails: true, error: null };
     case 'set_details':
@@ -118,9 +143,32 @@ function reducer(state: DebuggerState, action: Action): DebuggerState {
       return { ...state, previewLoading: false, previews: action.payload };
     case 'set_preview_error':
       return { ...state, previewLoading: false, previewError: action.payload };
+    case 'loading_validation':
+      return { ...state, validationLoading: true, validationError: null };
+    case 'set_validation':
+      return { ...state, validationLoading: false, validationResult: action.payload };
+    case 'set_validation_error':
+      return { ...state, validationLoading: false, validationError: action.payload };
     default:
       return state;
   }
+}
+
+function InfoTooltip({
+  label,
+  children,
+  className = '',
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <button type="button" className={`tooltip-trigger ${className}`.trim()} aria-label={label}>
+      ⓘ
+      <span className="tooltip-content">{children}</span>
+    </button>
+  );
 }
 
 function PluginDebuggerPage() {
@@ -176,6 +224,31 @@ function PluginDebuggerPage() {
     }
   };
 
+  const validatePlugin = async () => {
+    if (!state.selected) return;
+    dispatch({ type: 'loading_validation' });
+    try {
+      const result = await api<ValidationResult>(`/api/plugins/${state.selected}/validate`);
+      dispatch({ type: 'set_validation', payload: result });
+    } catch (err) {
+      dispatch({ type: 'set_validation_error', payload: (err as Error).message });
+    }
+  };
+
+  const buildValidationSummary = (result: ValidationResult) => {
+    if (result.valid) {
+      if (result.warning_count > 0) {
+        return `Plugin is valid with ${result.warning_count} warning(s)`;
+      }
+      return 'Plugin is valid with no issues';
+    }
+    let summary = `Plugin has ${result.error_count} error(s)`;
+    if (result.warning_count > 0) {
+      summary += ` and ${result.warning_count} warning(s)`;
+    }
+    return summary;
+  };
+
   return (
     <div className="card">
       <div className="plugin-header">
@@ -184,17 +257,26 @@ function PluginDebuggerPage() {
           <h2>Plugin Explorer</h2>
           <p>Inspect block definitions, state machines, and documentation before launching campaigns.</p>
         </div>
-        <select
-          value={state.selected}
-          onChange={(e) => dispatch({ type: 'set_selected', payload: e.target.value })}
-          disabled={!state.plugins.length}
-        >
-          {state.plugins.map((name) => (
-            <option key={name} value={name}>
-              {name}
-            </option>
-          ))}
-        </select>
+        <div className="plugin-selector">
+          <div className="selector-label">
+            Plugin
+            <InfoTooltip label="Plugin picker details" className="inline">
+              <p>Choose a protocol plugin to inspect its data_model, state_model, and validation checks.</p>
+              <p>Loading a plugin executes its module to read the model definitions.</p>
+            </InfoTooltip>
+          </div>
+          <select
+            value={state.selected}
+            onChange={(e) => dispatch({ type: 'set_selected', payload: e.target.value })}
+            disabled={!state.plugins.length}
+          >
+            {state.plugins.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
       {state.error && <p className="error">{state.error}</p>}
       {state.details && (
@@ -217,7 +299,13 @@ function PluginDebuggerPage() {
           </div>
           <div className="block-inspector card">
             <div className="block-inspector-header">
-              <h3>Request Model (data_model)</h3>
+              <div className="header-with-tooltip">
+                <h3>Request Model (data_model)</h3>
+                <InfoTooltip label="Request model details" className="inline">
+                  <p>Defines the on-wire structure the fuzzer sends to the target.</p>
+                  <p>Fields appear in order, and behaviors like size_of or increment run before each send.</p>
+                </InfoTooltip>
+              </div>
               <p>Message structure sent to the target. Dependencies show field relationships and response-driven updates.</p>
             </div>
             {state.details.data_model.blocks?.length ? (
@@ -230,7 +318,13 @@ function PluginDebuggerPage() {
           {state.details.response_model && (
             <div className="block-inspector card">
               <div className="block-inspector-header">
-                <h3>Response Model (response_model)</h3>
+                <div className="header-with-tooltip">
+                  <h3>Response Model (response_model)</h3>
+                  <InfoTooltip label="Response model details" className="inline">
+                    <p>Expected format of the target response for parsing and response-aware mutations.</p>
+                    <p>Use it to drive handlers that copy values into request fields.</p>
+                  </InfoTooltip>
+                </div>
                 <p>Expected structure of responses from the target. Used for parsing and response-driven mutations.</p>
               </div>
               {state.details.response_model.blocks?.length ? (
@@ -244,7 +338,13 @@ function PluginDebuggerPage() {
           {state.details.response_handlers && state.details.response_handlers.length > 0 && (
             <div className="block-inspector card">
               <div className="block-inspector-header">
-                <h3>Response Handlers</h3>
+                <div className="header-with-tooltip">
+                  <h3>Response Handlers</h3>
+                  <InfoTooltip label="Response handler details" className="inline">
+                    <p>Handlers map parsed response fields to request fields.</p>
+                    <p>They run after a response is parsed, before the next request is built.</p>
+                  </InfoTooltip>
+                </div>
                 <p>Declarative rules for updating request fields based on response values.</p>
               </div>
               <div className="response-handlers-list">
@@ -279,6 +379,65 @@ function PluginDebuggerPage() {
             </div>
           )}
           <StateMachineCard info={buildStateMachineInfo(state.details.state_model)} />
+          <div className="validation-section">
+            <div className="validation-header">
+              <div>
+                <p className="eyebrow">Quality Gate</p>
+                <div className="header-with-tooltip">
+                  <h3>Plugin Validation</h3>
+                  <InfoTooltip label="Plugin validation details" className="inline">
+                    <p>Validate Plugin loads the module and runs static checks.</p>
+                    <ul>
+                      <li>Verify data_model structure and block types.</li>
+                      <li>Parse seeds and ensure they match the model.</li>
+                      <li>Check state transitions and unreachable states.</li>
+                      <li>Validate size_of references and mutability.</li>
+                    </ul>
+                  </InfoTooltip>
+                </div>
+                <p>Validate Plugin loads the module and runs structure, seed, and state checks before fuzzing.</p>
+              </div>
+              <button
+                type="button"
+                className="validate-button"
+                onClick={validatePlugin}
+                disabled={state.validationLoading}
+              >
+                {state.validationLoading ? 'Validating…' : 'Validate Plugin'}
+              </button>
+            </div>
+            <div className="validation-details">
+              <div className="validation-detail-item">
+                <span>Model integrity</span>
+                <p>Checks required fields, block types, and size/endianness constraints.</p>
+              </div>
+              <div className="validation-detail-item">
+                <span>Seed parsing</span>
+                <p>Parses seeds against the data_model to catch shape mismatches early.</p>
+              </div>
+              <div className="validation-detail-item">
+                <span>State logic</span>
+                <p>Validates transitions, references, and unreachable states in the state_model.</p>
+              </div>
+              <div className="validation-detail-item">
+                <span>Dependencies</span>
+                <p>Verifies size_of targets, response copies, and mutability coverage.</p>
+              </div>
+            </div>
+            {state.validationLoading && <div className="validation-loading">Analyzing plugin…</div>}
+            {!state.validationLoading && state.validationError && <p className="error">{state.validationError}</p>}
+            {!state.validationLoading && !state.validationError && state.validationResult && (
+              <ValidationPanel
+                issues={state.validationResult.issues}
+                valid={state.validationResult.valid}
+                summary={buildValidationSummary(state.validationResult)}
+                pluginName={state.validationResult.plugin_name}
+              />
+            )}
+            {!state.validationLoading && !state.validationError && !state.validationResult && (
+              <p className="hint">Run validation to surface errors and best-practice warnings.</p>
+            )}
+          </div>
         </div>
       )}
 
@@ -289,14 +448,25 @@ function PluginDebuggerPage() {
         </div>
         <div className="control-grid">
           <label>
-            Mode
+            <span className="control-label">
+              Mode
+              <InfoTooltip label="Preview mode details" className="inline">
+                <p>Seeds show baseline payloads from data_model.seeds.</p>
+                <p>Mutations apply structure-aware or byte-level mutators to a seed.</p>
+              </InfoTooltip>
+            </span>
             <select value={previewMode} onChange={(e) => setPreviewMode(e.target.value as 'seeds' | 'mutations')}>
               <option value="seeds">Seeds</option>
               <option value="mutations">Mutations</option>
             </select>
           </label>
           <label>
-            Count ({previewCount})
+            <span className="control-label">
+              Count ({previewCount})
+              <InfoTooltip label="Preview count details" className="inline">
+                <p>Controls how many frames are generated per request (1-5).</p>
+              </InfoTooltip>
+            </span>
             <input
               type="range"
               min={1}
@@ -306,7 +476,12 @@ function PluginDebuggerPage() {
             />
           </label>
           <label>
-            Focus Field
+            <span className="control-label">
+              Focus Field
+              <InfoTooltip label="Focus field details" className="inline">
+                <p>Optional field name to bias the preview toward changes in one block.</p>
+              </InfoTooltip>
+            </span>
             <input
               placeholder="Optional field name"
               value={focusField}

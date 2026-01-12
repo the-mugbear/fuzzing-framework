@@ -31,6 +31,12 @@ interface ProtocolField {
   mutable: boolean;
 }
 
+interface PluginDetails {
+  state_model?: {
+    states?: string[];
+  };
+}
+
 interface CreateSessionForm {
   protocol: string;
   target_host: string;
@@ -91,6 +97,7 @@ function DashboardPage() {
   const [lastUpdated, setLastUpdated] = useState<string>('');
   const [form, dispatch] = useReducer(formReducer, initialForm);
   const [protocolFields, setProtocolFields] = useState<ProtocolField[]>([]);
+  const [protocolStates, setProtocolStates] = useState<string[]>([]);
   const refreshTimer = useRef<number>();
 
   const refreshSessions = () => {
@@ -124,6 +131,25 @@ function DashboardPage() {
       dispatch({ type: 'set_field', field: 'protocol', value: protocols[0] });
     }
   }, [protocols, form.protocol]);
+
+  useEffect(() => {
+    if (!form.protocol) {
+      setProtocolStates([]);
+      return;
+    }
+    api<PluginDetails>(`/api/plugins/${form.protocol}`)
+      .then((details) => {
+        const states = details.state_model?.states ?? [];
+        setProtocolStates(states);
+        if (form.target_state && !states.includes(form.target_state)) {
+          dispatch({ type: 'set_field', field: 'target_state', value: '' });
+        }
+      })
+      .catch((err) => {
+        setProtocolStates([]);
+        setToast({ variant: 'error', message: `Failed to load plugin details: ${err.message}` });
+      });
+  }, [form.protocol]);
 
   const validateForm = () => {
     const issues: string[] = [];
@@ -375,12 +401,20 @@ function DashboardPage() {
                 {form.fuzzing_mode === 'targeted' && (
                   <label>
                     Target State
-                    <input
-                      type="text"
-                      placeholder="e.g., AUTHENTICATED"
+                    <select
                       value={form.target_state}
                       onChange={(e) => dispatch({ type: 'set_field', field: 'target_state', value: e.target.value })}
-                    />
+                      disabled={protocolStates.length === 0}
+                    >
+                      <option value="">
+                        {protocolStates.length === 0 ? 'No states available' : 'Select a state'}
+                      </option>
+                      {protocolStates.map((state) => (
+                        <option key={state} value={state}>
+                          {state}
+                        </option>
+                      ))}
+                    </select>
                     <span className="hint">
                       State to focus testing on (required for targeted mode). The fuzzer will navigate to this state
                       and concentrate mutations there.

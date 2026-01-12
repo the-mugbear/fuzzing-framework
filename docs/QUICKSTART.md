@@ -217,7 +217,7 @@ While you can create a new file in `core/plugins/my_protocol.py` with a basic st
 
 **For any real-world protocol, you must consult the full guide.**
 
-The example below shows a minimal plugin. To create a powerful and effective protocol plugin—including defining state machines, response handlers, checksums, and other critical features—please see the complete **[Protocol Testing Guide](docs/PROTOCOL_TESTING.md)**.
+The example below shows a minimal plugin. To create a powerful and effective protocol plugin—including defining state machines, response handlers, checksums, and other critical features—please see the complete **[Protocol Plugin Guide](PROTOCOL_PLUGIN_GUIDE.md)**.
 
 ```python
 """My custom protocol"""
@@ -242,7 +242,7 @@ Reload the Core or restart Docker to load the new plugin. After creating a plugi
 
 ## Testing Your Protocol Plugin
 
-After creating a protocol plugin, verify it works correctly. The following sections provide a brief overview. For a comprehensive guide with more examples and advanced techniques, please see the [Protocol Testing Guide](docs/PROTOCOL_TESTING.md).
+After creating a protocol plugin, verify it works correctly. The following sections provide a brief overview. For a comprehensive guide with more examples and advanced techniques, please see the [Protocol Plugin Guide](PROTOCOL_PLUGIN_GUIDE.md).
 
 ### 1. Verify Plugin Loads
 
@@ -333,8 +333,8 @@ Expected output:
 
 ### 4. Complete Testing Guide
 
-For comprehensive protocol testing documentation, see:
-- **[PROTOCOL_TESTING.md](./PROTOCOL_TESTING.md)** - Complete guide with advanced techniques
+For comprehensive protocol plugin documentation, see:
+- **[PROTOCOL_PLUGIN_GUIDE.md](PROTOCOL_PLUGIN_GUIDE.md)** - Complete guide with creation, testing, debugging, and advanced techniques
 - Web UI → "Protocol Guide" tab - Interactive tutorial
 
 ## Troubleshooting

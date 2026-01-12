@@ -61,6 +61,98 @@ class FuzzOrchestrator:
         self.history_store = ExecutionHistoryStore()
         self.crash_reporter = CrashReporter(self.corpus_store)
 
+        # Session persistence
+        from core.engine.session_store import SessionStore
+        self.session_store = SessionStore()
+        self._load_sessions_from_disk()
+
+    def _load_sessions_from_disk(self):
+        """
+        Load sessions from disk on startup.
+
+        Loads all sessions for historical tracking. Sessions that were RUNNING are marked
+        as PAUSED to allow manual resume. Rebuilds runtime helpers for active sessions.
+        """
+        # Load all sessions (including completed/failed for historical tracking)
+        recovered_sessions = self.session_store.load_all_sessions(status_filter=None)
+
+        for session in recovered_sessions:
+            # Mark running sessions as paused (don't auto-resume)
+            if session.status == FuzzSessionStatus.RUNNING:
+                session.status = FuzzSessionStatus.PAUSED
+                session.error_message = (
+                    "Session was interrupted (container restart). "
+                    "Review state and resume manually if needed."
+                )
+
+            # Rebuild runtime helpers only for active sessions (not completed/failed)
+            # Completed/failed sessions are loaded for historical tracking only
+            active_statuses = [FuzzSessionStatus.IDLE, FuzzSessionStatus.RUNNING, FuzzSessionStatus.PAUSED]
+            if session.status in active_statuses:
+                try:
+                    protocol = plugin_manager.load_plugin(session.protocol)
+                    if protocol:
+                        # Rebuild behavior processor if protocol has behaviors
+                        resolved_data_model = denormalize_data_model_from_json(protocol.data_model)
+                        behavior_processor = build_behavior_processor(resolved_data_model)
+
+                        if behavior_processor.has_behaviors():
+                            self.behavior_processors[session.id] = behavior_processor
+                            logger.debug(
+                                "behavior_processor_rebuilt",
+                                session_id=session.id,
+                                protocol=session.protocol
+                            )
+
+                        # Rebuild response planner if protocol has response handlers
+                        if protocol.response_handlers:
+                            resolved_response_model = None
+                            if protocol.response_model:
+                                resolved_response_model = denormalize_data_model_from_json(protocol.response_model)
+
+                            planner = ResponsePlanner(
+                                resolved_data_model,
+                                resolved_response_model,
+                                protocol.response_handlers,
+                            )
+                            self.response_planners[session.id] = planner
+                            self.followup_queues.setdefault(session.id, deque())
+                            logger.debug(
+                                "response_planner_rebuilt",
+                                session_id=session.id,
+                                protocol=session.protocol
+                            )
+                except Exception as e:
+                    logger.error(
+                        "runtime_helper_rebuild_failed",
+                        session_id=session.id,
+                        protocol=session.protocol,
+                        error=str(e)
+                    )
+
+            self.sessions[session.id] = session
+            logger.info(
+                "session_recovered_from_disk",
+                session_id=session.id,
+                protocol=session.protocol,
+                status=session.status.value,
+                total_tests=session.total_tests,
+            )
+
+        if recovered_sessions:
+            logger.info("sessions_recovery_complete", count=len(recovered_sessions))
+
+    async def _checkpoint_session(self, session: FuzzSession):
+        """
+        Save session state to disk.
+
+        Called periodically during fuzzing and on status changes.
+        """
+        try:
+            self.session_store.save_session(session)
+        except Exception as e:
+            logger.error("session_checkpoint_failed", session_id=session.id, error=str(e))
+
     async def create_session(self, config: FuzzConfig) -> FuzzSession:
         """
         Create a new fuzzing session
@@ -141,6 +233,10 @@ class FuzzOrchestrator:
             )
             self.response_planners[session_id] = planner
             self.followup_queues.setdefault(session_id, deque())
+
+        # Save initial session state to disk
+        await self._checkpoint_session(session)
+
         logger.info("session_created", session_id=session_id, protocol=config.protocol)
         return session
 
@@ -151,22 +247,31 @@ class FuzzOrchestrator:
             logger.error("session_not_found", session_id=session_id)
             return False
 
-        # Check if another session is already running
+        # Check concurrent session limit (configurable via FUZZER_MAX_CONCURRENT_SESSIONS)
         running_sessions = [
             s for s in self.sessions.values()
             if s.status == FuzzSessionStatus.RUNNING and s.id != session_id
         ]
-        if running_sessions:
-            running_session_ids = ", ".join([s.id[:8] for s in running_sessions])
+
+        if len(running_sessions) >= settings.max_concurrent_sessions:
+            running_session_ids = ", ".join([s.id[:8] for s in running_sessions[:3]])
+            if len(running_sessions) > 3:
+                running_session_ids += f" (+{len(running_sessions) - 3} more)"
+
             error_msg = (
-                f"Cannot start session: another session is already running ({running_session_ids}...). "
-                f"Only one session can run at a time. Please stop the running session first."
+                f"Cannot start session: maximum concurrent sessions limit reached "
+                f"({len(running_sessions)}/{settings.max_concurrent_sessions}). "
+                f"Currently running: {running_session_ids}. "
+                f"Stop a session first, or increase FUZZER_MAX_CONCURRENT_SESSIONS (current: {settings.max_concurrent_sessions}). "
+                f"Note: Multiple concurrent sessions require more CPU/RAM resources."
             )
             session.error_message = error_msg
             logger.warning(
-                "cannot_start_multiple_sessions",
+                "concurrent_session_limit_reached",
                 session_id=session_id,
-                running_sessions=running_session_ids
+                running_count=len(running_sessions),
+                limit=settings.max_concurrent_sessions,
+                running_sessions=[s.id for s in running_sessions]
             )
             return False
 
@@ -184,11 +289,13 @@ class FuzzOrchestrator:
                 f"{session.target_host}:{session.target_port}"
             )
             session.status = FuzzSessionStatus.FAILED
+            await self._checkpoint_session(session)
             logger.error("no_agents_for_session", session_id=session_id)
             return False
 
         session.status = FuzzSessionStatus.RUNNING
         session.started_at = datetime.utcnow()
+        await self._checkpoint_session(session)
 
         # Start fuzzing task
         task = asyncio.create_task(self._run_fuzzing_loop(session_id))
@@ -205,6 +312,7 @@ class FuzzOrchestrator:
 
         session.status = FuzzSessionStatus.COMPLETED
         session.completed_at = datetime.utcnow()
+        await self._checkpoint_session(session)
 
         # Cancel task if running
         if session_id in self.active_tasks:
@@ -265,6 +373,8 @@ class FuzzOrchestrator:
         if not seeds:
             logger.error("no_seeds_available", session_id=session_id)
             session.status = FuzzSessionStatus.FAILED
+            session.error_message = "No seeds available for fuzzing"
+            await self._checkpoint_session(session)
             return
 
         # Initialize mutation engine with selected mutators and protocol data_model
@@ -294,6 +404,23 @@ class FuzzOrchestrator:
                     response_model=response_model,
                     progression_weight=0.8  # 80% follow happy path
                 )
+
+                # Restore state if resuming (session has persisted current_state and coverage)
+                if session.current_state or session.state_coverage or session.transition_coverage:
+                    stateful_session.restore_state(
+                        current_state=session.current_state,
+                        state_history=None,  # History not persisted, coverage reconstructed from dicts
+                        state_coverage=session.state_coverage,
+                        transition_coverage=session.transition_coverage
+                    )
+                    logger.info(
+                        "stateful_session_restored",
+                        session_id=session_id,
+                        restored_state=session.current_state,
+                        state_coverage_size=len(session.state_coverage) if session.state_coverage else 0,
+                        transition_coverage_size=len(session.transition_coverage) if session.transition_coverage else 0
+                    )
+
                 # Store stateful session for metrics access
                 self.stateful_sessions[session_id] = stateful_session
                 logger.info(
@@ -304,7 +431,15 @@ class FuzzOrchestrator:
                 )
 
         try:
-            iteration = 0
+            # Resume from persisted iteration count if this is a resumed session
+            # Otherwise start from 0 for new sessions
+            iteration = session.total_tests
+            if iteration > 0:
+                logger.info(
+                    "resuming_from_iteration",
+                    session_id=session_id,
+                    starting_iteration=iteration
+                )
 
             # Calculate rate limiting parameters
             rate_limit_delay = None
@@ -458,9 +593,15 @@ class FuzzOrchestrator:
 
                 iteration += 1
 
+                # Periodic checkpoint every 1000 iterations
+                if iteration % 1000 == 0:
+                    await self._checkpoint_session(session)
+                    logger.debug("session_checkpointed", session_id=session_id, iteration=iteration)
+
                 if session.max_iterations and iteration >= session.max_iterations:
                     session.status = FuzzSessionStatus.COMPLETED
                     session.completed_at = datetime.utcnow()
+                    await self._checkpoint_session(session)
                     break
 
                 # Apply rate limiting - sleep to maintain desired rate
@@ -489,12 +630,15 @@ class FuzzOrchestrator:
             )
             session.status = FuzzSessionStatus.FAILED
             session.error_message = f"Fuzzing error: {type(e).__name__}: {str(e)}"
+            await self._checkpoint_session(session)
         finally:
             if session.execution_mode == ExecutionMode.AGENT:
                 await agent_manager.clear_session(session_id)
             self._discard_pending_tests(session_id)
             if stateful_session:
                 session.coverage_snapshot = stateful_session.get_coverage_stats()
+            # Final checkpoint when fuzzing loop exits
+            await self._checkpoint_session(session)
 
     async def _dispatch_to_agent(self, session: FuzzSession, test_case: TestCase) -> None:
         """Send a test case to the agent queue"""
@@ -696,6 +840,7 @@ class FuzzOrchestrator:
                     )
                     session.error_message = error_msg
                     session.status = FuzzSessionStatus.FAILED
+                    await self._checkpoint_session(session)
                     logger.warning(
                         "setting_error_message",
                         session_id=session.id,
@@ -810,6 +955,7 @@ class FuzzOrchestrator:
                 )
                 session.error_message = error_msg
                 session.status = FuzzSessionStatus.FAILED
+                await self._checkpoint_session(session)
                 logger.warning(
                     "setting_error_message",
                     session_id=session.id,
@@ -993,6 +1139,15 @@ class FuzzOrchestrator:
 
         # Remove from sessions dict
         del self.sessions[session_id]
+
+        # Remove from persistence database
+        self.session_store.delete_session(session_id)
+
+        # Clean up runtime helpers
+        self.behavior_processors.pop(session_id, None)
+        self.response_planners.pop(session_id, None)
+        self.followup_queues.pop(session_id, None)
+        self.stateful_sessions.pop(session_id, None)
 
         logger.info("session_deleted", session_id=session_id)
         return True

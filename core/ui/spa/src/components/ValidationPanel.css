@@ -126,6 +126,19 @@
   line-height: 1.5;
 }
 
+.issue-suggestion {
+  margin-top: 6px;
+  font-size: 13px;
+  color: #cbd5f5;
+}
+
+.issue-guidance {
+  margin-top: 6px;
+  font-size: 13px;
+  color: #9ca3af;
+  line-height: 1.4;
+}
+
 .no-issues {
   text-align: center;
   padding: 40px 20px;

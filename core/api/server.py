@@ -34,13 +34,16 @@ async def shutdown_event():
     await orchestrator.history_store.shutdown()
     logger.info("application_shutdown")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Restrict in production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Configure CORS (configurable via FUZZER_CORS_ENABLED and FUZZER_CORS_ORIGINS)
+if settings.cors_enabled:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    logger.info("cors_enabled", origins=settings.cors_origins)
 
 # Static mounts
 for mount_path, directory in (

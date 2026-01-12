@@ -440,7 +440,7 @@ docker-compose exec core bash
 
 ## Getting Help
 
-- **[PROTOCOL_TESTING.md](./PROTOCOL_TESTING.md)** - Complete guide for testing protocol implementations
+- **[docs/PROTOCOL_PLUGIN_GUIDE.md](./docs/PROTOCOL_PLUGIN_GUIDE.md)** - Complete guide for creating, testing, and debugging protocol plugins
 - **[QUICKSTART.md](./QUICKSTART.md)** - Detailed setup instructions
 - **[README.md](./README.md)** - Overview and features
 - `blueprint.md` - Architecture details
