@@ -1,12 +1,9 @@
 """
-Branching Protocol Plugin - Multi-Path State Machine Example
+Branching stateful protocol example.
 
-This plugin demonstrates a stateful protocol with branching transitions,
-where single states can transition to multiple different target states
-based on different message types. Useful for:
-- UI testing of complex state diagrams
-- Template for protocols with conditional flows
-- Demonstrating error handling paths
+- Purpose: Demonstrates multi-path transitions and error flows.
+- Transport: TCP.
+- Use case: UI testing for complex state diagrams.
 """
 
 __version__ = "1.0.0"

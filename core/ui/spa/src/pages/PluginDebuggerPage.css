@@ -61,6 +61,30 @@
   min-width: 120px;
 }
 
+.plugin-description {
+  margin: 8px 0 0;
+  color: #cbd5f5;
+  line-height: 1.5;
+}
+
+.plugin-description p {
+  margin: 0 0 8px;
+}
+
+.plugin-description ul {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+
+.plugin-description li {
+  margin-bottom: 4px;
+}
+
+.plugin-description.empty {
+  color: #94a3b8;
+  font-style: italic;
+}
+
 .plugin-meta span {
   display: block;
   text-transform: uppercase;

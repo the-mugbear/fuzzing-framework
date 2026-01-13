@@ -1,11 +1,9 @@
 """
-Example protocol plugin: Simple TCP protocol
+Simple TCP protocol plugin.
 
-This demonstrates a basic request-response protocol with:
-- 4-byte magic header
-- 4-byte length field (big-endian)
-- Variable-length payload
-- Simple state machine (INIT -> AUTH -> READY)
+- Purpose: Basic request/response with length-prefixed payload.
+- Transport: TCP.
+- Includes: Seeds and simple state machine (INIT -> AUTH -> READY).
 """
 
 __version__ = "1.0.0"

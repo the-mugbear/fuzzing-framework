@@ -1,8 +1,9 @@
 """
-Test protocol with explicitly empty seeds array
+Empty-seeds test protocol.
 
-This demonstrates that even with "seeds": [] defined, auto-generation
-will kick in and create baseline seeds.
+- Purpose: Demonstrates seed synthesis when seeds are explicitly empty.
+- Transport: TCP.
+- Includes: Small fixed header and payload.
 """
 
 __version__ = "1.0.0"

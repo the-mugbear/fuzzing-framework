@@ -57,14 +57,20 @@ Create `core/plugins/your_protocol.py`:
 
 ```python
 """
-Your Protocol Plugin
+Your protocol plugin.
 
-Protocol description: Financial transaction protocol
-Version: 1.0.0
-Author: Your Name
+- Purpose: Financial transaction protocol for internal testing.
+- Transport: TCP.
+- Includes: Seeds + basic state machine.
 """
 
 __version__ = "1.0.0"
+
+# Docstring format guidance:
+# - First line: short summary sentence.
+# - Blank line.
+# - Bullet list with 2-4 items that explain purpose, transport, and notable features.
+# The Plugin Debugger surfaces this docstring as the plugin description.
 
 # ==================== Data Model ====================
 

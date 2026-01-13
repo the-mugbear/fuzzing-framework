@@ -1,19 +1,10 @@
 """
-Functionality Test Protocol Plugin
+Functionality test protocol plugin.
 
-Lightweight protocol for validating core fuzzer functionality end-to-end.
-Pairs with tests/functionality_server.py, which acts as a simple reference target.
-
-Developer checklist (what to look for):
-- Seeds: PING and ECHO should succeed without mutation. Sequence auto-increments via `behavior`.
-- Mutations: structure-aware mutations should adjust `length` automatically; malformed length should be rejected by validate_response.
-- Stateful loop: INIT->OPEN on PING, stays OPEN on ECHO, FAIL transitions to ERROR with opcode 0xFF, CLOSE transitions to CLOSED.
-- Responses: PING -> opcode 0x81 (PONG) with payload "PONG"; ECHO echoes payload and opcode 0x82; FAIL returns opcode 0xFF and payload "FAIL"; CLOSE returns opcode 0x04 and payload "BYE".
-- Validation: wrong magic, length mismatch, or unexpected opcode should be flagged as invalid.
-- Response handlers: keep sequence synchronized and echo payloads in agent mode (copy fields from responses into next request).
-
-When tailing tests/functionality_server.py logs:
-- "connection from ..." followed by "client closed ..." is normal when the fuzzer closes sockets between tests (e.g., after CLOSE or when the client disconnects). Repeated short connections indicate the fuzzer is opening a fresh socket per test case, which is expected.
+- Purpose: End-to-end validation for core fuzzer workflows.
+- Transport: TCP.
+- Pairs with: tests/functionality_server.py.
+- Includes: Seeds, behaviors, response handlers, and validation examples.
 """
 
 from typing import Callable

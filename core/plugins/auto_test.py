@@ -1,8 +1,9 @@
 """
-Test protocol plugin with auto-generated seeds
+Auto-generated seeds test protocol.
 
-This demonstrates that seeds can be omitted and will be automatically
-generated from the data_model definition. No manual binary crafting required!
+- Purpose: Demonstrates seed synthesis when seeds are omitted.
+- Transport: TCP.
+- Includes: Minimal blocks for fast smoke testing.
 """
 
 __version__ = "1.0.0"

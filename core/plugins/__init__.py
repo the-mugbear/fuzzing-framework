@@ -1,3 +1,5 @@
 """
-Protocol plugin system
+Protocol plugin package.
+
+- Purpose: Hosts built-in plugin examples and templates.
 """

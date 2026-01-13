@@ -1,45 +1,10 @@
 """
-Feature Showcase Protocol Plugin
-==================================
-Version: 1.0.0
-Author: Fuzzing Framework Team
+Feature showcase protocol plugin.
 
-OVERVIEW
---------
-This plugin demonstrates ALL supported features of the fuzzing framework's
-protocol implementation system. It is intentionally comprehensive and serves
-as both:
-  1. A reference implementation for plugin developers
-  2. A testing ground for verifying framework capabilities
-  3. An educational tool with extensive inline documentation
-
-This plugin pairs with tests/feature_showcase_server.py, which implements
-a compliant server that responds to this protocol. Together they form a
-complete example for learning the framework.
-
-WHAT YOU'LL LEARN
------------------
-✓ How to define protocol message structures (data_model)
-✓ All supported field types (bytes, integers, strings)
-✓ Size fields and automatic length calculation
-✓ Field behaviors (increment, add_constant)
-✓ Field dependencies and references
-✓ Endianness specification
-✓ Response models for parsing server replies
-✓ Response handlers for stateful protocol behavior
-✓ State machines for multi-step protocol flows
-✓ Response validation (logic oracles)
-✓ Seed corpus creation
-
-QUICK START
------------
-1. Review this file top-to-bottom to understand each feature
-2. Run the feature_showcase_server: python tests/feature_showcase_server.py
-3. Use the Plugin Explorer UI to visualize the protocol structure
-4. Use the State Walker UI to test protocol transitions
-5. Create your own plugin by copying sections you need
-
-Let's begin!
+- Purpose: Demonstrates all supported plugin features and serves as a template.
+- Transport: TCP.
+- Pairs with: tests/feature_showcase_server.py.
+- Includes: Behaviors, response model/handlers, state machine, validation examples.
 """
 
 __version__ = "1.0.0"

@@ -1,11 +1,9 @@
 """
-Simple UDP protocol plugin
+Simple UDP protocol plugin.
 
-Provides a tiny datagram-friendly protocol so we can exercise the new
-transport plumbing without depending on TCP semantics. Messages contain a
-fixed magic header, a sequence number, a command byte, and optional payload
-data. The state model is minimal but ensures the stateful engine has valid
-transitions to follow.
+- Purpose: Minimal datagram protocol for UDP transport testing.
+- Transport: UDP.
+- Includes: Magic header, sequence, command, and optional payload.
 """
 
 __version__ = "1.0.0"

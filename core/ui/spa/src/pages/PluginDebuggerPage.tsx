@@ -284,7 +284,7 @@ function PluginDebuggerPage() {
           <div className="plugin-hero">
             <div>
               <h3>{state.details.name}</h3>
-              <p>{state.details.description || 'No description provided.'}</p>
+              {renderPluginDescription(state.details.description)}
             </div>
             <div className="plugin-meta">
               <div>
@@ -536,6 +536,42 @@ function PluginDebuggerPage() {
 }
 
 export default PluginDebuggerPage;
+
+function renderPluginDescription(description?: string) {
+  if (!description || !description.trim()) {
+    return <p className="plugin-description empty">No description provided.</p>;
+  }
+
+  const blocks = description.trim().split(/\n\s*\n/);
+  const listPattern = /^([-*]|\d+[\.)]|•)\s+/;
+
+  return (
+    <div className="plugin-description">
+      {blocks.map((block, index) => {
+        const lines = block
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean);
+        if (!lines.length) return null;
+        const isList = lines.every((line) => listPattern.test(line));
+        if (isList) {
+          return (
+            <ul key={`desc-${index}`}>
+              {lines.map((line, lineIndex) => (
+                <li key={`desc-${index}-${lineIndex}`}>{line.replace(listPattern, '')}</li>
+              ))}
+            </ul>
+          );
+        }
+        return (
+          <p key={`desc-${index}`}>
+            {lines.join(' ')}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
 
 function buildStateMachineInfo(stateModel?: PluginStateModel) {
   if (!stateModel || !stateModel.states?.length) {
