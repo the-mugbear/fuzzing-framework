@@ -3,6 +3,7 @@ Corpus management and storage
 """
 import hashlib
 import json
+from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -32,20 +33,44 @@ class CorpusStore:
         self.seeds_dir.mkdir(exist_ok=True)
         self.findings_dir.mkdir(exist_ok=True)
 
-        # In-memory cache
-        self._seed_cache: Dict[str, bytes] = {}
-        self._load_seeds()
+        # LRU cache with maximum size (prevents unbounded memory growth)
+        self._seed_cache: OrderedDict[str, bytes] = OrderedDict()
+        self._max_cache_size = 1000  # Keep max 1000 seeds in memory
+        self._load_seed_index()
 
-    def _load_seeds(self):
-        """Load all seeds from disk into memory"""
-        for seed_file in self.seeds_dir.glob("*.bin"):
-            try:
-                seed_id = seed_file.stem
-                with open(seed_file, "rb") as f:
-                    self._seed_cache[seed_id] = f.read()
-                logger.debug("loaded_seed", seed_id=seed_id)
-            except Exception as e:
-                logger.error("failed_to_load_seed", seed_file=str(seed_file), error=str(e))
+    def _load_seed_index(self):
+        """
+        Index available seeds without loading into memory.
+
+        Seeds are loaded on-demand with LRU eviction to prevent
+        unbounded memory growth on large corpora.
+        """
+        seed_count = sum(1 for _ in self.seeds_dir.glob("*.bin"))
+        logger.info(
+            "corpus_initialized",
+            seeds_dir=str(self.seeds_dir),
+            seed_count=seed_count,
+            max_cache_size=self._max_cache_size
+        )
+
+    def _load_seed_from_disk(self, seed_id: str) -> Optional[bytes]:
+        """Load a single seed from disk."""
+        seed_file = self.seeds_dir / f"{seed_id}.bin"
+        if not seed_file.exists():
+            return None
+
+        try:
+            with open(seed_file, "rb") as f:
+                return f.read()
+        except Exception as e:
+            logger.error("failed_to_load_seed", seed_id=seed_id, error=str(e))
+            return None
+
+    def _evict_if_needed(self):
+        """Evict oldest seed from cache if at capacity."""
+        while len(self._seed_cache) >= self._max_cache_size:
+            evicted_id, _ = self._seed_cache.popitem(last=False)  # FIFO eviction
+            logger.debug("evicted_seed_from_cache", seed_id=evicted_id)
 
     def add_seed(self, data: bytes, metadata: Optional[Dict] = None) -> str:
         """
@@ -80,8 +105,28 @@ class CorpusStore:
         return seed_id
 
     def get_seed(self, seed_id: str) -> Optional[bytes]:
-        """Retrieve a seed by ID"""
-        return self._seed_cache.get(seed_id)
+        """
+        Retrieve a seed by ID with LRU caching.
+
+        Seeds are loaded on-demand and cached. Cache uses LRU eviction
+        when it reaches max size to prevent unbounded memory growth.
+        """
+        # Check if in cache
+        if seed_id in self._seed_cache:
+            # Move to end (mark as recently used)
+            self._seed_cache.move_to_end(seed_id)
+            return self._seed_cache[seed_id]
+
+        # Not in cache - load from disk
+        seed_data = self._load_seed_from_disk(seed_id)
+        if seed_data is None:
+            return None
+
+        # Add to cache with eviction if needed
+        self._evict_if_needed()
+        self._seed_cache[seed_id] = seed_data
+
+        return seed_data
 
     def get_all_seeds(self) -> List[bytes]:
         """Get all seeds as a list"""

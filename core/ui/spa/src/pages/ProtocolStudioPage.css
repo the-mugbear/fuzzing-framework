@@ -159,6 +159,55 @@
   align-items: center;
 }
 
+.handlers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.handler-card {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.handler-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.handler-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.handler-section h5 {
+  margin: 0;
+}
+
+.handler-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  align-items: center;
+}
+
+.handler-row input,
+.handler-row select {
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  padding: 8px 10px;
+  background: rgba(15, 23, 42, 0.5);
+  color: #e2e8f0;
+  font-size: 0.85rem;
+}
+
 .code-area {
   min-height: 240px;
   font-family: 'Roboto Mono', 'Courier New', monospace;

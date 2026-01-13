@@ -219,7 +219,10 @@ class ExecutionHistoryStore:
             try:
                 return cache[-1].sequence_number
             except IndexError:
-                pass
+                logger.debug(
+                    "empty_cache_for_session",
+                    session_id=session_id
+                )
 
         conn = sqlite3.connect(self.db_path)
         try:

@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 import structlog
 
 from core.engine.protocol_parser import ProtocolParser
+from core.engine.protocol_utils import build_message_type_map_with_field
 
 logger = structlog.get_logger()
 
@@ -235,24 +236,12 @@ class SeedSynthesizer:
 
     def _build_message_type_map(self) -> Dict[str, tuple[str, int]]:
         """
-        Build mapping from message_type name to (field_name, value).
+        Build mapping from message_type name to (field_name, value) using shared utility.
 
         Returns:
             Dict mapping message type to (field_name, command_value) tuple
         """
-        mapping = {}
-
-        # Find the command/type field (usually has 'values' dict)
-        for block in self.blocks:
-            if 'values' in block:
-                field_name = block['name']
-                values = block['values']
-
-                # Map value names to their numeric values
-                for value, name in values.items():
-                    mapping[name] = (field_name, value)
-
-        return mapping
+        return build_message_type_map_with_field(self.data_model)
 
 
 def synthesize_seeds_for_protocol(

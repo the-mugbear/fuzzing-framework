@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     max_concurrent_tests: int = 10
     max_response_bytes: int = 1024 * 1024
 
+    # Session persistence
+    checkpoint_frequency: int = 1000  # Save session state every N test cases
+    default_history_limit: int = 100  # Keep last N execution records in memory
+
+    # Transport settings
+    tcp_buffer_size: int = 4096  # Read buffer size for TCP responses
+    udp_buffer_size: int = 4096  # Read buffer size for UDP responses
+
     # Session concurrency
     max_concurrent_sessions: int = 1  # Default: single session for stability
     # Set to higher value (2-5) only if you have sufficient resources
@@ -46,6 +54,17 @@ class Settings(BaseSettings):
     mutation_mode: str = "hybrid"  # "structure_aware", "byte_level", "hybrid"
     structure_aware_weight: int = 70  # Percentage for structure-aware (0-100)
     fallback_on_parse_error: bool = True  # Fall back to byte-level if parsing fails
+
+    # Structure-aware mutation
+    havoc_expansion_min: float = 1.5  # Minimum expansion factor for havoc mutations
+    havoc_expansion_max: float = 3.0  # Maximum expansion factor for havoc mutations
+
+    # Stateful fuzzing
+    stateful_progression_weight: float = 0.8  # Weight for state progression (0.0-1.0)
+    stateful_reset_interval_bfs: int = 20  # Reset interval for breadth-first strategy
+    stateful_reset_interval_dfs: int = 500  # Reset interval for depth-first strategy
+    stateful_reset_interval_targeted: int = 100  # Reset interval for targeted strategy
+    stateful_reset_interval_random: int = 300  # Reset interval for random walk strategy
 
     # Agent settings
     agent_heartbeat_interval: int = 30

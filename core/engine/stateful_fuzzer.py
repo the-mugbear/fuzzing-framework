@@ -12,7 +12,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import structlog
 
+from core.config import settings
 from core.engine.protocol_parser import ProtocolParser
+from core.engine.protocol_utils import build_message_type_mapping
 
 logger = structlog.get_logger()
 
@@ -39,12 +41,15 @@ class StatefulFuzzingSession:
         state_model: dict,
         data_model: dict,
         response_model: Optional[dict] = None,
-        progression_weight: float = 0.8
+        progression_weight: float = None
     ):
         self.state_model = state_model
         self.data_model = data_model
         self.response_model = response_model
-        self.progression_weight = progression_weight
+        self.progression_weight = (
+            progression_weight if progression_weight is not None
+            else settings.stateful_progression_weight
+        )
 
         # Current state
         self.current_state = state_model.get("initial_state", "INIT")
@@ -128,42 +133,19 @@ class StatefulFuzzingSession:
 
     def _build_message_type_mapping(self) -> None:
         """
-        Build mapping from message types to command values.
+        Build mapping from message types to command values using shared utility.
 
         For kevin protocol:
         - CONNECT -> 0x01
         - DATA -> 0x02
         - DISCONNECT -> 0x03
         """
-        self.message_type_to_command: Dict[str, int] = {}
+        # Use shared protocol analysis utility
+        self.message_type_field, self.message_type_to_command = build_message_type_mapping(
+            self.data_model
+        )
 
-        preferred_fields = ("command", "message_type")
-        fallback_block = None
-
-        for block in self.data_model.get("blocks", []):
-            if "values" not in block:
-                continue
-            if block.get("name") in preferred_fields:
-                self.message_type_field = block["name"]
-                fallback_block = block
-                break
-            if fallback_block is None:
-                fallback_block = block
-
-        if fallback_block and self.message_type_field is None:
-            self.message_type_field = fallback_block.get("name")
-
-        if fallback_block and self.message_type_field:
-            for cmd_value, cmd_name in fallback_block["values"].items():
-                # Convert string keys to integers (JSON serialization converts int keys to strings)
-                if isinstance(cmd_value, str):
-                    try:
-                        cmd_value = int(cmd_value)
-                    except ValueError:
-                        logger.warning("invalid_command_value", value=cmd_value, name=cmd_name)
-                        continue
-                self.message_type_to_command[cmd_name] = cmd_value
-
+        if self.message_type_field:
             logger.debug(
                 "message_type_mapping_built",
                 field=self.message_type_field,

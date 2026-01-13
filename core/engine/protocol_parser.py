@@ -102,35 +102,19 @@ class ProtocolParser:
 
         return fields
 
-    def serialize(self, fields: Dict[str, Any]) -> bytes:
+    def _serialize_fields_to_bytes(self, fields: Dict[str, Any]) -> bytes:
         """
-        Serialize field dictionary to binary message.
+        Core serialization logic that converts fields to bytes.
 
-        Automatically updates:
-        - Length fields (is_size_field: True)
-        - Checksums (if behavior defined)
+        This method contains the shared bit-level serialization logic used by both
+        serialize() and _serialize_without_checksum() to eliminate duplication.
 
         Args:
-            fields: Dictionary mapping field names to values
+            fields: Dictionary mapping field names to values (already auto-fixed)
 
         Returns:
             Binary protocol message
         """
-        # Check if protocol has checksum fields
-        has_checksums = any(
-            block.get('is_checksum') or block.get('checksum_algorithm')
-            for block in self.blocks
-        )
-
-        # If checksums are present, use two-pass serialization
-        if has_checksums:
-            return self.serialize_with_checksums(fields)
-
-        # Otherwise, use simple single-pass serialization
-        # First pass: auto-update dependent fields
-        fields = self._auto_fix_fields(fields)
-
-        # Second pass: serialize each field with bit-level tracking
         result = bytearray()
         bit_offset = 0
         bit_buffer = 0  # Accumulator for incomplete byte (holds bits waiting to form complete byte)
@@ -244,6 +228,37 @@ class ProtocolParser:
 
         return bytes(result)
 
+    def serialize(self, fields: Dict[str, Any]) -> bytes:
+        """
+        Serialize field dictionary to binary message.
+
+        Automatically updates:
+        - Length fields (is_size_field: True)
+        - Checksums (if behavior defined)
+
+        Args:
+            fields: Dictionary mapping field names to values
+
+        Returns:
+            Binary protocol message
+        """
+        # Check if protocol has checksum fields
+        has_checksums = any(
+            block.get('is_checksum') or block.get('checksum_algorithm')
+            for block in self.blocks
+        )
+
+        # If checksums are present, use two-pass serialization
+        if has_checksums:
+            return self.serialize_with_checksums(fields)
+
+        # Otherwise, use simple single-pass serialization
+        # First pass: auto-update dependent fields
+        fields = self._auto_fix_fields(fields)
+
+        # Second pass: serialize fields to bytes using shared logic
+        return self._serialize_fields_to_bytes(fields)
+
     def _serialize_without_checksum(self, fields: Dict[str, Any]) -> bytes:
         """
         Internal method to serialize without checksum processing.
@@ -252,119 +267,8 @@ class ProtocolParser:
         # Auto-update dependent fields (lengths, but NOT checksums)
         fields = self._auto_fix_fields(fields)
 
-        # Serialize each field with bit-level tracking
-        result = bytearray()
-        bit_offset = 0
-        bit_buffer = 0  # Accumulator for incomplete byte
-        bits_in_buffer = 0  # Number of bits currently in bit_buffer
-
-        for block in self.blocks:
-            field_name = block['name']
-            field_type = block['type']
-            value = fields.get(field_name)
-
-            if value is None:
-                # Use default if field not present
-                value = block.get('default', self._get_default_value(field_type))
-
-            try:
-                if field_type == 'bits':
-                    # Serialize bit field
-                    num_bits = block['size']
-                    bit_order = block.get('bit_order', 'msb')
-
-                    # Mask value to bit width
-                    mask = (1 << num_bits) - 1
-                    value = value & mask
-
-                    # Add bits to buffer
-                    if bit_order == 'msb':
-                        # MSB-first: shift value left and OR with buffer
-                        bit_buffer = (bit_buffer << num_bits) | value
-                    else:
-                        # LSB-first: shift buffer left and OR with value
-                        bit_buffer = bit_buffer | (value << bits_in_buffer)
-
-                    bits_in_buffer += num_bits
-
-                    # Emit complete bytes
-                    while bits_in_buffer >= 8:
-                        if bit_order == 'msb':
-                            # MSB-first: extract from top
-                            byte_val = (bit_buffer >> (bits_in_buffer - 8)) & 0xFF
-                            bits_in_buffer -= 8
-                            bit_buffer &= (1 << bits_in_buffer) - 1  # Keep remaining bits
-                        else:
-                            # LSB-first: extract from bottom
-                            byte_val = bit_buffer & 0xFF
-                            bit_buffer >>= 8
-                            bits_in_buffer -= 8
-                        result.append(byte_val)
-
-                    bit_offset += num_bits
-
-                elif field_type == 'bytes':
-                    # Byte field - ensure byte alignment
-                    if bits_in_buffer > 0:
-                        # Flush partial byte (pad with zeros)
-                        if bits_in_buffer < 8:
-                            bit_buffer <<= (8 - bits_in_buffer)
-                        result.append(bit_buffer & 0xFF)
-                        bit_buffer = 0
-                        bits_in_buffer = 0
-                        bit_offset = ((bit_offset + 7) // 8) * 8
-                    serialized = self._serialize_bytes_field(value, block)
-                    result.extend(serialized)
-                    bit_offset += len(serialized) * 8
-
-                elif field_type.startswith('uint') or field_type.startswith('int'):
-                    # Integer field - ensure byte alignment
-                    if bits_in_buffer > 0:
-                        # Flush partial byte (pad with zeros)
-                        if bits_in_buffer < 8:
-                            bit_buffer <<= (8 - bits_in_buffer)
-                        result.append(bit_buffer & 0xFF)
-                        bit_buffer = 0
-                        bits_in_buffer = 0
-                        bit_offset = ((bit_offset + 7) // 8) * 8
-                    serialized = self._serialize_integer_field(value, block)
-                    result.extend(serialized)
-                    bit_offset += len(serialized) * 8
-
-                elif field_type == 'string':
-                    # String field - ensure byte alignment
-                    if bits_in_buffer > 0:
-                        # Flush partial byte (pad with zeros)
-                        if bits_in_buffer < 8:
-                            bit_buffer <<= (8 - bits_in_buffer)
-                        result.append(bit_buffer & 0xFF)
-                        bit_buffer = 0
-                        bits_in_buffer = 0
-                        bit_offset = ((bit_offset + 7) // 8) * 8
-                    serialized = self._serialize_string_field(value, block)
-                    result.extend(serialized)
-                    bit_offset += len(serialized) * 8
-
-                else:
-                    raise ValueError(f"Unsupported field type: {field_type}")
-
-            except Exception as e:
-                logger.error(
-                    "serialize_field_error",
-                    field=field_name,
-                    value=value,
-                    bit_offset=bit_offset,
-                    error=str(e)
-                )
-                raise ValueError(f"Failed to serialize field '{field_name}': {e}")
-
-        # Flush remaining partial byte if any
-        if bits_in_buffer > 0:
-            # Pad remaining bits with zeros on the right
-            bit_buffer <<= (8 - bits_in_buffer)
-            result.append(bit_buffer & 0xFF)
-
-        return bytes(result)
+        # Use shared serialization logic
+        return self._serialize_fields_to_bytes(fields)
 
     def _parse_bytes_field(
         self,

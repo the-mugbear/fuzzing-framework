@@ -21,6 +21,7 @@ type EndianType = '' | 'big' | 'little';
 type BitOrder = '' | 'msb' | 'lsb';
 
 type SizeUnit = '' | 'bits' | 'bytes' | 'words' | 'dwords';
+type ResponseOperation = '' | 'add_constant' | 'xor_constant' | 'and_mask' | 'or_mask' | 'shift_left' | 'shift_right';
 
 interface BlockRow {
   id: string;
@@ -36,6 +37,31 @@ interface BlockRow {
   isSizeField: boolean;
   sizeOf: string;
   sizeUnit: SizeUnit;
+}
+
+interface MatchRule {
+  id: string;
+  field: string;
+  values: string;
+}
+
+interface SetFieldRule {
+  id: string;
+  targetField: string;
+  sourceType: 'literal' | 'copy';
+  literalValue: string;
+  responseField: string;
+  extractStart: string;
+  extractCount: string;
+  operation: ResponseOperation;
+  operationValue: string;
+}
+
+interface ResponseHandlerRow {
+  id: string;
+  name: string;
+  matchRules: MatchRule[];
+  setRules: SetFieldRule[];
 }
 
 interface TransitionRow {
@@ -70,6 +96,15 @@ const FIELD_TYPES: FieldType[] = [
 ];
 
 const SIZE_UNITS: SizeUnit[] = ['', 'bits', 'bytes', 'words', 'dwords'];
+const RESPONSE_OPERATIONS: ResponseOperation[] = [
+  '',
+  'add_constant',
+  'xor_constant',
+  'and_mask',
+  'or_mask',
+  'shift_left',
+  'shift_right',
+];
 
 const EMPTY_BLOCK: BlockRow = {
   id: 'block-1',
@@ -94,6 +129,31 @@ const EMPTY_TRANSITION: TransitionRow = {
   messageType: '',
   trigger: '',
   expectedResponse: '',
+};
+
+const EMPTY_MATCH_RULE: MatchRule = {
+  id: 'match-1',
+  field: '',
+  values: '',
+};
+
+const EMPTY_SET_RULE: SetFieldRule = {
+  id: 'set-1',
+  targetField: '',
+  sourceType: 'copy',
+  literalValue: '',
+  responseField: '',
+  extractStart: '',
+  extractCount: '',
+  operation: '',
+  operationValue: '',
+};
+
+const EMPTY_RESPONSE_HANDLER: ResponseHandlerRow = {
+  id: 'handler-1',
+  name: '',
+  matchRules: [{ ...EMPTY_MATCH_RULE }],
+  setRules: [{ ...EMPTY_SET_RULE }],
 };
 
 function InfoTooltip({
@@ -134,6 +194,27 @@ function hexToPythonBytes(value: string): string {
 function stringToPythonBytes(value: string): string {
   const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   return `b"${escaped}"`;
+}
+
+function formatPythonScalar(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '""';
+  }
+  if (isHexBytes(trimmed)) {
+    return hexToPythonBytes(trimmed);
+  }
+  if (
+    trimmed.startsWith('b"') ||
+    trimmed.startsWith("b'") ||
+    trimmed.startsWith('"') ||
+    trimmed.startsWith("'") ||
+    /^-?(0x[0-9a-fA-F]+|\d+)$/.test(trimmed) ||
+    /^(True|False|None)$/.test(trimmed)
+  ) {
+    return trimmed;
+  }
+  return buildPythonStringLiteral(trimmed);
 }
 
 function buildBlockPython(block: BlockRow): Record<string, string | number | boolean | string[] | null> {
@@ -220,18 +301,68 @@ function formatPythonDict(value: Record<string, string | number | boolean | stri
   return lines.join('\n');
 }
 
+function buildMatchValue(value: string): string {
+  const values = value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  if (values.length > 1) {
+    return `[${values.map((entry) => formatPythonScalar(entry)).join(', ')}]`;
+  }
+  if (values.length === 1) {
+    return formatPythonScalar(values[0]);
+  }
+  return formatPythonScalar('');
+}
+
+function buildSetFieldValue(rule: SetFieldRule): string {
+  if (rule.sourceType === 'literal') {
+    return formatPythonScalar(rule.literalValue);
+  }
+
+  const specs: string[] = [];
+  if (rule.responseField.trim()) {
+    specs.push(`"copy_from_response": "${rule.responseField.trim()}"`);
+  }
+
+  const start = Number(rule.extractStart);
+  const count = Number(rule.extractCount);
+  if (!Number.isNaN(start) && !Number.isNaN(count)) {
+    specs.push(`"extract_bits": {"start": ${start}, "count": ${count}}`);
+  }
+
+  if (rule.operation) {
+    specs.push(`"operation": "${rule.operation}"`);
+    if (rule.operationValue.trim()) {
+      specs.push(`"value": ${formatPythonScalar(rule.operationValue)}`);
+    }
+  }
+
+  return `{ ${specs.join(', ')} }`;
+}
+
 function buildPluginCode(
   moduleName: string,
   version: string,
   description: string,
   blocks: BlockRow[],
+  responseBlocks: BlockRow[],
   seeds: string[],
   initialState: string,
   states: string[],
   transitions: TransitionRow[],
+  responseHandlers: ResponseHandlerRow[],
 ): string {
   const filteredBlocks = blocks.filter((block) => block.name.trim());
   const blockLines = filteredBlocks.map((block) => {
+    const blockDict = buildBlockPython(block);
+    const formatted = formatPythonDict(blockDict, '        ');
+    return `    {\n${formatted}\n    },`;
+  });
+
+  const filteredResponseBlocks = responseBlocks.filter((block) => block.name.trim());
+  const responseBlockLines = filteredResponseBlocks.map((block) => {
     const blockDict = buildBlockPython(block);
     const formatted = formatPythonDict(blockDict, '        ');
     return `    {\n${formatted}\n    },`;
@@ -263,37 +394,32 @@ function buildPluginCode(
       return `    {\n${formatted}\n    },`;
     });
 
+  const handlers = responseHandlers.filter((handler) => handler.name.trim());
+  const handlerLines = handlers.map((handler) => {
+    const matchLines = handler.matchRules
+      .filter((rule) => rule.field.trim())
+      .map((rule) => `        "${rule.field.trim()}": ${buildMatchValue(rule.values)},`)
+      .join('\n');
+    const setLines = handler.setRules
+      .filter((rule) => rule.targetField.trim())
+      .map((rule) => `        "${rule.targetField.trim()}": ${buildSetFieldValue(rule)},`)
+      .join('\n');
+
+    return `    {\n        "name": "${handler.name.trim()}",\n        "match": {\n${matchLines || '            # Add match rules\n'}        },\n        "set_fields": {\n${setLines || '            # Add field updates\n'}        }\n    },`;
+  });
+
+  const responseModelBlock = filteredResponseBlocks.length
+    ? `\nresponse_model = {\n    "blocks": [\n${responseBlockLines.join('\n')}\n    ]\n}\n`
+    : '';
+
+  const responseHandlerBlock = handlers.length
+    ? `\nresponse_handlers = [\n${handlerLines.join('\n')}\n]\n`
+    : '';
+
   const moduleHeader = moduleName.trim() || 'new_protocol';
   const versionValue = version.trim() || '0.1.0';
 
-  return `"""
-Protocol plugin generated by Protocol Studio.
-
-Module: ${moduleHeader}
-"""
-
-__version__ = "${versionValue}"
-
-data_model = {
-    "name": "${moduleHeader}",
-    "description": ${description.trim() ? buildPythonStringLiteral(description.trim()) : '""'},
-    "version": "${versionValue}",
-    "blocks": [
-${blockLines.join('\n') || '        # TODO: add blocks\n        {"name": "field", "type": "uint8"},'}
-    ],
-    "seeds": [
-${seedLines.map((seed) => `        ${seed},`).join('\n') || '        # Optional: add base seeds\n'}
-    ]
-}
-
-state_model = {
-    "initial_state": "${initialState.trim() || 'INIT'}",
-    "states": ${stateList.length ? JSON.stringify(stateList) : '["INIT"]'},
-    "transitions": [
-${transitionLines.join('\n') || '        # Optional: add transitions\n'}
-    ]
-}
-`;
+  return `"""\nProtocol plugin generated by Protocol Studio.\n\nModule: ${moduleHeader}\n"""\n\n__version__ = "${versionValue}"\n\ndata_model = {\n    "name": "${moduleHeader}",\n    "description": ${description.trim() ? buildPythonStringLiteral(description.trim()) : '""'},\n    "version": "${versionValue}",\n    "blocks": [\n${blockLines.join('\n') || '        # TODO: add blocks\\n        {"name": "field", "type": "uint8"},'}\n    ],\n    "seeds": [\n${seedLines.map((seed) => `        ${seed},`).join('\n') || '        # Optional: add base seeds\\n'}\n    ]\n}\n\nstate_model = {\n    "initial_state": "${initialState.trim() || 'INIT'}",\n    "states": ${stateList.length ? JSON.stringify(stateList) : '["INIT"]'},\n    "transitions": [\n${transitionLines.join('\n') || '        # Optional: add transitions\\n'}\n    ]\n}\n${responseModelBlock}${responseHandlerBlock}`;
 }
 
 function ProtocolStudioPage() {
@@ -301,10 +427,14 @@ function ProtocolStudioPage() {
   const [version, setVersion] = useState('0.1.0');
   const [description, setDescription] = useState('');
   const [blocks, setBlocks] = useState<BlockRow[]>([{ ...EMPTY_BLOCK }]);
+  const [responseBlocks, setResponseBlocks] = useState<BlockRow[]>([{ ...EMPTY_BLOCK, id: 'response-block-1' }]);
   const [seeds, setSeeds] = useState('');
   const [initialState, setInitialState] = useState('INIT');
   const [states, setStates] = useState('INIT');
   const [transitions, setTransitions] = useState<TransitionRow[]>([{ ...EMPTY_TRANSITION }]);
+  const [responseHandlers, setResponseHandlers] = useState<ResponseHandlerRow[]>([
+    { ...EMPTY_RESPONSE_HANDLER, id: 'handler-1' },
+  ]);
   const [codeValidation, setCodeValidation] = useState<ValidationResult | null>(null);
   const [codeValidationError, setCodeValidationError] = useState<string | null>(null);
   const [codeValidationLoading, setCodeValidationLoading] = useState(false);
@@ -327,12 +457,14 @@ function ProtocolStudioPage() {
       version,
       description,
       blocks,
+      responseBlocks,
       seedLines,
       initialState,
       stateList,
       transitions,
+      responseHandlers,
     );
-  }, [moduleName, version, description, blocks, seeds, initialState, states, transitions]);
+  }, [moduleName, version, description, blocks, responseBlocks, seeds, initialState, states, transitions, responseHandlers]);
 
   const updateBlock = (id: string, updates: Partial<BlockRow>) => {
     setBlocks((prev) => prev.map((block) => (block.id === id ? { ...block, ...updates } : block)));
@@ -352,6 +484,24 @@ function ProtocolStudioPage() {
     setBlocks((prev) => prev.filter((block) => block.id !== id));
   };
 
+  const updateResponseBlock = (id: string, updates: Partial<BlockRow>) => {
+    setResponseBlocks((prev) => prev.map((block) => (block.id === id ? { ...block, ...updates } : block)));
+  };
+
+  const addResponseBlock = () => {
+    setResponseBlocks((prev) => [
+      ...prev,
+      {
+        ...EMPTY_BLOCK,
+        id: `response-block-${prev.length + 1}`,
+      },
+    ]);
+  };
+
+  const removeResponseBlock = (id: string) => {
+    setResponseBlocks((prev) => prev.filter((block) => block.id !== id));
+  };
+
   const updateTransition = (id: string, updates: Partial<TransitionRow>) => {
     setTransitions((prev) => prev.map((transition) => (transition.id === id ? { ...transition, ...updates } : transition)));
   };
@@ -368,6 +518,108 @@ function ProtocolStudioPage() {
 
   const removeTransition = (id: string) => {
     setTransitions((prev) => prev.filter((transition) => transition.id !== id));
+  };
+
+  const updateResponseHandler = (id: string, updates: Partial<ResponseHandlerRow>) => {
+    setResponseHandlers((prev) => prev.map((handler) => (handler.id === id ? { ...handler, ...updates } : handler)));
+  };
+
+  const addResponseHandler = () => {
+    setResponseHandlers((prev) => [
+      ...prev,
+      {
+        ...EMPTY_RESPONSE_HANDLER,
+        id: `handler-${prev.length + 1}`,
+      },
+    ]);
+  };
+
+  const removeResponseHandler = (id: string) => {
+    setResponseHandlers((prev) => prev.filter((handler) => handler.id !== id));
+  };
+
+  const updateMatchRule = (handlerId: string, ruleId: string, updates: Partial<MatchRule>) => {
+    setResponseHandlers((prev) =>
+      prev.map((handler) => {
+        if (handler.id !== handlerId) return handler;
+        return {
+          ...handler,
+          matchRules: handler.matchRules.map((rule) => (rule.id === ruleId ? { ...rule, ...updates } : rule)),
+        };
+      }),
+    );
+  };
+
+  const addMatchRule = (handlerId: string) => {
+    setResponseHandlers((prev) =>
+      prev.map((handler) => {
+        if (handler.id !== handlerId) return handler;
+        return {
+          ...handler,
+          matchRules: [
+            ...handler.matchRules,
+            {
+              ...EMPTY_MATCH_RULE,
+              id: `match-${handler.matchRules.length + 1}`,
+            },
+          ],
+        };
+      }),
+    );
+  };
+
+  const removeMatchRule = (handlerId: string, ruleId: string) => {
+    setResponseHandlers((prev) =>
+      prev.map((handler) => {
+        if (handler.id !== handlerId) return handler;
+        return {
+          ...handler,
+          matchRules: handler.matchRules.filter((rule) => rule.id !== ruleId),
+        };
+      }),
+    );
+  };
+
+  const updateSetRule = (handlerId: string, ruleId: string, updates: Partial<SetFieldRule>) => {
+    setResponseHandlers((prev) =>
+      prev.map((handler) => {
+        if (handler.id !== handlerId) return handler;
+        return {
+          ...handler,
+          setRules: handler.setRules.map((rule) => (rule.id === ruleId ? { ...rule, ...updates } : rule)),
+        };
+      }),
+    );
+  };
+
+  const addSetRule = (handlerId: string) => {
+    setResponseHandlers((prev) =>
+      prev.map((handler) => {
+        if (handler.id !== handlerId) return handler;
+        return {
+          ...handler,
+          setRules: [
+            ...handler.setRules,
+            {
+              ...EMPTY_SET_RULE,
+              id: `set-${handler.setRules.length + 1}`,
+            },
+          ],
+        };
+      }),
+    );
+  };
+
+  const removeSetRule = (handlerId: string, ruleId: string) => {
+    setResponseHandlers((prev) =>
+      prev.map((handler) => {
+        if (handler.id !== handlerId) return handler;
+        return {
+          ...handler,
+          setRules: handler.setRules.filter((rule) => rule.id !== ruleId),
+        };
+      }),
+    );
   };
 
   const validateGeneratedCode = async () => {
@@ -638,6 +890,140 @@ function ProtocolStudioPage() {
           </div>
 
           <div className="panel-section">
+            <div className="section-header">
+              <div className="header-with-tooltip">
+                <h4>Response Model</h4>
+                <InfoTooltip label="Response model help" className="inline">
+                  <p>Define the structure of server responses you want to parse.</p>
+                  <p>Response blocks are ordered fields like request blocks.</p>
+                </InfoTooltip>
+              </div>
+              <button type="button" onClick={addResponseBlock} className="secondary-button">
+                Add Response Block
+              </button>
+            </div>
+            <p className="section-hint">
+              Response model blocks are optional, but required for response handlers.
+            </p>
+            <div className="blocks-list">
+              {responseBlocks.map((block, index) => (
+                <div key={block.id} className="block-card">
+                  <div className="block-title">
+                    <strong>Response Block {index + 1}</strong>
+                    {responseBlocks.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeResponseBlock(block.id)}
+                        className="text-button"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <div className="form-grid">
+                    <label>
+                      Name
+                      <input
+                        value={block.name}
+                        onChange={(e) => updateResponseBlock(block.id, { name: e.target.value })}
+                        placeholder="response_field"
+                      />
+                    </label>
+                    <label>
+                      Type
+                      <select
+                        value={block.type}
+                        onChange={(e) => updateResponseBlock(block.id, { type: e.target.value as FieldType })}
+                      >
+                        {FIELD_TYPES.map((type) => (
+                          <option key={type} value={type}>
+                            {type}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span className="label-with-tooltip">
+                        Size
+                        <InfoTooltip label="Response size help" className="inline">
+                          <p>For <code>bytes</code> and integers, size is in bytes.</p>
+                          <p>For <code>bits</code>, size is in bits (1-64).</p>
+                        </InfoTooltip>
+                      </span>
+                      <input
+                        value={block.size}
+                        onChange={(e) => updateResponseBlock(block.id, { size: e.target.value })}
+                        placeholder={block.type === 'bits' ? '4' : 'Bytes'}
+                      />
+                    </label>
+                    <label>
+                      Max Size
+                      <input
+                        value={block.maxSize}
+                        onChange={(e) => updateResponseBlock(block.id, { maxSize: e.target.value })}
+                        placeholder="Optional"
+                      />
+                    </label>
+                    <label>
+                      <span className="label-with-tooltip">
+                        Default
+                        <InfoTooltip label="Response default help" className="inline">
+                          <p>Defaults are mainly for documentation; response parsing uses live bytes.</p>
+                        </InfoTooltip>
+                      </span>
+                      <input
+                        value={block.defaultValue}
+                        onChange={(e) => updateResponseBlock(block.id, { defaultValue: e.target.value })}
+                        placeholder={block.type === 'bytes' ? 'DE AD BE EF' : 'Optional'}
+                      />
+                    </label>
+                    <label>
+                      Endian
+                      <select
+                        value={block.endian}
+                        onChange={(e) => updateResponseBlock(block.id, { endian: e.target.value as EndianType })}
+                      >
+                        <option value="">Default</option>
+                        <option value="big">big</option>
+                        <option value="little">little</option>
+                      </select>
+                    </label>
+                    <label>
+                      Bit Order
+                      <select
+                        value={block.bitOrder}
+                        onChange={(e) => updateResponseBlock(block.id, { bitOrder: e.target.value as BitOrder })}
+                      >
+                        <option value="">Default</option>
+                        <option value="msb">msb</option>
+                        <option value="lsb">lsb</option>
+                      </select>
+                    </label>
+                    <label>
+                      Mutable
+                      <select
+                        value={block.mutable ? 'yes' : 'no'}
+                        onChange={(e) => updateResponseBlock(block.id, { mutable: e.target.value === 'yes' })}
+                      >
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                      </select>
+                    </label>
+                    <label className="span-2">
+                      Description
+                      <input
+                        value={block.description}
+                        onChange={(e) => updateResponseBlock(block.id, { description: e.target.value })}
+                        placeholder="Optional response field notes"
+                      />
+                    </label>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="panel-section">
             <div className="header-with-tooltip">
               <h4>Seeds</h4>
               <InfoTooltip label="Seeds help" className="inline">
@@ -735,6 +1121,171 @@ function ProtocolStudioPage() {
                         placeholder="login_ack"
                       />
                     </label>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="panel-section">
+            <div className="section-header">
+              <div className="header-with-tooltip">
+                <h4>Response Handlers</h4>
+                <InfoTooltip label="Response handlers help" className="inline">
+                  <p>Match response fields and copy or transform values into the next request.</p>
+                  <p>Use extract bits and operations to manipulate tokens or signatures.</p>
+                </InfoTooltip>
+              </div>
+              <button type="button" onClick={addResponseHandler} className="secondary-button">
+                Add Handler
+              </button>
+            </div>
+            <p className="section-hint">
+              Handlers fire when match rules pass; they update request fields for the next message.
+            </p>
+            <div className="handlers-list">
+              {responseHandlers.map((handler, index) => (
+                <div key={handler.id} className="handler-card">
+                  <div className="handler-header">
+                    <strong>Handler {index + 1}</strong>
+                    {responseHandlers.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeResponseHandler(handler.id)}
+                        className="text-button"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <label>
+                    Handler Name
+                    <input
+                      value={handler.name}
+                      onChange={(e) => updateResponseHandler(handler.id, { name: e.target.value })}
+                      placeholder="sync_session_token"
+                    />
+                  </label>
+                  <div className="handler-section">
+                    <div className="section-header">
+                      <div className="header-with-tooltip">
+                        <h5>Match Rules</h5>
+                        <InfoTooltip label="Match rules help" className="inline">
+                          <p>All match rules must pass for the handler to fire.</p>
+                          <p>Comma-separated values become an OR list.</p>
+                        </InfoTooltip>
+                      </div>
+                      <button type="button" onClick={() => addMatchRule(handler.id)} className="secondary-button">
+                        Add Match
+                      </button>
+                    </div>
+                    <p className="section-hint">Comma-separated values are treated as OR matches.</p>
+                    {handler.matchRules.map((rule) => (
+                      <div key={rule.id} className="handler-row">
+                        <input
+                          value={rule.field}
+                          onChange={(e) => updateMatchRule(handler.id, rule.id, { field: e.target.value })}
+                          placeholder="status"
+                        />
+                        <input
+                          value={rule.values}
+                          onChange={(e) => updateMatchRule(handler.id, rule.id, { values: e.target.value })}
+                          placeholder="0x00, 0x01"
+                        />
+                        {handler.matchRules.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeMatchRule(handler.id, rule.id)}
+                            className="text-button"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="handler-section">
+                    <div className="section-header">
+                      <div className="header-with-tooltip">
+                        <h5>Set Fields</h5>
+                        <InfoTooltip label="Set fields help" className="inline">
+                          <p>Copy from a response field or set a literal value.</p>
+                          <p>Extract bits and apply operations to adjust tokens.</p>
+                        </InfoTooltip>
+                      </div>
+                      <button type="button" onClick={() => addSetRule(handler.id)} className="secondary-button">
+                        Add Field
+                      </button>
+                    </div>
+                    {handler.setRules.map((rule) => (
+                      <div key={rule.id} className="handler-row">
+                        <input
+                          value={rule.targetField}
+                          onChange={(e) => updateSetRule(handler.id, rule.id, { targetField: e.target.value })}
+                          placeholder="session_id"
+                        />
+                        <select
+                          value={rule.sourceType}
+                          onChange={(e) =>
+                            updateSetRule(handler.id, rule.id, { sourceType: e.target.value as 'literal' | 'copy' })
+                          }
+                        >
+                          <option value="copy">Copy from response</option>
+                          <option value="literal">Literal value</option>
+                        </select>
+                        {rule.sourceType === 'literal' ? (
+                          <input
+                            value={rule.literalValue}
+                            onChange={(e) => updateSetRule(handler.id, rule.id, { literalValue: e.target.value })}
+                            placeholder="0x10"
+                          />
+                        ) : (
+                          <>
+                            <input
+                              value={rule.responseField}
+                              onChange={(e) => updateSetRule(handler.id, rule.id, { responseField: e.target.value })}
+                              placeholder="session_token"
+                            />
+                            <input
+                              value={rule.extractStart}
+                              onChange={(e) => updateSetRule(handler.id, rule.id, { extractStart: e.target.value })}
+                              placeholder="bit start"
+                            />
+                            <input
+                              value={rule.extractCount}
+                              onChange={(e) => updateSetRule(handler.id, rule.id, { extractCount: e.target.value })}
+                              placeholder="bit count"
+                            />
+                            <select
+                              value={rule.operation}
+                              onChange={(e) =>
+                                updateSetRule(handler.id, rule.id, { operation: e.target.value as ResponseOperation })
+                              }
+                            >
+                              {RESPONSE_OPERATIONS.map((operation) => (
+                                <option key={operation || 'none'} value={operation}>
+                                  {operation || 'no-op'}
+                                </option>
+                              ))}
+                            </select>
+                            <input
+                              value={rule.operationValue}
+                              onChange={(e) => updateSetRule(handler.id, rule.id, { operationValue: e.target.value })}
+                              placeholder="op value"
+                            />
+                          </>
+                        )}
+                        {handler.setRules.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeSetRule(handler.id, rule.id)}
+                            className="text-button"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
               ))}

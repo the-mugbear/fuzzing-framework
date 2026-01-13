@@ -9,7 +9,14 @@ from typing import Any, Dict, List, Optional
 
 import structlog
 
+from core.config import settings
 from core.engine.protocol_parser import ProtocolParser
+from core.engine.mutation_primitives import (
+    apply_arithmetic_mutation,
+    select_interesting_value,
+    generate_boundary_values,
+    flip_random_bits,
+)
 
 logger = structlog.get_logger()
 
@@ -106,10 +113,10 @@ class StructureAwareMutator:
                     "mutation_strategy_failed",
                     strategy=strategy,
                     field=field_name,
-                    error=str(e)
+                    error=str(e),
+                    error_type=type(e).__name__
                 )
-                # Fall back to original value
-                pass
+                # Fall back to original value - continue with unmutated field
 
             # 4. Serialize back to bytes (auto-fixes lengths, checksums)
             return self.parser.serialize(fields)
@@ -154,49 +161,22 @@ class StructureAwareMutator:
 
     def _boundary_values(self, value: Any, block: dict) -> Any:
         """
-        Test boundary conditions based on field type.
+        Test boundary conditions using shared primitives.
 
-        For integers: 0, 1, MAX, MIN
-        For bytes: empty, single byte, max_size
-        For bits: 0, 1, MAX, MAX-1, mid
+        For integers/bits: Uses generate_boundary_values()
+        For bytes: Uses custom byte array logic
         """
         field_type = block['type']
 
-        if field_type == 'bits':
-            # Bit field boundaries
-            num_bits = block['size']
-            max_val = (1 << num_bits) - 1
-
-            candidates = [
-                0,           # Min
-                1,           # Min + 1
-                max_val // 2,  # Mid
-                max_val - 1,   # Max - 1
-                max_val        # Max
-            ]
-            # Remove duplicates and invalid values
-            candidates = [v for v in set(candidates) if 0 <= v <= max_val]
-            return random.choice(candidates)
-
-        if 'int' in field_type:
-            # Integer boundaries
-            if field_type == 'uint8':
-                return random.choice([0, 1, 127, 128, 254, 255])
-            elif field_type == 'uint16':
-                return random.choice([0, 1, 255, 256, 32767, 32768, 65534, 65535])
-            elif field_type == 'uint32':
-                return random.choice([0, 1, 65535, 65536, 0x7FFFFFFF, 0xFFFFFFFE, 0xFFFFFFFF])
-            elif field_type == 'uint64':
-                return random.choice([0, 1, 0xFFFFFFFF, 0x100000000, 0x7FFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF])
-            elif field_type == 'int8':
-                return random.choice([-128, -1, 0, 1, 126, 127])
-            elif field_type == 'int16':
-                return random.choice([-32768, -1, 0, 1, 32766, 32767])
-            elif field_type == 'int32':
-                return random.choice([-2147483648, -1, 0, 1, 2147483646, 2147483647])
+        if field_type == 'bits' or 'int' in field_type:
+            # Use shared primitive for consistent boundary values
+            candidates = generate_boundary_values(block)
+            if candidates:
+                return random.choice(candidates)
+            return value
 
         elif field_type == 'bytes':
-            # Byte array boundaries
+            # Byte array boundaries (field-specific logic)
             max_size = block.get('max_size', 1024)
             choices = [
                 b'',  # Empty
@@ -213,53 +193,19 @@ class StructureAwareMutator:
 
     def _arithmetic(self, value: Any, block: dict) -> Any:
         """
-        Apply arithmetic mutations (add/subtract small values).
+        Apply arithmetic mutations using shared primitives.
 
         Only applicable to integer and bit fields.
         """
         field_type = block['type']
 
-        if field_type == 'bits':
-            # Arithmetic for bit fields
-            num_bits = block['size']
-            max_val = (1 << num_bits) - 1
-
+        if field_type == 'bits' or 'int' in field_type:
             if not isinstance(value, int):
                 return value
+            # Use shared primitive for consistent behavior
+            return apply_arithmetic_mutation(value, block)
 
-            operations = [
-                value + 1,
-                value - 1,
-                value + random.randint(1, 5),
-                value - random.randint(1, 5),
-                value ^ 1,  # Flip LSB
-            ]
-
-            # Clamp to valid range with wraparound
-            mutated = random.choice(operations)
-            return mutated & max_val
-
-        if 'int' not in field_type:
-            return value  # Not applicable
-
-        # Arithmetic deltas
-        deltas = [-256, -128, -16, -1, 1, 16, 128, 256]
-        delta = random.choice(deltas)
-
-        # Apply delta with wraparound
-        if field_type == 'uint8':
-            return (value + delta) & 0xFF
-        elif field_type == 'uint16':
-            return (value + delta) & 0xFFFF
-        elif field_type == 'uint32':
-            return (value + delta) & 0xFFFFFFFF
-        elif field_type == 'uint64':
-            return (value + delta) & 0xFFFFFFFFFFFFFFFF
-        elif field_type.startswith('int'):
-            # Signed integers - let Python handle it
-            return value + delta
-
-        return value
+        return value  # Not applicable
 
     def _bit_flip_field(self, value: Any, block: dict) -> Any:
         """
@@ -294,9 +240,10 @@ class StructureAwareMutator:
 
     def _interesting_values(self, value: Any, block: dict) -> Any:
         """
-        Replace with interesting/magic values.
+        Replace with interesting/magic values using shared primitives.
 
-        Uses known values from data_model if available.
+        Uses known values from data_model if available, otherwise
+        uses shared select_interesting_value() primitive.
         """
         field_type = block['type']
 
@@ -312,34 +259,11 @@ class StructureAwareMutator:
                     base = random.choice(known_values)
                     return base + random.choice([-1, 1])
 
-        # Generic interesting values by type
-        if field_type == 'bits':
-            # Bit field interesting values
-            num_bits = block['size']
-            max_val = (1 << num_bits) - 1
+        # Use shared primitive for consistent interesting values
+        if field_type == 'bits' or 'int' in field_type:
+            return select_interesting_value(field_info=block)
 
-            interesting = [
-                0x0,                    # All zeros
-                0x1,                    # Single bit
-                max_val,                # All ones
-                (1 << (num_bits - 1)),  # MSB only
-            ]
-
-            # Add power-of-2 values within range
-            for i in range(num_bits):
-                interesting.append(1 << i)
-
-            # Filter to valid range and remove duplicates
-            interesting = [v for v in set(interesting) if 0 <= v <= max_val]
-            return random.choice(interesting)
-
-        if field_type == 'uint8':
-            return random.choice([0, 1, 0x7F, 0x80, 0xFF])
-        elif field_type == 'uint16':
-            return random.choice([0, 1, 0xFF, 0x100, 0x7FFF, 0x8000, 0xFFFF])
-        elif field_type == 'uint32':
-            return random.choice([0, 1, 0xFFFF, 0x10000, 0x7FFFFFFF, 0x80000000, 0xFFFFFFFF])
-        elif field_type == 'bytes':
+        if field_type == 'bytes':
             # Interesting byte patterns
             patterns = [
                 b'\x00\x00\x00\x00',
@@ -363,8 +287,11 @@ class StructureAwareMutator:
             max_size = block.get('max_size', 1024)
             current_len = len(value) if value else 0
 
-            # Expand by 1.5x to 3x
-            expansion_factor = random.uniform(1.5, 3.0)
+            # Expand by configurable factor
+            expansion_factor = random.uniform(
+                settings.havoc_expansion_min,
+                settings.havoc_expansion_max
+            )
             new_len = min(int(current_len * expansion_factor), max_size)
 
             if new_len > current_len:

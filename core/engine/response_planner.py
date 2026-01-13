@@ -157,7 +157,36 @@ class ResponsePlanner:
                         mask = (1 << num_bits) - 1
                         value = (value >> start_bit) & mask
 
+                if "operation" in spec:
+                    value = ResponsePlanner._apply_operation(value, spec.get("operation"), spec.get("value"))
+
                 return value
             if "literal" in spec:
                 return spec["literal"]
         return spec
+
+    @staticmethod
+    def _apply_operation(value: Any, operation: Any, op_value: Any) -> Any:
+        if not isinstance(value, int):
+            return value
+        if isinstance(op_value, str):
+            try:
+                op_value = int(op_value, 0)
+            except ValueError:
+                return value
+        if op_value is None:
+            return value
+
+        if operation == "add_constant":
+            return value + op_value
+        if operation == "xor_constant":
+            return value ^ op_value
+        if operation == "and_mask":
+            return value & op_value
+        if operation == "or_mask":
+            return value | op_value
+        if operation == "shift_left":
+            return value << op_value
+        if operation == "shift_right":
+            return value >> op_value
+        return value
