@@ -226,6 +226,202 @@ data_model = {
         },
 
         # =====================================================================
+        # PART 3.5: SUB-BYTE FIELDS (Bit-Level Precision)
+        # =====================================================================
+        # Modern protocols often pack multiple small values into single bytes
+        # to save bandwidth. The framework supports bit-level field definitions!
+        #
+        # IMPORTANT: Bit fields are packed LEFT-TO-RIGHT within bytes.
+        # The first bit field occupies the most significant bits.
+        #
+        # EXAMPLE: If you define these fields in order:
+        #   - encrypted (1 bit)
+        #   - compressed (1 bit)
+        #   - priority (2 bits)
+        #   - reserved (4 bits)
+        #
+        # They pack into a single byte like this:
+        #   Bit 7 (MSB): encrypted
+        #   Bit 6:       compressed
+        #   Bits 5-4:    priority (2 bits)
+        #   Bits 3-0:    reserved (4 bits, LSB)
+        #
+        # BYTE BOUNDARIES:
+        # When bit fields total exactly 8, 16, 24, etc. bits, they fill
+        # complete bytes. If the total is not a multiple of 8, the framework
+        # pads with zeros to the next byte boundary.
+
+        {
+            "name": "encrypted_bit",
+            "type": "bits",            # Sub-byte field type
+            "size": 1,                 # Size in BITS (not bytes!)
+            "default": 0,              # 0 = unencrypted, 1 = encrypted
+
+            # SINGLE BIT FLAG:
+            # This is the most compact way to represent boolean values.
+            # Uses only 1 bit instead of a full byte.
+            #
+            # FUZZING BEHAVIOR:
+            # The fuzzer will flip this between 0 and 1, testing:
+            #   - Server behavior with encryption flag set
+            #   - Server behavior with encryption flag cleared
+            #   - Whether the server actually validates this flag
+            #
+            # COMMON USES:
+            #   - Feature flags (enabled/disabled)
+            #   - Boolean options (yes/no)
+            #   - Status indicators (active/inactive)
+        },
+        {
+            "name": "compressed_bit",
+            "type": "bits",
+            "size": 1,
+            "default": 0,              # 0 = uncompressed, 1 = compressed
+
+            # SECOND BIT FLAG:
+            # This bit immediately follows encrypted_bit in the same byte.
+            # Together they occupy bits 7 and 6 of the byte.
+            #
+            # The fuzzer will test all 4 combinations:
+            #   - encrypted=0, compressed=0 (plain data)
+            #   - encrypted=0, compressed=1 (compressed only)
+            #   - encrypted=1, compressed=0 (encrypted only)
+            #   - encrypted=1, compressed=1 (both)
+        },
+        {
+            "name": "fragmented_bit",
+            "type": "bits",
+            "size": 1,
+            "default": 0,              # 0 = complete message, 1 = fragment
+
+            # FRAGMENTATION FLAG:
+            # Indicates if this is part of a larger message that was split.
+            # Occupies bit 5 of the byte.
+            #
+            # PROTOCOL PATTERN:
+            # Many protocols support message fragmentation:
+            #   - HTTP: chunked transfer encoding
+            #   - IP: fragmentation and reassembly
+            #   - Custom protocols: large payload splitting
+        },
+        {
+            "name": "priority",
+            "type": "bits",
+            "size": 2,                 # 2 bits = 4 possible values (0-3)
+            "default": 0,              # 0 = normal priority
+
+            # MULTI-BIT ENUM:
+            # This field can hold values 0-3, representing priority levels:
+            #   0 = LOW
+            #   1 = NORMAL
+            #   2 = HIGH
+            #   3 = URGENT
+            #
+            # Occupies bits 4-3 of the byte.
+            #
+            # FUZZING WITH MULTI-BIT FIELDS:
+            # The fuzzer will try all 4 valid values (0-3) plus potentially
+            # test what happens if invalid patterns appear due to corruption.
+            #
+            # 2-BIT ADVANTAGE:
+            # Uses only 2 bits instead of a full byte (75% space savings).
+            # Common for small enums with 2-4 values.
+        },
+        {
+            "name": "reserved_bits",
+            "type": "bits",
+            "size": 3,                 # 3 bits reserved for future use
+            "default": 0,              # Must be 0 (reserved)
+            "mutable": False,          # Don't fuzz - reserved bits should be 0
+
+            # RESERVED BIT PATTERN:
+            # Many protocols reserve bits for future protocol versions.
+            # Occupies bits 2-0 of the byte.
+            #
+            # WHY mutable: False?
+            # Well-behaved clients should send 0 for reserved bits.
+            # Servers SHOULD ignore reserved bits but often don't.
+            #
+            # TIP: To test if the server improperly validates reserved bits,
+            # create a separate seed with reserved_bits set to non-zero values
+            # rather than fuzzing this field.
+            #
+            # BIT FIELD BYTE SUMMARY:
+            # All 8 bit fields above (1+1+1+2+3 = 8 bits) pack into ONE byte:
+            #
+            #   Bit 7: encrypted_bit
+            #   Bit 6: compressed_bit
+            #   Bit 5: fragmented_bit
+            #   Bits 4-3: priority (2 bits)
+            #   Bits 2-0: reserved_bits (3 bits)
+            #
+            # In hex, some example values:
+            #   0x00 = 0000 0000 = all flags off, priority=0, reserved=0
+            #   0x80 = 1000 0000 = encrypted=1, all else 0
+            #   0xC0 = 1100 0000 = encrypted=1, compressed=1, all else 0
+            #   0x18 = 0001 1000 = priority=3 (URGENT), all else 0
+        },
+
+        # =====================================================================
+        # SUB-BYTE FIELD EXAMPLE 2: Multi-Byte Bit Fields
+        # =====================================================================
+        # Bit fields aren't limited to single bytes. You can define bit fields
+        # that span multiple bytes for larger values while still maintaining
+        # bit-level precision.
+
+        {
+            "name": "sequence_number",
+            "type": "bits",
+            "size": 12,                # 12 bits = values 0-4095
+            "default": 0,
+
+            # 12-BIT SEQUENCE NUMBER:
+            # This demonstrates a bit field larger than 8 bits.
+            # 12 bits can represent values 0-4095.
+            #
+            # BIT PACKING:
+            # This field starts a NEW byte (previous bit fields totaled 8).
+            # The 12 bits will occupy 1.5 bytes:
+            #   - Byte 1: bits 11-4 (8 bits)
+            #   - Byte 2: bits 3-0 (4 bits in upper nibble)
+            #
+            # USE CASES:
+            #   - Sequence numbers where 256 (uint8) is too small
+            #   - Counters that need more than 8 bits but not full 16
+            #   - Space-constrained protocols optimizing every bit
+            #
+            # WHY 12 BITS?
+            # Many protocols use 12-bit fields because:
+            #   - 4096 values is enough for many counters
+            #   - Saves 4 bits vs uint16 (12 vs 16 bits)
+            #   - Commonly divides into 24-bit and 48-bit structures
+        },
+        {
+            "name": "channel_id",
+            "type": "bits",
+            "size": 4,                 # 4 bits = 16 channels (0-15)
+            "default": 0,
+
+            # 4-BIT CHANNEL IDENTIFIER:
+            # This occupies the remaining 4 bits of the byte started by
+            # sequence_number.
+            #
+            # Together, sequence_number (12 bits) + channel_id (4 bits) = 16 bits
+            # (2 bytes total).
+            #
+            # CHANNEL PATTERN:
+            # Protocols often multiplex data over logical channels:
+            #   - SSH: channel 0 = terminal, channel 1 = X11, etc.
+            #   - HTTP/2: multiple streams over one TCP connection
+            #   - Custom protocols: separate data vs control channels
+            #
+            # 16 channels is common because:
+            #   - Fits in 4 bits (nibble)
+            #   - Enough for most multiplexing needs
+            #   - Natural hex digit (0x0 to 0xF)
+        },
+
+        # =====================================================================
         # PART 4: VARIABLE-LENGTH PAYLOAD WITH SIZE FIELD
         # =====================================================================
         # This is the most common pattern in binary protocols:
@@ -481,33 +677,53 @@ data_model = {
         #   \x01                                  -> message_type = HANDSHAKE_REQUEST (1 byte)
         #   \x00\x00                              -> flags = 0 (2 bytes)
         #   \x00\x00\x00\x00\x00\x00\x00\x01     -> session_id = 1 (8 bytes)
+        #   \x00                                  -> bit fields byte: all flags=0, priority=0, reserved=0 (1 byte)
+        #   \x00\x00                              -> sequence_number(12 bits)=0 + channel_id(4 bits)=0 (2 bytes)
         #   \x00\x00\x00\x0C                      -> payload_len = 12 (4 bytes)
         #   Hello World!                          -> payload (12 bytes)
         #   \x00\x00                              -> metadata_len = 0 (2 bytes)
         #   (empty)                               -> metadata (0 bytes)
-        #   \x00                                  -> telemetry_counter = 0 (1 byte)
+        #   \x00\x00                              -> telemetry_counter = 0 (2 bytes)
         #   \x00                                  -> opcode_bias = 0 (1 byte)
         #   \x00\x00\x00\x00                      -> trace_cookie = 0 (4 bytes)
         #   \r\n                                  -> footer_marker (2 bytes)
         (b"SHOW\x01\x0B\xAD\xDE\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01"
+         b"\x00\x00\x00"
          b"\x00\x00\x00\x0C" b"Hello World!" b"\x00\x00" b"\x00\x00" b"\x00" b"\x00\x00\x00\x00" b"\r\n"),
 
-        # Seed 2: DATA_STREAM message with different session_id
-        # This demonstrates a message type used AFTER handshake.
+        # Seed 2: DATA_STREAM message with bit fields enabled
+        # This demonstrates message type used AFTER handshake with sub-byte fields set.
         # Structure:
         #   message_type = 0x10 (DATA_STREAM)
         #   session_id = 0x0102030405060708 (from previous handshake)
+        #   bit fields = 0xC8 = 1100 1000 binary:
+        #     encrypted_bit = 1 (bit 7)
+        #     compressed_bit = 1 (bit 6)
+        #     fragmented_bit = 0 (bit 5)
+        #     priority = 2 (HIGH) (bits 4-3 = 10 binary)
+        #     reserved = 0 (bits 2-0)
+        #   sequence_number = 42 (0x02A), channel_id = 5 (0x5)
+        #     Packed as: 0x02A5 (12 bits: 0000 0010 1010, 4 bits: 0101)
         #   payload = "Some stream data" (16 bytes)
         (b"SHOW\x01\x0B\xAD\xDE\x10\x00\x01\x01\x02\x03\x04\x05\x06\x07\x08"
+         b"\xC8\x02\xA5"
          b"\x00\x00\x00\x10" b"Some stream data" b"\x00\x00" b"\x00\x00" b"\x00" b"\x00\x00\x00\x00" b"\r\n"),
 
-        # Seed 3: TERMINATE message with no payload
-        # This tests clean shutdown and edge case of zero-length payload.
+        # Seed 3: TERMINATE message with no payload and different bit patterns
+        # This tests clean shutdown and edge case of zero-length payload with bit fields.
         # Structure:
         #   message_type = 0xFF (TERMINATE)
         #   session_id = 0xFFFFFFFFFFFFFFFF (all bits set)
+        #   bit fields = 0x18 = 0001 1000 binary:
+        #     encrypted_bit = 0 (bit 7)
+        #     compressed_bit = 0 (bit 6)
+        #     fragmented_bit = 0 (bit 5)
+        #     priority = 3 (URGENT) (bits 4-3 = 11 binary)
+        #     reserved = 0 (bits 2-0)
+        #   sequence_number = 4095 (max 12-bit value = 0xFFF), channel_id = 15 (max 4-bit = 0xF)
         #   payload_len = 0 (no payload)
         (b"SHOW\x01\x0B\xAD\xDE\xFF\x00\x00\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF"
+         b"\x18\xFF\xFF"
          b"\x00\x00\x00\x00" b"\x00\x00" b"\x00\x00" b"\x00" b"\x00\x00\x00\x00" b"\r\n"),
 
         # TIP: To add more seeds, you can:

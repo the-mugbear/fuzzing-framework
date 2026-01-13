@@ -297,6 +297,27 @@ Extract specific bit ranges from response fields:
 }
 ```
 
+**Response Field Transformations**
+
+After copying a value from the response, you can apply lightweight transforms:
+
+```python
+{
+    "name": "next_token",
+    "copy_from_response": "session_token",
+    "operation": "add_constant",
+    "value": 1
+}
+```
+
+Supported operations:
+- `add_constant`: Add a constant to the copied value
+- `xor_constant`: XOR with a constant
+- `and_mask`: Bitwise AND mask
+- `or_mask`: Bitwise OR mask
+- `shift_left`: Shift left by N bits
+- `shift_right`: Shift right by N bits
+
 ### Step 3: Add Field Behaviors (Optional but Recommended)
 
 Use the `behavior` key when a block must follow deterministic rules even while other bytes are fuzzed. Behaviors run before each test case is transmitted in both core and agent modes.
@@ -1256,7 +1277,10 @@ chmod +x complete_protocol_test.sh
 ## Support
 
 - **Documentation**: See `README.md`, `QUICKSTART.md`, `CHEATSHEET.md`
-- **Examples**: Check `core/plugins/simple_tcp.py` for a complete example
+- **Examples**:
+  - `core/plugins/feature_showcase.py` - Comprehensive demonstration of ALL framework features including sub-byte fields, stateful fuzzing, response handlers, behaviors, and validation oracles (recommended starting point)
+  - `core/plugins/simple_tcp.py` - Minimal working example for quick reference
+  - `tests/feature_showcase_server.py` - Reference server implementation showing proper message parsing and bit field handling
 - **Issues**: Report bugs on GitHub
 - **Community**: Join discussions for fuzzing best practices
 

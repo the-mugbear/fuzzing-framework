@@ -160,15 +160,17 @@ class FeatureShowcaseServer:
             #   8       1     message_type
             #   9       2     flags
             #   11      8     session_id
-            #   19      4     payload_len <- KEY: First length field we need!
+            #   19      1     bit fields byte (encrypted, compressed, fragmented, priority, reserved)
+            #   20      2     sequence_number (12 bits) + channel_id (4 bits)
+            #   22      4     payload_len <- KEY: First length field we need!
             #
-            # So we need to read at least 19+4 = 23 bytes to get payload_len.
+            # So we need to read at least 22+4 = 26 bytes to get payload_len.
             # After that, we'll need to read more to get metadata_len (which
             # comes after the variable-length payload).
             #
             # NOTE: For your own protocol, adjust this to include all fixed
             # fields up to and including the FIRST length field.
-            MIN_HEADER_SIZE = 23  # Enough to include payload_len field
+            MIN_HEADER_SIZE = 26  # Enough to include payload_len field
 
             # Read initial header. We use a loop here because recv() might
             # return less than requested (especially over networks).
@@ -188,7 +190,7 @@ class FeatureShowcaseServer:
             # These tell us how much MORE data to read after the fixed fields.
             #
             # For Feature Showcase protocol:
-            #   - Bytes 19-23 (4 bytes): payload_len (uint32, big-endian)
+            #   - Bytes 22-26 (4 bytes): payload_len (uint32, big-endian)
             #   - Bytes after payload: metadata_len (uint16, big-endian)
             #
             # We need to be careful about endianness! Check your protocol spec.
@@ -196,9 +198,10 @@ class FeatureShowcaseServer:
             # metadata_len (network byte order).
             import struct
 
-            # payload_len is at offset 19 (after magic[4] + version[1] + header_len[1] +
-            # checksum[2] + msg_type[1] + flags[2] + session_id[8] = 19)
-            payload_len = struct.unpack('>I', buffer[19:23])[0]  # '>I' = big-endian uint32
+            # payload_len is at offset 22 (after magic[4] + version[1] + header_len[1] +
+            # checksum[2] + msg_type[1] + flags[2] + session_id[8] + bit_fields[1] +
+            # seq_num_channel[2] = 22)
+            payload_len = struct.unpack('>I', buffer[22:26])[0]  # '>I' = big-endian uint32
 
             # ================================================================
             # STEP 3: Calculate total message size
@@ -208,11 +211,11 @@ class FeatureShowcaseServer:
             #
             # Offset  Size            Field
             # ------  ----            -----
-            # 0-22    23              Fixed header (including payload_len)
-            # 23      payload_len     Payload data (variable)
-            # 23+N    2               metadata_len field
-            # 23+N+2  metadata_len    Metadata data (variable)
-            # ...     9               Trailing fixed fields (see below)
+            # 0-25    26              Fixed header (including payload_len)
+            # 26      payload_len     Payload data (variable)
+            # 26+N    2               metadata_len field
+            # 26+N+2  metadata_len    Metadata data (variable)
+            # ...     7               Trailing fixed fields (see below)
             #
             # STRATEGY: Read in stages because metadata_len comes after payload
             # 1. Read up to and including metadata_len field
@@ -220,7 +223,7 @@ class FeatureShowcaseServer:
             # 3. Calculate final total and read remaining bytes
 
             # First, read through the payload and metadata_len field
-            bytes_needed_for_metadata_len = 23 + payload_len + 2  # header + payload + metadata_len field
+            bytes_needed_for_metadata_len = 26 + payload_len + 2  # header + payload + metadata_len field
 
             while len(buffer) < bytes_needed_for_metadata_len:
                 bytes_to_read = bytes_needed_for_metadata_len - len(buffer)
@@ -232,7 +235,7 @@ class FeatureShowcaseServer:
                 buffer += chunk
 
             # Now we can parse metadata_len (comes right after payload)
-            metadata_len_offset = 23 + payload_len
+            metadata_len_offset = 26 + payload_len
             metadata_len = struct.unpack('>H', buffer[metadata_len_offset:metadata_len_offset+2])[0]  # '>H' = big-endian uint16
 
             # Calculate final total message size including trailing fields
@@ -245,8 +248,8 @@ class FeatureShowcaseServer:
             TRAILING_FIELDS_SIZE = 9
 
             # Complete message size calculation:
-            # header(23) + payload(N) + metadata_len_field(2) + metadata(M) + trailing(9)
-            total_message_size = 23 + payload_len + 2 + metadata_len + TRAILING_FIELDS_SIZE
+            # header(26) + payload(N) + metadata_len_field(2) + metadata(M) + trailing(9)
+            total_message_size = 26 + payload_len + 2 + metadata_len + TRAILING_FIELDS_SIZE
 
             # ================================================================
             # STEP 4: Read remaining message bytes
@@ -345,6 +348,18 @@ class FeatureShowcaseServer:
 
         msg_value = fields.get("message_type")
         msg_name = self.message_types.get(msg_value, "UNKNOWN")
+
+        # Extract and log bit field values
+        encrypted_bit = fields.get("encrypted_bit", 0)
+        compressed_bit = fields.get("compressed_bit", 0)
+        fragmented_bit = fields.get("fragmented_bit", 0)
+        priority = fields.get("priority", 0)
+        sequence_number = fields.get("sequence_number", 0)
+        channel_id = fields.get("channel_id", 0)
+
+        priority_names = {0: "LOW", 1: "NORMAL", 2: "HIGH", 3: "URGENT"}
+        priority_name = priority_names.get(priority, f"UNKNOWN({priority})")
+
         # Map message type to handler functions so contributors can see how to
         # wire state transitions to concrete server behavior.
         handler = {
@@ -358,9 +373,13 @@ class FeatureShowcaseServer:
         session_id = fields.get("session_id")
         session_state = self._describe_session_state(session_id)
         trace_cookie = fields.get("trace_cookie") or 0
+
+        # Build bit field flags string
+        flags_str = f"E={encrypted_bit} C={compressed_bit} F={fragmented_bit} P={priority_name}"
+
         self._log(
             "info",
-            f"{label} Received {msg_name} ({msg_value}) · session={session_state} · trace_cookie=0x{trace_cookie:08X}",
+            f"{label} Received {msg_name} (0x{msg_value:02X}) · session={session_state} · [{flags_str}] · seq={sequence_number} ch={channel_id} · trace=0x{trace_cookie:08X}",
             client_addr=client_addr
         )
         if isinstance(session_id, int) and session_id in self.sessions:
