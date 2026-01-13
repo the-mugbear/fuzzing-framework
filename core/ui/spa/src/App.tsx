@@ -14,6 +14,7 @@ import MutationGuide from './pages/MutationGuide';
 import ProtocolAuthoringGuide from './pages/ProtocolAuthoringGuide';
 import ProtocolGuide from './pages/ProtocolGuide';
 import DocumentationHubPage from './pages/DocumentationHubPage';
+import ProtocolStudioPage from './pages/ProtocolStudioPage';
 
 function App() {
   return (
@@ -28,6 +29,7 @@ function App() {
           <Route path="state-graph" element={<StateGraphPage />} />
           <Route path="one-off" element={<OneOffTestPage />} />
           <Route path="correlation" element={<CorrelationPage />} />
+          <Route path="protocol-studio" element={<ProtocolStudioPage />} />
           <Route path="guides" element={<DocumentationHubPage />} />
           <Route path="guides/getting-started" element={<GettingStartedGuide />} />
           <Route path="guides/fuzzing" element={<FuzzingGuide />} />

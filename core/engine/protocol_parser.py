@@ -133,7 +133,8 @@ class ProtocolParser:
         # Second pass: serialize each field with bit-level tracking
         result = bytearray()
         bit_offset = 0
-        bit_buffer = 0  # Accumulator for partial bytes
+        bit_buffer = 0  # Accumulator for incomplete byte (holds bits waiting to form complete byte)
+        bits_in_buffer = 0  # Number of bits currently in bit_buffer
 
         for block in self.blocks:
             field_name = block['name']
@@ -147,39 +148,62 @@ class ProtocolParser:
             try:
                 if field_type == 'bits':
                     # Serialize bit field
-                    partial_bytes, bits_produced = self._serialize_bits_field(value, block, bit_offset)
+                    num_bits = block['size']
+                    bit_order = block.get('bit_order', 'msb')
 
-                    # Merge partial bytes with buffer
-                    bit_in_byte = bit_offset % 8
-                    for i, byte_val in enumerate(partial_bytes):
-                        if bit_in_byte == 0 and i == 0:
-                            # First byte is complete, emit directly
-                            result.append(byte_val)
+                    # Mask value to bit width
+                    mask = (1 << num_bits) - 1
+                    value = value & mask
+
+                    # Add bits to buffer
+                    if bit_order == 'msb':
+                        # MSB-first: shift value left and OR with buffer
+                        bit_buffer = (bit_buffer << num_bits) | value
+                    else:
+                        # LSB-first: shift buffer left and OR with value
+                        bit_buffer = bit_buffer | (value << bits_in_buffer)
+
+                    bits_in_buffer += num_bits
+
+                    # Emit complete bytes
+                    while bits_in_buffer >= 8:
+                        if bit_order == 'msb':
+                            # MSB-first: extract from top
+                            byte_val = (bit_buffer >> (bits_in_buffer - 8)) & 0xFF
+                            bits_in_buffer -= 8
+                            bit_buffer &= (1 << bits_in_buffer) - 1  # Keep remaining bits
                         else:
-                            # Combine with bit_buffer
-                            bit_buffer |= byte_val
-                            if bit_in_byte + 8 >= 8 or i < len(partial_bytes) - 1:
-                                result.append(bit_buffer)
-                                bit_buffer = 0
+                            # LSB-first: extract from bottom
+                            byte_val = bit_buffer & 0xFF
+                            bit_buffer >>= 8
+                            bits_in_buffer -= 8
+                        result.append(byte_val)
 
-                    bit_offset += bits_produced
+                    bit_offset += num_bits
 
                 elif field_type == 'bytes':
                     # Byte field - ensure byte alignment
-                    if bit_offset % 8 != 0:
-                        # Flush partial byte
-                        result.append(bit_buffer)
+                    if bits_in_buffer > 0:
+                        # Flush partial byte (pad with zeros)
+                        if bits_in_buffer < 8:
+                            bit_buffer <<= (8 - bits_in_buffer)
+                        result.append(bit_buffer & 0xFF)
                         bit_buffer = 0
+                        bits_in_buffer = 0
                         bit_offset = ((bit_offset + 7) // 8) * 8
-                    result.extend(self._serialize_bytes_field(value, block))
-                    bit_offset += len(self._serialize_bytes_field(value, block)) * 8
+                    serialized = self._serialize_bytes_field(value, block)
+                    result.extend(serialized)
+                    bit_offset += len(serialized) * 8
 
                 elif field_type.startswith('uint') or field_type.startswith('int'):
                     # Integer field - ensure byte alignment
-                    if bit_offset % 8 != 0:
-                        # Flush partial byte
-                        result.append(bit_buffer)
+                    if bits_in_buffer > 0:
+                        # Flush partial byte (pad with zeros)
+                        if bits_in_buffer < 8:
+                            bit_buffer <<= (8 - bits_in_buffer)
+                        result.append(bit_buffer & 0xFF)
                         bit_buffer = 0
+                        bits_in_buffer = 0
                         bit_offset = ((bit_offset + 7) // 8) * 8
                     serialized = self._serialize_integer_field(value, block)
                     result.extend(serialized)
@@ -187,10 +211,13 @@ class ProtocolParser:
 
                 elif field_type == 'string':
                     # String field - ensure byte alignment
-                    if bit_offset % 8 != 0:
-                        # Flush partial byte
-                        result.append(bit_buffer)
+                    if bits_in_buffer > 0:
+                        # Flush partial byte (pad with zeros)
+                        if bits_in_buffer < 8:
+                            bit_buffer <<= (8 - bits_in_buffer)
+                        result.append(bit_buffer & 0xFF)
                         bit_buffer = 0
+                        bits_in_buffer = 0
                         bit_offset = ((bit_offset + 7) // 8) * 8
                     serialized = self._serialize_string_field(value, block)
                     result.extend(serialized)
@@ -210,8 +237,10 @@ class ProtocolParser:
                 raise ValueError(f"Failed to serialize field '{field_name}': {e}")
 
         # Flush remaining partial byte if any
-        if bit_offset % 8 != 0:
-            result.append(bit_buffer)
+        if bits_in_buffer > 0:
+            # Pad remaining bits with zeros on the right
+            bit_buffer <<= (8 - bits_in_buffer)
+            result.append(bit_buffer & 0xFF)
 
         return bytes(result)
 
@@ -226,7 +255,8 @@ class ProtocolParser:
         # Serialize each field with bit-level tracking
         result = bytearray()
         bit_offset = 0
-        bit_buffer = 0  # Accumulator for partial bytes
+        bit_buffer = 0  # Accumulator for incomplete byte
+        bits_in_buffer = 0  # Number of bits currently in bit_buffer
 
         for block in self.blocks:
             field_name = block['name']
@@ -240,39 +270,62 @@ class ProtocolParser:
             try:
                 if field_type == 'bits':
                     # Serialize bit field
-                    partial_bytes, bits_produced = self._serialize_bits_field(value, block, bit_offset)
+                    num_bits = block['size']
+                    bit_order = block.get('bit_order', 'msb')
 
-                    # Merge partial bytes with buffer
-                    bit_in_byte = bit_offset % 8
-                    for i, byte_val in enumerate(partial_bytes):
-                        if bit_in_byte == 0 and i == 0:
-                            # First byte is complete, emit directly
-                            result.append(byte_val)
+                    # Mask value to bit width
+                    mask = (1 << num_bits) - 1
+                    value = value & mask
+
+                    # Add bits to buffer
+                    if bit_order == 'msb':
+                        # MSB-first: shift value left and OR with buffer
+                        bit_buffer = (bit_buffer << num_bits) | value
+                    else:
+                        # LSB-first: shift buffer left and OR with value
+                        bit_buffer = bit_buffer | (value << bits_in_buffer)
+
+                    bits_in_buffer += num_bits
+
+                    # Emit complete bytes
+                    while bits_in_buffer >= 8:
+                        if bit_order == 'msb':
+                            # MSB-first: extract from top
+                            byte_val = (bit_buffer >> (bits_in_buffer - 8)) & 0xFF
+                            bits_in_buffer -= 8
+                            bit_buffer &= (1 << bits_in_buffer) - 1  # Keep remaining bits
                         else:
-                            # Combine with bit_buffer
-                            bit_buffer |= byte_val
-                            if bit_in_byte + 8 >= 8 or i < len(partial_bytes) - 1:
-                                result.append(bit_buffer)
-                                bit_buffer = 0
+                            # LSB-first: extract from bottom
+                            byte_val = bit_buffer & 0xFF
+                            bit_buffer >>= 8
+                            bits_in_buffer -= 8
+                        result.append(byte_val)
 
-                    bit_offset += bits_produced
+                    bit_offset += num_bits
 
                 elif field_type == 'bytes':
                     # Byte field - ensure byte alignment
-                    if bit_offset % 8 != 0:
-                        # Flush partial byte
-                        result.append(bit_buffer)
+                    if bits_in_buffer > 0:
+                        # Flush partial byte (pad with zeros)
+                        if bits_in_buffer < 8:
+                            bit_buffer <<= (8 - bits_in_buffer)
+                        result.append(bit_buffer & 0xFF)
                         bit_buffer = 0
+                        bits_in_buffer = 0
                         bit_offset = ((bit_offset + 7) // 8) * 8
-                    result.extend(self._serialize_bytes_field(value, block))
-                    bit_offset += len(self._serialize_bytes_field(value, block)) * 8
+                    serialized = self._serialize_bytes_field(value, block)
+                    result.extend(serialized)
+                    bit_offset += len(serialized) * 8
 
                 elif field_type.startswith('uint') or field_type.startswith('int'):
                     # Integer field - ensure byte alignment
-                    if bit_offset % 8 != 0:
-                        # Flush partial byte
-                        result.append(bit_buffer)
+                    if bits_in_buffer > 0:
+                        # Flush partial byte (pad with zeros)
+                        if bits_in_buffer < 8:
+                            bit_buffer <<= (8 - bits_in_buffer)
+                        result.append(bit_buffer & 0xFF)
                         bit_buffer = 0
+                        bits_in_buffer = 0
                         bit_offset = ((bit_offset + 7) // 8) * 8
                     serialized = self._serialize_integer_field(value, block)
                     result.extend(serialized)
@@ -280,10 +333,13 @@ class ProtocolParser:
 
                 elif field_type == 'string':
                     # String field - ensure byte alignment
-                    if bit_offset % 8 != 0:
-                        # Flush partial byte
-                        result.append(bit_buffer)
+                    if bits_in_buffer > 0:
+                        # Flush partial byte (pad with zeros)
+                        if bits_in_buffer < 8:
+                            bit_buffer <<= (8 - bits_in_buffer)
+                        result.append(bit_buffer & 0xFF)
                         bit_buffer = 0
+                        bits_in_buffer = 0
                         bit_offset = ((bit_offset + 7) // 8) * 8
                     serialized = self._serialize_string_field(value, block)
                     result.extend(serialized)
@@ -303,8 +359,10 @@ class ProtocolParser:
                 raise ValueError(f"Failed to serialize field '{field_name}': {e}")
 
         # Flush remaining partial byte if any
-        if bit_offset % 8 != 0:
-            result.append(bit_buffer)
+        if bits_in_buffer > 0:
+            # Pad remaining bits with zeros on the right
+            bit_buffer <<= (8 - bits_in_buffer)
+            result.append(bit_buffer & 0xFF)
 
         return bytes(result)
 

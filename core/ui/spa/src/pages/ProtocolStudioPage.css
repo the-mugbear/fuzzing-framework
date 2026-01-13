@@ -1,0 +1,269 @@
+.protocol-studio {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.studio-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.studio-header h2 {
+  margin: 8px 0;
+}
+
+.studio-header p {
+  margin: 0;
+  color: rgba(226, 232, 240, 0.9);
+}
+
+.studio-tip {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 16px;
+  padding: 16px;
+  max-width: 280px;
+}
+
+.tip-label {
+  display: inline-block;
+  font-size: 0.7rem;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #38bdf8;
+  margin-bottom: 8px;
+}
+
+.studio-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 24px;
+}
+
+.studio-panel {
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.panel-header h3 {
+  margin: 0 0 6px;
+}
+
+.panel-header p {
+  margin: 0;
+  color: rgba(226, 232, 240, 0.8);
+}
+
+.panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.header-with-tooltip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.label-with-tooltip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: rgba(226, 232, 240, 0.9);
+}
+
+.form-grid input,
+.form-grid select,
+.panel-section textarea {
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  padding: 10px 12px;
+  background: rgba(15, 23, 42, 0.5);
+  color: #e2e8f0;
+  font-size: 0.9rem;
+}
+
+.panel-section textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.section-hint {
+  margin: 0;
+  color: rgba(148, 163, 184, 0.9);
+  font-size: 0.85rem;
+}
+
+.section-hint code {
+  font-family: 'Roboto Mono', 'Courier New', monospace;
+}
+
+.form-grid .span-2 {
+  grid-column: span 2;
+}
+
+.inline-grid {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.blocks-list,
+.transitions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.block-card,
+.transition-row {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.block-title,
+.transition-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.code-area {
+  min-height: 240px;
+  font-family: 'Roboto Mono', 'Courier New', monospace;
+  font-size: 0.82rem;
+  white-space: pre;
+}
+
+.button-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+button {
+  border-radius: 999px;
+  border: none;
+  padding: 10px 18px;
+  background: #38bdf8;
+  color: #0f172a;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.secondary-button {
+  background: rgba(148, 163, 184, 0.25);
+  color: #e2e8f0;
+}
+
+.text-button {
+  background: transparent;
+  color: #94a3b8;
+  padding: 0;
+}
+
+.text-button:hover {
+  color: #e2e8f0;
+}
+
+.error {
+  color: #f87171;
+  margin: 0;
+}
+
+.tooltip-trigger {
+  position: relative;
+  border: none;
+  background: rgba(148, 163, 184, 0.18);
+  color: #e2e8f0;
+  border-radius: 999px;
+  width: 20px;
+  height: 20px;
+  font-size: 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: help;
+}
+
+.tooltip-trigger.inline {
+  margin-left: 4px;
+}
+
+.tooltip-content {
+  position: absolute;
+  bottom: 130%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #0f172a;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  padding: 10px 12px;
+  border-radius: 10px;
+  width: 240px;
+  color: #e2e8f0;
+  font-size: 0.75rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 5;
+}
+
+.tooltip-content p {
+  margin: 0 0 6px;
+}
+
+.tooltip-content p:last-child {
+  margin-bottom: 0;
+}
+
+.tooltip-trigger:hover .tooltip-content,
+.tooltip-trigger:focus .tooltip-content {
+  opacity: 1;
+}
+
+@media (max-width: 960px) {
+  .studio-header {
+    flex-direction: column;
+  }
+
+  .studio-tip {
+    max-width: 100%;
+  }
+}

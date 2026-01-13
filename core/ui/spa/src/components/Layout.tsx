@@ -7,6 +7,7 @@ const links = [
   { to: '/packet-parser', label: 'Packet Parser', description: 'Decode binary packets' },
   { to: '/mutation-workbench', label: 'Mutation Workbench', description: 'Craft & mutate packets' },
   { to: '/state-walker', label: 'State Walker', description: 'Validate state machines' },
+  { to: '/protocol-studio', label: 'Protocol Studio', description: 'Build & validate plugins' },
   { to: '/one-off', label: 'One-Off Test', description: 'Fire single payloads' },
   { to: '/correlation', label: 'Correlation', description: 'Execution digests' },
 ];
