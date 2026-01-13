@@ -48,33 +48,54 @@ class ProtocolParser:
             ValueError: If data cannot be parsed according to model
         """
         fields = {}
-        offset = 0
+        bit_offset = 0  # Track position in bits
 
         for block in self.blocks:
             field_name = block['name']
             field_type = block['type']
 
             try:
-                if field_type == 'bytes':
-                    # Byte array field
-                    value, consumed = self._parse_bytes_field(data, offset, block, fields)
+                if field_type == 'bits':
+                    # Sub-byte bit field
+                    value, bits_consumed = self._parse_bits_field(data, bit_offset, block)
+                    fields[field_name] = value
+                    bit_offset += bits_consumed
+
+                elif field_type == 'bytes':
+                    # Byte array field - ensure byte alignment
+                    if bit_offset % 8 != 0:
+                        bit_offset = ((bit_offset + 7) // 8) * 8  # Pad to next byte
+                    byte_offset = bit_offset // 8
+                    value, bytes_consumed = self._parse_bytes_field(data, byte_offset, block, fields)
+                    fields[field_name] = value
+                    bit_offset += bytes_consumed * 8
+
                 elif field_type.startswith('uint') or field_type.startswith('int'):
-                    # Integer field
-                    value, consumed = self._parse_integer_field(data, offset, block)
+                    # Integer field - ensure byte alignment
+                    if bit_offset % 8 != 0:
+                        bit_offset = ((bit_offset + 7) // 8) * 8  # Pad to next byte
+                    byte_offset = bit_offset // 8
+                    value, bytes_consumed = self._parse_integer_field(data, byte_offset, block)
+                    fields[field_name] = value
+                    bit_offset += bytes_consumed * 8
+
                 elif field_type == 'string':
-                    # String field (treat as bytes then decode)
-                    value, consumed = self._parse_string_field(data, offset, block, fields)
+                    # String field - ensure byte alignment
+                    if bit_offset % 8 != 0:
+                        bit_offset = ((bit_offset + 7) // 8) * 8  # Pad to next byte
+                    byte_offset = bit_offset // 8
+                    value, bytes_consumed = self._parse_string_field(data, byte_offset, block, fields)
+                    fields[field_name] = value
+                    bit_offset += bytes_consumed * 8
+
                 else:
                     raise ValueError(f"Unsupported field type: {field_type}")
-
-                fields[field_name] = value
-                offset += consumed
 
             except Exception as e:
                 logger.error(
                     "parse_field_error",
                     field=field_name,
-                    offset=offset,
+                    bit_offset=bit_offset,
                     error=str(e)
                 )
                 raise ValueError(f"Failed to parse field '{field_name}': {e}")
@@ -109,8 +130,10 @@ class ProtocolParser:
         # First pass: auto-update dependent fields
         fields = self._auto_fix_fields(fields)
 
-        # Second pass: serialize each field
-        result = b''
+        # Second pass: serialize each field with bit-level tracking
+        result = bytearray()
+        bit_offset = 0
+        bit_buffer = 0  # Accumulator for partial bytes
 
         for block in self.blocks:
             field_name = block['name']
@@ -122,12 +145,57 @@ class ProtocolParser:
                 value = block.get('default', self._get_default_value(field_type))
 
             try:
-                if field_type == 'bytes':
-                    result += self._serialize_bytes_field(value, block)
+                if field_type == 'bits':
+                    # Serialize bit field
+                    partial_bytes, bits_produced = self._serialize_bits_field(value, block, bit_offset)
+
+                    # Merge partial bytes with buffer
+                    bit_in_byte = bit_offset % 8
+                    for i, byte_val in enumerate(partial_bytes):
+                        if bit_in_byte == 0 and i == 0:
+                            # First byte is complete, emit directly
+                            result.append(byte_val)
+                        else:
+                            # Combine with bit_buffer
+                            bit_buffer |= byte_val
+                            if bit_in_byte + 8 >= 8 or i < len(partial_bytes) - 1:
+                                result.append(bit_buffer)
+                                bit_buffer = 0
+
+                    bit_offset += bits_produced
+
+                elif field_type == 'bytes':
+                    # Byte field - ensure byte alignment
+                    if bit_offset % 8 != 0:
+                        # Flush partial byte
+                        result.append(bit_buffer)
+                        bit_buffer = 0
+                        bit_offset = ((bit_offset + 7) // 8) * 8
+                    result.extend(self._serialize_bytes_field(value, block))
+                    bit_offset += len(self._serialize_bytes_field(value, block)) * 8
+
                 elif field_type.startswith('uint') or field_type.startswith('int'):
-                    result += self._serialize_integer_field(value, block)
+                    # Integer field - ensure byte alignment
+                    if bit_offset % 8 != 0:
+                        # Flush partial byte
+                        result.append(bit_buffer)
+                        bit_buffer = 0
+                        bit_offset = ((bit_offset + 7) // 8) * 8
+                    serialized = self._serialize_integer_field(value, block)
+                    result.extend(serialized)
+                    bit_offset += len(serialized) * 8
+
                 elif field_type == 'string':
-                    result += self._serialize_string_field(value, block)
+                    # String field - ensure byte alignment
+                    if bit_offset % 8 != 0:
+                        # Flush partial byte
+                        result.append(bit_buffer)
+                        bit_buffer = 0
+                        bit_offset = ((bit_offset + 7) // 8) * 8
+                    serialized = self._serialize_string_field(value, block)
+                    result.extend(serialized)
+                    bit_offset += len(serialized) * 8
+
                 else:
                     raise ValueError(f"Unsupported field type: {field_type}")
 
@@ -136,11 +204,16 @@ class ProtocolParser:
                     "serialize_field_error",
                     field=field_name,
                     value=value,
+                    bit_offset=bit_offset,
                     error=str(e)
                 )
                 raise ValueError(f"Failed to serialize field '{field_name}': {e}")
 
-        return result
+        # Flush remaining partial byte if any
+        if bit_offset % 8 != 0:
+            result.append(bit_buffer)
+
+        return bytes(result)
 
     def _serialize_without_checksum(self, fields: Dict[str, Any]) -> bytes:
         """
@@ -150,8 +223,10 @@ class ProtocolParser:
         # Auto-update dependent fields (lengths, but NOT checksums)
         fields = self._auto_fix_fields(fields)
 
-        # Serialize each field
-        result = b''
+        # Serialize each field with bit-level tracking
+        result = bytearray()
+        bit_offset = 0
+        bit_buffer = 0  # Accumulator for partial bytes
 
         for block in self.blocks:
             field_name = block['name']
@@ -163,12 +238,57 @@ class ProtocolParser:
                 value = block.get('default', self._get_default_value(field_type))
 
             try:
-                if field_type == 'bytes':
-                    result += self._serialize_bytes_field(value, block)
+                if field_type == 'bits':
+                    # Serialize bit field
+                    partial_bytes, bits_produced = self._serialize_bits_field(value, block, bit_offset)
+
+                    # Merge partial bytes with buffer
+                    bit_in_byte = bit_offset % 8
+                    for i, byte_val in enumerate(partial_bytes):
+                        if bit_in_byte == 0 and i == 0:
+                            # First byte is complete, emit directly
+                            result.append(byte_val)
+                        else:
+                            # Combine with bit_buffer
+                            bit_buffer |= byte_val
+                            if bit_in_byte + 8 >= 8 or i < len(partial_bytes) - 1:
+                                result.append(bit_buffer)
+                                bit_buffer = 0
+
+                    bit_offset += bits_produced
+
+                elif field_type == 'bytes':
+                    # Byte field - ensure byte alignment
+                    if bit_offset % 8 != 0:
+                        # Flush partial byte
+                        result.append(bit_buffer)
+                        bit_buffer = 0
+                        bit_offset = ((bit_offset + 7) // 8) * 8
+                    result.extend(self._serialize_bytes_field(value, block))
+                    bit_offset += len(self._serialize_bytes_field(value, block)) * 8
+
                 elif field_type.startswith('uint') or field_type.startswith('int'):
-                    result += self._serialize_integer_field(value, block)
+                    # Integer field - ensure byte alignment
+                    if bit_offset % 8 != 0:
+                        # Flush partial byte
+                        result.append(bit_buffer)
+                        bit_buffer = 0
+                        bit_offset = ((bit_offset + 7) // 8) * 8
+                    serialized = self._serialize_integer_field(value, block)
+                    result.extend(serialized)
+                    bit_offset += len(serialized) * 8
+
                 elif field_type == 'string':
-                    result += self._serialize_string_field(value, block)
+                    # String field - ensure byte alignment
+                    if bit_offset % 8 != 0:
+                        # Flush partial byte
+                        result.append(bit_buffer)
+                        bit_buffer = 0
+                        bit_offset = ((bit_offset + 7) // 8) * 8
+                    serialized = self._serialize_string_field(value, block)
+                    result.extend(serialized)
+                    bit_offset += len(serialized) * 8
+
                 else:
                     raise ValueError(f"Unsupported field type: {field_type}")
 
@@ -177,11 +297,16 @@ class ProtocolParser:
                     "serialize_field_error",
                     field=field_name,
                     value=value,
+                    bit_offset=bit_offset,
                     error=str(e)
                 )
                 raise ValueError(f"Failed to serialize field '{field_name}': {e}")
 
-        return result
+        # Flush remaining partial byte if any
+        if bit_offset % 8 != 0:
+            result.append(bit_buffer)
+
+        return bytes(result)
 
     def _parse_bytes_field(
         self,
@@ -240,6 +365,62 @@ class ProtocolParser:
         value = struct.unpack(fmt, data[offset:offset + size])[0]
         return value, size
 
+    def _parse_bits_field(
+        self,
+        data: bytes,
+        bit_offset: int,
+        block: dict
+    ) -> tuple[int, int]:
+        """
+        Parse arbitrary-width bit field.
+
+        Args:
+            data: Raw bytes to parse from
+            bit_offset: Starting bit position (0 = MSB of byte 0)
+            block: Field definition with 'size', 'bit_order', and optional 'endian'
+
+        Returns:
+            (value, bits_consumed)
+        """
+        num_bits = block['size']
+        bit_order = block.get('bit_order', 'msb')  # Default MSB-first within byte
+        endian = block.get('endian', 'big')  # Default big-endian for multi-byte fields
+
+        # Calculate byte range
+        byte_offset = bit_offset // 8
+        bit_in_byte = bit_offset % 8
+        bytes_needed = (bit_in_byte + num_bits + 7) // 8
+
+        if byte_offset + bytes_needed > len(data):
+            raise ValueError(f"Not enough data for {num_bits}-bit field")
+
+        # Extract bytes into integer
+        value = 0
+
+        # Handle endianness for multi-byte bit fields
+        if bytes_needed > 1 and endian == 'little':
+            # Little-endian: Read bytes in reverse order
+            for i in range(bytes_needed - 1, -1, -1):
+                value = (value << 8) | data[byte_offset + i]
+        else:
+            # Big-endian (default): Read bytes MSB-first
+            for i in range(bytes_needed):
+                value = (value << 8) | data[byte_offset + i]
+
+        # Shift to align field based on bit_order
+        if bit_order == 'msb':
+            # MSB-first: shift right to extract upper bits
+            shift = (bytes_needed * 8) - bit_in_byte - num_bits
+            mask = (1 << num_bits) - 1
+            value = (value >> shift) & mask
+        else:  # lsb
+            # LSB-first: extract from lower bits
+            shift = bit_in_byte
+            mask = (1 << num_bits) - 1
+            value = (value >> shift) & mask
+
+        return value, num_bits
+
     def _parse_string_field(
         self,
         data: bytes,
@@ -291,6 +472,53 @@ class ProtocolParser:
 
         return struct.pack(fmt, value)
 
+    def _serialize_bits_field(self, value: int, block: dict, bit_offset: int) -> tuple[bytes, int]:
+        """
+        Serialize arbitrary-width bit field.
+
+        Returns:
+            (partial_bytes, bits_produced)
+
+        Note: May return partial byte that needs combining with next field
+        """
+        num_bits = block['size']
+        bit_order = block.get('bit_order', 'msb')
+        endian = block.get('endian', 'big')
+
+        # Mask value to bit width
+        mask = (1 << num_bits) - 1
+        value = value & mask
+
+        # Calculate byte span
+        byte_offset = bit_offset // 8
+        bit_in_byte = bit_offset % 8
+        bytes_needed = (bit_in_byte + num_bits + 7) // 8
+
+        # Pack bits into bytes based on bit_order
+        if bit_order == 'msb':
+            # MSB-first: shift left to position in upper bits
+            shift = (bytes_needed * 8) - bit_in_byte - num_bits
+            packed = value << shift
+        else:  # lsb
+            # LSB-first: position in lower bits
+            shift = bit_in_byte
+            packed = value << shift
+
+        # Convert to bytes with endianness handling
+        result = []
+        if bytes_needed > 1 and endian == 'little':
+            # Little-endian: Emit bytes in reverse order
+            for i in range(bytes_needed):
+                byte_val = (packed >> (i * 8)) & 0xFF
+                result.append(byte_val)
+        else:
+            # Big-endian (default): Emit bytes MSB-first
+            for i in range(bytes_needed):
+                byte_val = (packed >> ((bytes_needed - 1 - i) * 8)) & 0xFF
+                result.append(byte_val)
+
+        return bytes(result), num_bits
+
     def _serialize_string_field(self, value: str, block: dict) -> bytes:
         """Serialize string field"""
         encoding = block.get('encoding', 'utf-8')
@@ -309,7 +537,7 @@ class ProtocolParser:
         """
         fields = fields.copy()
 
-        # Update length fields
+        # Update length fields (size fields)
         for block in self.blocks:
             if not block.get('is_size_field'):
                 continue
@@ -318,7 +546,8 @@ class ProtocolParser:
             if not targets:
                 continue
 
-            total_size = 0
+            # Calculate total length in BITS
+            total_length_bits = 0
             for target_field in targets:
                 target_block = self._get_block(target_field)
                 if not target_block:
@@ -331,9 +560,28 @@ class ProtocolParser:
                     else:
                         target_value = self._get_default_value(target_block.get('type', ''))
 
-                total_size += self._calculate_field_length(target_block, target_value)
+                # _calculate_field_length now returns bits
+                total_length_bits += self._calculate_field_length(target_block, target_value)
 
-            fields[block['name']] = total_size
+            # Convert to size field's unit
+            size_unit = block.get('size_unit', 'bytes')  # Default: bytes for backward compatibility
+            if size_unit == 'bits':
+                fields[block['name']] = total_length_bits
+            elif size_unit == 'bytes':
+                fields[block['name']] = (total_length_bits + 7) // 8  # Round up to whole bytes
+            elif size_unit == 'words':  # 32-bit words
+                fields[block['name']] = (total_length_bits + 31) // 32
+            elif size_unit == 'dwords':  # 16-bit words (double-byte words)
+                fields[block['name']] = (total_length_bits + 15) // 16
+            else:
+                # Unknown unit, default to bytes
+                logger.warning(
+                    "unknown_size_unit",
+                    field=block['name'],
+                    size_unit=size_unit,
+                    defaulting_to="bytes"
+                )
+                fields[block['name']] = (total_length_bits + 7) // 8
 
         # Update checksum fields
         # Note: Checksums must be calculated AFTER serialization, so we'll do a two-pass approach
@@ -359,19 +607,41 @@ class ProtocolParser:
         # First pass: serialize with auto-fixed fields (lengths) but WITHOUT checksums
         result = self._serialize_without_checksum(fields)
 
-        # Find checksum fields and their positions
+        # Find checksum fields and their positions (tracking in bits)
         checksum_fields = []
-        offset = 0
+        bit_offset = 0
         for block in self.blocks:
+            field_type = block.get('type', '')
+
             if block.get('is_checksum') or block.get('checksum_algorithm'):
+                # Checksum fields should be byte-aligned
+                if bit_offset % 8 != 0:
+                    logger.warning(
+                        "checksum_field_not_byte_aligned",
+                        field=block['name'],
+                        bit_offset=bit_offset
+                    )
+                    bit_offset = ((bit_offset + 7) // 8) * 8  # Align to byte
+
                 checksum_fields.append({
                     'block': block,
-                    'offset': offset,
+                    'offset': bit_offset // 8,  # Convert to byte offset
                 })
 
             # Calculate field size to track offset
-            field_size = self._get_field_size(block, fields.get(block['name']))
-            offset += field_size
+            if field_type == 'bits':
+                bit_offset += block.get('size', 0)
+            elif field_type.startswith('uint') or field_type.startswith('int'):
+                # Ensure byte alignment
+                if bit_offset % 8 != 0:
+                    bit_offset = ((bit_offset + 7) // 8) * 8
+                bit_offset += self._get_integer_info(field_type, block.get('endian', 'big'))['size'] * 8
+            else:
+                # bytes, string - ensure byte alignment
+                if bit_offset % 8 != 0:
+                    bit_offset = ((bit_offset + 7) // 8) * 8
+                field_size = self._get_field_size(block, fields.get(block['name']))
+                bit_offset += field_size * 8
 
         # If no checksum fields, return as-is
         if not checksum_fields:
@@ -415,11 +685,21 @@ class ProtocolParser:
         return bytes(result_bytes)
 
     def _get_field_size(self, block: dict, value: Any) -> int:
-        """Get the serialized size of a field"""
+        """
+        Get the serialized size of a field in BYTES.
+
+        Note: For bit fields, this returns the size rounded up to whole bytes.
+        """
+        field_type = block.get('type', '')
+
+        if field_type == 'bits':
+            # Bit field - return size in bytes (rounded up)
+            num_bits = block.get('size', 0)
+            return (num_bits + 7) // 8
+
         if 'size' in block:
             return block['size']
 
-        field_type = block.get('type', '')
         if field_type.startswith('uint') or field_type.startswith('int'):
             return self._get_integer_info(field_type, block.get('endian', 'big'))['size']
 
@@ -547,7 +827,9 @@ class ProtocolParser:
 
     def _get_default_value(self, field_type: str) -> Any:
         """Get default value for field type"""
-        if field_type.startswith('uint') or field_type.startswith('int'):
+        if field_type == 'bits':
+            return 0
+        elif field_type.startswith('uint') or field_type.startswith('int'):
             return 0
         elif field_type == 'bytes':
             return b''
@@ -595,44 +877,62 @@ class ProtocolParser:
         return []
 
     def _calculate_field_length(self, block: dict, value: Any) -> int:
-        """Estimate the serialized length of a block"""
+        """
+        Calculate the serialized length of a field in BITS.
+
+        This method returns length in bits for all field types to support
+        size fields that count in bits, bytes, or words.
+        """
         if not block:
             return 0
 
-        fixed_size = block.get('size')
-        if isinstance(fixed_size, int):
-            return fixed_size
-
         field_type = (block.get('type') or '').lower()
 
+        # Bit fields - return size in bits directly
+        if field_type == 'bits':
+            return block.get('size', 0)
+
+        # Fixed-size fields with explicit size attribute
+        fixed_size = block.get('size')
+        if isinstance(fixed_size, int):
+            # For non-bit fields, size is in bytes - convert to bits
+            if field_type != 'bits':
+                return fixed_size * 8
+            return fixed_size
+
+        # Integer types - return size in bits
+        if field_type.startswith('uint') or field_type.startswith('int'):
+            type_name = block.get('type', 'uint8')
+            byte_size = self._get_integer_info(type_name, block.get('endian', 'big'))['size']
+            return byte_size * 8
+
+        # Bytes field - calculate from value and convert to bits
         if field_type == 'bytes':
             if value is None:
                 return 0
             if isinstance(value, (bytes, bytearray)):
-                return len(value)
+                return len(value) * 8
             try:
-                return len(bytes(value))
+                return len(bytes(value)) * 8
             except TypeError:
-                return len(str(value).encode(block.get('encoding', 'utf-8')))
+                return len(str(value).encode(block.get('encoding', 'utf-8'))) * 8
 
+        # String field - calculate from value and convert to bits
         if field_type == 'string':
             if value is None:
                 return 0
             if isinstance(value, bytes):
                 # Treat already encoded strings as-is
-                return len(value)
+                return len(value) * 8
             text = value if isinstance(value, str) else str(value)
             encoding = block.get('encoding', 'utf-8')
-            return len(text.encode(encoding))
+            return len(text.encode(encoding)) * 8
 
-        if field_type.startswith('uint') or field_type.startswith('int'):
-            type_name = block.get('type', 'uint8')
-            return self._get_integer_info(type_name, block.get('endian', 'big'))['size']
-
+        # Fallback for unknown types
         if isinstance(value, bytes):
-            return len(value)
+            return len(value) * 8
         if isinstance(value, str):
-            return len(value.encode(block.get('encoding', 'utf-8')))
+            return len(value.encode(block.get('encoding', 'utf-8'))) * 8
         return 0
 
     @staticmethod

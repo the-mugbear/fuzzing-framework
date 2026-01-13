@@ -144,7 +144,20 @@ class ResponsePlanner:
     def _resolve_field_value(spec: Any, parsed_response: Dict[str, Any]) -> Any:
         if isinstance(spec, dict):
             if "copy_from_response" in spec:
-                return parsed_response.get(spec["copy_from_response"])
+                value = parsed_response.get(spec["copy_from_response"])
+
+                # Bit extraction support for sub-byte field manipulation
+                if "extract_bits" in spec:
+                    # Extract arbitrary bit range from integer value
+                    # Format: {"start": 4, "count": 4} extracts 4 bits starting at bit 4
+                    start_bit = spec["extract_bits"].get("start", 0)
+                    num_bits = spec["extract_bits"].get("count", 8)
+
+                    if isinstance(value, int):
+                        mask = (1 << num_bits) - 1
+                        value = (value >> start_bit) & mask
+
+                return value
             if "literal" in spec:
                 return spec["literal"]
         return spec

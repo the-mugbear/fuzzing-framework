@@ -158,8 +158,25 @@ class StructureAwareMutator:
 
         For integers: 0, 1, MAX, MIN
         For bytes: empty, single byte, max_size
+        For bits: 0, 1, MAX, MAX-1, mid
         """
         field_type = block['type']
+
+        if field_type == 'bits':
+            # Bit field boundaries
+            num_bits = block['size']
+            max_val = (1 << num_bits) - 1
+
+            candidates = [
+                0,           # Min
+                1,           # Min + 1
+                max_val // 2,  # Mid
+                max_val - 1,   # Max - 1
+                max_val        # Max
+            ]
+            # Remove duplicates and invalid values
+            candidates = [v for v in set(candidates) if 0 <= v <= max_val]
+            return random.choice(candidates)
 
         if 'int' in field_type:
             # Integer boundaries
@@ -198,9 +215,29 @@ class StructureAwareMutator:
         """
         Apply arithmetic mutations (add/subtract small values).
 
-        Only applicable to integer fields.
+        Only applicable to integer and bit fields.
         """
         field_type = block['type']
+
+        if field_type == 'bits':
+            # Arithmetic for bit fields
+            num_bits = block['size']
+            max_val = (1 << num_bits) - 1
+
+            if not isinstance(value, int):
+                return value
+
+            operations = [
+                value + 1,
+                value - 1,
+                value + random.randint(1, 5),
+                value - random.randint(1, 5),
+                value ^ 1,  # Flip LSB
+            ]
+
+            # Clamp to valid range with wraparound
+            mutated = random.choice(operations)
+            return mutated & max_val
 
         if 'int' not in field_type:
             return value  # Not applicable
@@ -276,6 +313,26 @@ class StructureAwareMutator:
                     return base + random.choice([-1, 1])
 
         # Generic interesting values by type
+        if field_type == 'bits':
+            # Bit field interesting values
+            num_bits = block['size']
+            max_val = (1 << num_bits) - 1
+
+            interesting = [
+                0x0,                    # All zeros
+                0x1,                    # Single bit
+                max_val,                # All ones
+                (1 << (num_bits - 1)),  # MSB only
+            ]
+
+            # Add power-of-2 values within range
+            for i in range(num_bits):
+                interesting.append(1 << i)
+
+            # Filter to valid range and remove duplicates
+            interesting = [v for v in set(interesting) if 0 <= v <= max_val]
+            return random.choice(interesting)
+
         if field_type == 'uint8':
             return random.choice([0, 1, 0x7F, 0x80, 0xFF])
         elif field_type == 'uint16':

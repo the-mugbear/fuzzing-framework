@@ -96,6 +96,7 @@ class PluginValidator:
     """
 
     VALID_FIELD_TYPES = {
+        "bits",      # Arbitrary bit-width field (requires 'size' attribute)
         "bytes",
         "uint8",
         "uint16",
@@ -237,6 +238,47 @@ class PluginValidator:
 
     def _validate_block_type_specific(self, block: Dict[str, Any], name: str, field_type: str):
         """Validate type-specific block properties"""
+        # Bits fields require size attribute and validate bit_order
+        if field_type == "bits":
+            if "size" not in block:
+                self.result.add_error(
+                    "data_model",
+                    f"Field '{name}' has type 'bits' but missing required 'size' attribute",
+                    field=name,
+                    suggestion="Add 'size' attribute (1-64 bits)",
+                )
+            else:
+                size = block["size"]
+                if not isinstance(size, int) or size < 1 or size > 64:
+                    self.result.add_error(
+                        "data_model",
+                        f"Field '{name}' bit size must be 1-64, got {size}",
+                        field=name,
+                        suggestion="Use integer between 1 and 64 for bit field size",
+                    )
+
+            # Validate bit_order if present
+            if "bit_order" in block:
+                bit_order = block["bit_order"]
+                if bit_order not in ["msb", "lsb"]:
+                    self.result.add_error(
+                        "data_model",
+                        f"Field '{name}' bit_order must be 'msb' or 'lsb', got '{bit_order}'",
+                        field=name,
+                        suggestion="Use 'msb' (default) for MSB-first or 'lsb' for LSB-first",
+                    )
+
+            # Validate endian if present (for multi-byte bit fields)
+            if "endian" in block:
+                endian = block["endian"]
+                if endian not in ["big", "little"]:
+                    self.result.add_error(
+                        "data_model",
+                        f"Field '{name}' endian must be 'big' or 'little', got '{endian}'",
+                        field=name,
+                        suggestion="Use 'big' (default) for big-endian or 'little' for little-endian",
+                    )
+
         # Bytes fields should have size or max_size
         if field_type == "bytes":
             if "size" not in block and "max_size" not in block:

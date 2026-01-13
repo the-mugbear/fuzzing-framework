@@ -150,6 +150,153 @@ data_model = {
     ]
 }
 
+#### Sub-Byte Fields (Bits)
+
+For protocols with bit-level fields (IPv4, DNS, Bluetooth, CAN bus, etc.), use the `bits` type to define fields smaller than a byte:
+
+**Basic Bit Fields**
+
+```python
+data_model = {
+    "blocks": [
+        # 4-bit version field (nibble)
+        {"name": "version", "type": "bits", "size": 4, "default": 0x4},
+
+        # 4-bit header length
+        {"name": "ihl", "type": "bits", "size": 4, "default": 0x5},
+
+        # Single bit flag
+        {"name": "flag_urgent", "type": "bits", "size": 1, "default": 0},
+
+        # 3-bit field
+        {"name": "flags", "type": "bits", "size": 3, "default": 0x0},
+
+        # 13-bit field (spans byte boundary)
+        {"name": "fragment_offset", "type": "bits", "size": 13, "default": 0x0},
+    ]
+}
+```
+
+**Key Features:**
+- **Size range**: 1-64 bits per field
+- **Byte spanning**: Bit fields can cross byte boundaries
+- **Auto-alignment**: Integer types (`uint*`, `int*`) automatically align to byte boundaries after bit fields
+- **Masking**: Values are automatically masked to the specified bit width
+
+**Bit Ordering**
+
+By default, bits are read MSB-first (most significant bit first - network order). For LSB-first protocols:
+
+```python
+{
+    "name": "field",
+    "type": "bits",
+    "size": 4,
+    "bit_order": "lsb"  # Least significant bit first
+}
+```
+
+**Multi-Byte Bit Field Endianness**
+
+For bit fields spanning multiple bytes (>8 bits), specify byte order:
+
+```python
+{
+    "name": "fragment_id",
+    "type": "bits",
+    "size": 12,
+    "endian": "big"  # Default: big-endian (network order)
+}
+
+{
+    "name": "value",
+    "type": "bits",
+    "size": 12,
+    "endian": "little"  # Little-endian if needed
+}
+```
+
+**Size Fields with Bits**
+
+Size fields can count in bits, bytes, or words:
+
+```python
+{
+    "name": "length",
+    "type": "uint16",
+    "is_size_field": True,
+    "size_of": ["payload"],
+    "size_unit": "bits"  # Options: "bits", "bytes" (default), "words" (32-bit), "dwords" (16-bit)
+}
+```
+
+**Example: IPv4-Style Header**
+
+```python
+data_model = {
+    "name": "IPv4Header",
+    "blocks": [
+        # Version (4 bits) + IHL (4 bits)
+        {"name": "version", "type": "bits", "size": 4, "default": 0x4, "mutable": False},
+        {"name": "ihl", "type": "bits", "size": 4, "default": 0x5},  # Header length in 32-bit words
+
+        # DSCP (6 bits) + ECN (2 bits)
+        {"name": "dscp", "type": "bits", "size": 6, "default": 0x0},
+        {"name": "ecn", "type": "bits", "size": 2, "default": 0x0},
+
+        # Total length (auto-calculated)
+        {
+            "name": "total_length",
+            "type": "uint16",
+            "endian": "big",
+            "is_size_field": True,
+            "size_of": ["header", "payload"],
+            "size_unit": "bytes"
+        },
+
+        # Identification
+        {"name": "identification", "type": "uint16", "endian": "big", "default": 0x0},
+
+        # Flags (3 bits) + Fragment Offset (13 bits)
+        {"name": "flags", "type": "bits", "size": 3, "default": 0x0},
+        {"name": "fragment_offset", "type": "bits", "size": 13, "default": 0x0},
+
+        # Remaining fields (byte-aligned)
+        {"name": "ttl", "type": "uint8", "default": 64},
+        {"name": "protocol", "type": "uint8", "default": 6},  # TCP
+        {"name": "checksum", "type": "uint16", "endian": "big", "default": 0x0},
+        {"name": "src_ip", "type": "bytes", "size": 4, "default": b"\xC0\xA8\x01\x01"},
+        {"name": "dst_ip", "type": "bytes", "size": 4, "default": b"\xC0\xA8\x01\x02"},
+        {"name": "payload", "type": "bytes", "max_size": 1480},
+    ],
+    "seeds": []  # Auto-generated from defaults
+}
+```
+
+**Bit Field Mutations**
+
+The mutation engine automatically handles bit fields:
+- **Boundary values**: Tests 0, 1, max, max-1, mid-point
+- **Interesting values**: Tests all-zeros, all-ones, power-of-2 patterns
+- **Arithmetic**: Adds/subtracts small values with proper masking
+- **Bit flips**: Flips individual bits within the field
+
+**Response Extraction from Bit Fields**
+
+Extract specific bit ranges from response fields:
+
+```python
+# In stateful plugins, extract bits from response
+{
+    "name": "status_code",
+    "copy_from_response": "response_flags",
+    "extract_bits": {
+        "start": 4,  # Start at bit 4
+        "count": 4   # Extract 4 bits
+    }
+}
+```
+
 ### Step 3: Add Field Behaviors (Optional but Recommended)
 
 Use the `behavior` key when a block must follow deterministic rules even while other bytes are fuzzed. Behaviors run before each test case is transmitted in both core and agent modes.
