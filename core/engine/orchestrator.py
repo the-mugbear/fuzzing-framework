@@ -28,6 +28,7 @@ from core.engine.history_store import ExecutionHistoryStore
 from core.engine.mutators import MutationEngine
 from core.engine.response_planner import ResponsePlanner
 from core.engine.stateful_fuzzer import StatefulFuzzingSession
+from core.engine.transport import TransportFactory
 from core.models import (
     AgentTestResult,
     AgentWorkItem,
@@ -914,42 +915,33 @@ class FuzzOrchestrator:
         self, session: FuzzSession, test_case: TestCase
     ) -> tuple[TestCaseResult, Optional[bytes]]:
         """
-        Execute a test case against the target by actually sending data
-        Uses async socket operations to avoid blocking the event loop
+        Execute a test case against the target using the transport abstraction.
+
+        Uses TransportFactory to create the appropriate transport (TCP/UDP/etc),
+        sends the test case, receives response, and applies protocol validation.
         """
         start_time = time.time()
         response: Optional[bytes] = None
+        result: TestCaseResult = TestCaseResult.CRASH
 
         try:
-            if session.transport == TransportProtocol.UDP:
-                result, response = await self._execute_udp_test_case(session, test_case)
-            else:
-                result, response = await self._execute_tcp_test_case(session, test_case)
-        except Exception as e:
-            logger.error("execution_error", error=str(e), test_case_id=test_case.id)
-            result = TestCaseResult.CRASH
-            response = None
+            # Create transport using the abstraction layer
+            transport = TransportFactory.create_transport(
+                protocol=session.protocol,
+                host=session.target_host,
+                port=session.target_port,
+                timeout_ms=session.timeout_per_test_ms
+            )
 
-        test_case.result = result
-        test_case.execution_time_ms = (time.time() - start_time) * 1000
-
-        return result, response
-
-    async def _execute_tcp_test_case(
-        self, session: FuzzSession, test_case: TestCase
-    ) -> tuple[TestCaseResult, Optional[bytes]]:
-        reader: Optional[asyncio.StreamReader] = None
-        writer: Optional[asyncio.StreamWriter] = None
-
-        try:
+            # Execute test case via transport
             try:
-                # Use session-specific timeout (convert ms to seconds)
-                timeout_sec = session.timeout_per_test_ms / 1000.0
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_connection(session.target_host, session.target_port),
-                    timeout=timeout_sec,
-                )
-            except (ConnectionRefusedError, OSError) as exc:
+                result, response = await transport.send_and_receive(test_case.data)
+
+                # Apply protocol-specific validation if response received
+                if result == TestCaseResult.PASS and response:
+                    result = self._classify_response(session.protocol, response)
+
+            except FuzzerConnectionRefusedError as exc:
                 logger.error(
                     "target_connection_refused",
                     host=session.target_host,
@@ -971,138 +963,42 @@ class FuzzOrchestrator:
                         session_id=session.id,
                         error_message=error_msg,
                     )
-                return TestCaseResult.CRASH, None
-            except asyncio.TimeoutError:
+                result = TestCaseResult.CRASH
+                response = None
+
+            except ConnectionTimeoutError as exc:
                 logger.debug(
                     "target_timeout",
                     host=session.target_host,
                     port=session.target_port,
                     phase="connect",
+                    error=str(exc)
                 )
-                return TestCaseResult.HANG, None
+                result = TestCaseResult.HANG
+                response = None
 
-            try:
-                writer.write(test_case.data)
-                await writer.drain()
-                response = await self._read_response_stream(
-                    reader,
-                    timeout=timeout_sec,
-                    max_bytes=settings.max_response_bytes,
-                    session_id=session.id,
+            except TransportError as exc:
+                logger.error(
+                    "transport_error",
+                    error=str(exc),
+                    test_case_id=test_case.id,
+                    details=exc.details
                 )
-                result = self._classify_response(session.protocol, response)
-                return result, response
-            except asyncio.TimeoutError:
-                logger.debug(
-                    "target_timeout",
-                    host=session.target_host,
-                    port=session.target_port,
-                    phase="read",
-                )
-                return TestCaseResult.HANG, None
-        finally:
-            if writer:
-                writer.close()
-                try:
-                    await writer.wait_closed()
-                except Exception as e:
-                    logger.warning(
-                        "tcp_writer_close_failed",
-                        session_id=session.id,
-                        error=str(e),
-                        error_type=type(e).__name__
-                    )
+                result = TestCaseResult.CRASH
+                response = None
 
-    async def _execute_udp_test_case(
-        self, session: FuzzSession, test_case: TestCase
-    ) -> tuple[TestCaseResult, Optional[bytes]]:
-        loop = asyncio.get_running_loop()
-        response_future: asyncio.Future[bytes] = loop.create_future()
-        max_bytes = settings.max_response_bytes
-        session_id = session.id
+            finally:
+                await transport.cleanup()
 
-        class _UDPClient(asyncio.DatagramProtocol):
-            def __init__(self):
-                self.transport: Optional[asyncio.transports.DatagramTransport] = None
+        except Exception as e:
+            logger.error("execution_error", error=str(e), test_case_id=test_case.id)
+            result = TestCaseResult.CRASH
+            response = None
 
-            def connection_made(self, transport: asyncio.BaseTransport) -> None:
-                self.transport = transport  # type: ignore[assignment]
-                try:
-                    transport.sendto(test_case.data)  # type: ignore[attr-defined]
-                except Exception as exc:
-                    if not response_future.done():
-                        response_future.set_exception(exc)
+        test_case.result = result
+        test_case.execution_time_ms = (time.time() - start_time) * 1000
 
-            def datagram_received(self, data: bytes, addr):
-                chunk = data
-                if len(chunk) > max_bytes:
-                    logger.warning(
-                        "response_truncated",
-                        limit_bytes=max_bytes,
-                        session_id=session_id,
-                    )
-                    chunk = chunk[:max_bytes]
-                if not response_future.done():
-                    response_future.set_result(chunk)
-
-            def error_received(self, exc):
-                if not response_future.done():
-                    response_future.set_exception(exc or ConnectionError("udp_error"))
-
-        transport: Optional[asyncio.transports.DatagramTransport] = None
-        try:
-            # Use session-specific timeout (convert ms to seconds)
-            timeout_sec = session.timeout_per_test_ms / 1000.0
-            transport, _ = await loop.create_datagram_endpoint(
-                _UDPClient,
-                remote_addr=(session.target_host, session.target_port),
-            )
-            response = await asyncio.wait_for(
-                response_future,
-                timeout=timeout_sec,
-            )
-            result = self._classify_response(session.protocol, response)
-            return result, response
-        except asyncio.TimeoutError:
-            logger.debug(
-                "target_timeout",
-                host=session.target_host,
-                port=session.target_port,
-                phase="udp",
-            )
-            return TestCaseResult.HANG, None
-        except (ConnectionRefusedError, OSError) as exc:
-            logger.error(
-                "udp_target_unreachable",
-                host=session.target_host,
-                port=session.target_port,
-                error=str(exc),
-            )
-            if not session.error_message:
-                error_msg = (
-                    f"Unable to send UDP datagram to {session.target_host}:{session.target_port}. "
-                    "Target may not be listening or reachable."
-                )
-                session.error_message = error_msg
-                session.status = FuzzSessionStatus.FAILED
-                await self._checkpoint_session(session)
-                logger.warning(
-                    "setting_error_message",
-                    session_id=session.id,
-                    error_message=error_msg,
-                )
-            return TestCaseResult.CRASH, None
-        finally:
-            if transport:
-                try:
-                    transport.close()
-                except Exception as e:
-                    logger.warning(
-                        "udp_transport_close_failed",
-                        session_id=session.id,
-                        error=str(e),
-                        error_type=type(e).__name__
-                    )
+        return result, response
 
     def _classify_response(self, protocol: str, response: bytes) -> TestCaseResult:
         validator = plugin_manager.get_validator(protocol)
@@ -1114,43 +1010,6 @@ class FuzzOrchestrator:
         except Exception as exc:
             logger.warning("validator_exception", error=str(exc))
             return TestCaseResult.LOGICAL_FAILURE
-
-    async def _read_response_stream(
-        self,
-        reader: asyncio.StreamReader,
-        timeout: float,
-        max_bytes: int,
-        session_id: str,
-    ) -> bytes:
-        """Read up to max_bytes from reader, respecting per-chunk timeout."""
-        chunks: List[bytes] = []
-        total = 0
-
-        while total < max_bytes:
-            read_size = min(settings.tcp_buffer_size, max_bytes - total)
-            try:
-                chunk = await asyncio.wait_for(reader.read(read_size), timeout=timeout)
-            except asyncio.TimeoutError:
-                if not chunks:
-                    raise
-                logger.debug("response_read_timeout_partial", received=total)
-                break
-
-            if not chunk:
-                break
-
-            chunks.append(chunk)
-            total += len(chunk)
-
-            if total >= max_bytes:
-                logger.warning(
-                    "response_truncated",
-                    limit_bytes=max_bytes,
-                    session_id=session_id,
-                )
-                break
-
-        return b"".join(chunks)
 
     def _record_execution(
         self,
