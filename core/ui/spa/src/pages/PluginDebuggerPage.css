@@ -422,7 +422,7 @@
 .hint {
   text-align: center;
   padding: 40px 20px;
-  color: #888;
+  color: var(--text-tertiary);
   font-style: italic;
 }
 

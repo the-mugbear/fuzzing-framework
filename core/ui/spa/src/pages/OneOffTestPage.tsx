@@ -120,7 +120,7 @@ function OneOffTestPage() {
           </div>
         )}
         <button type="submit" disabled={busy}>
-          {busy ? 'Sending…' : 'Execute'}
+          {busy ? 'Sending...' : 'Execute'}
         </button>
       </form>
       {result && (

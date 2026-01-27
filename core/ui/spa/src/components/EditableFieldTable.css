@@ -10,17 +10,17 @@
 }
 
 .editable-field-table th {
-  background: rgba(15, 23, 42, 0.6);
-  padding: 12px 8px;
+  background: var(--bg-tertiary);
+  padding: var(--space-md) var(--space-sm);
   text-align: left;
   font-weight: 600;
-  color: #93c5fd;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-accent);
+  border-bottom: 1px solid var(--border-active);
 }
 
 .editable-field-table td {
-  padding: 10px 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 10px var(--space-sm);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .editable-field-table tr.hovered {
@@ -48,7 +48,7 @@
   display: inline-block;
   margin-left: 6px;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 0.7rem;
   text-transform: uppercase;
   font-weight: 600;
@@ -61,57 +61,57 @@
 
 .immutable-badge {
   background: rgba(148, 163, 184, 0.2);
-  color: #cbd5e1;
+  color: var(--text-secondary);
 }
 
 .type-code {
-  font-family: 'Roboto Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.85rem;
   color: #a5b4fc;
-  background: rgba(15, 23, 42, 0.4);
+  background: var(--bg-tertiary);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .field-value {
-  font-family: 'Roboto Mono', monospace;
+  font-family: var(--font-mono);
 }
 
 .hex-value {
-  font-family: 'Roboto Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.8rem;
-  color: #93c5fd;
+  color: var(--text-accent);
 }
 
 .field-edit-input {
   width: 100%;
-  padding: 4px 8px;
-  background: rgba(2, 6, 23, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
-  color: white;
-  font-family: 'Roboto Mono', monospace;
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-active);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
 }
 
 .field-edit-input:focus {
   outline: none;
-  border-color: #3b82f6;
+  border-color: var(--accent-color);
 }
 
 .edit-btn,
 .save-btn,
 .cancel-btn {
-  padding: 4px 8px;
-  border-radius: 4px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
   border: none;
   cursor: pointer;
   font-size: 0.85rem;
-  transition: opacity 0.2s;
+  transition: opacity var(--transition-normal);
 }
 
 .edit-btn {
   background: rgba(59, 130, 246, 0.2);
-  color: #93c5fd;
+  color: var(--text-accent);
 }
 
 .edit-btn:hover:not(:disabled) {
@@ -125,8 +125,8 @@
 
 .save-btn {
   background: rgba(16, 185, 129, 0.2);
-  color: #6ee7b7;
-  margin-right: 4px;
+  color: var(--color-success-text);
+  margin-right: var(--space-xs);
 }
 
 .save-btn:hover {
@@ -135,7 +135,7 @@
 
 .cancel-btn {
   background: rgba(239, 68, 68, 0.2);
-  color: #fca5a5;
+  color: var(--color-error-text);
 }
 
 .cancel-btn:hover {
@@ -144,5 +144,5 @@
 
 .edit-actions {
   display: flex;
-  gap: 4px;
+  gap: var(--space-xs);
 }

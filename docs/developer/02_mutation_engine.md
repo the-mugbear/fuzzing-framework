@@ -1,6 +1,6 @@
 # 2. The Mutation Engine
 
-**Last Updated: 2025-11-25**
+**Last Updated: 2026-01-26**
 
 The heart of any fuzzer is its ability to generate new and interesting test cases. This fuzzer does not generate test cases from scratch. Instead, it uses a process of **selection and mutation**, starting with a set of known-good "seeds" and incrementally modifying them to explore the target's behavior. This process is orchestrated by the `FuzzOrchestrator` but the core logic for altering data resides in the **`MutationEngine`**.
 

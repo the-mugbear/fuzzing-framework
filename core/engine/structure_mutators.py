@@ -211,11 +211,18 @@ class StructureAwareMutator:
         """
         Flip random bits in field value.
 
-        Works on integers and byte arrays.
+        Works on integers, byte arrays, and bit fields.
         """
         field_type = block['type']
 
-        if 'int' in field_type:
+        if field_type == 'bits':
+            # Flip random bit in sub-byte bit field
+            num_bits = block.get('size', 1)
+            if num_bits > 0:
+                bit_pos = random.randint(0, num_bits - 1)
+                return value ^ (1 << bit_pos)
+
+        elif 'int' in field_type:
             # Flip random bit in integer
             if field_type == 'uint8' or field_type == 'int8':
                 bit_pos = random.randint(0, 7)

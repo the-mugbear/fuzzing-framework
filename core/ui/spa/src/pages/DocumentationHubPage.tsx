@@ -133,7 +133,7 @@ const DocumentationHubPage = () => {
         <h1>Explore the Knowledge Base</h1>
         <p>
           Browse in-app guides or review the bundled references without leaving the console. Use the
-          controls to focus on the content type you need—every card stays in-place so you can scan
+          controls to focus on the content type you need-every card stays in-place so you can scan
           quickly without bouncing to raw Markdown.
         </p>
 
@@ -180,7 +180,7 @@ const DocumentationHubPage = () => {
                 <h3>{guide.title}</h3>
                 <p>{guide.description}</p>
                 <Link className="docs-card-link" to={guide.to}>
-                  Open guide ↗
+                  Open guide 
                 </Link>
               </article>
             ))}

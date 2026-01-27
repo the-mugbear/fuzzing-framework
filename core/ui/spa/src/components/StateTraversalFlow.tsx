@@ -105,11 +105,11 @@ function StateTraversalFlow({ rows, topPaths, maxCount, totalEdges }: StateTrave
                 <div className="traversal-tags">
                   {row.segments.map((segment) => (
                     <span key={`${row.id}-${segment.to}-tag`} className={`traversal-tag color-${segment.colorIndex}`}>
-                      {segment.to} · {segment.count}
+                      {segment.to}  |  {segment.count}
                     </span>
                   ))}
                   {row.otherCount > 0 && (
-                    <span className="traversal-tag other">Other · {row.otherCount}</span>
+                    <span className="traversal-tag other">Other  |  {row.otherCount}</span>
                   )}
                 </div>
               </div>

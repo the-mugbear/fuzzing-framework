@@ -1,56 +1,93 @@
 .oneoff-form {
   display: grid;
-  gap: 16px;
-  margin-top: 16px;
+  gap: var(--space-lg);
+  margin-top: var(--space-lg);
 }
 
 .oneoff-form label {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .oneoff-form input,
 .oneoff-form select,
 .oneoff-form textarea {
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(2, 6, 23, 0.9);
-  color: white;
-  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-active);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 10px var(--space-md);
+}
+
+.oneoff-form textarea {
+  font-family: var(--font-mono);
+  min-height: 100px;
+  resize: vertical;
 }
 
 .oneoff-form button {
-  border-radius: 12px;
-  padding: 12px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
   border: none;
-  background: linear-gradient(120deg, #2563eb, #7c3aed);
+  background: var(--accent-gradient);
   color: white;
   font-weight: 700;
   cursor: pointer;
+  transition: transform var(--transition-fast);
+}
+
+.oneoff-form button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.oneoff-form button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .oneoff-result {
-  margin-top: 20px;
-  padding: 16px;
-  border-radius: 16px;
-  background: rgba(15, 23, 42, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: var(--space-xl);
+  padding: var(--space-lg);
+  border-radius: var(--radius-xl);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   max-height: 320px;
   overflow: auto;
 }
 
+.oneoff-result h4 {
+  margin: 0 0 var(--space-md) 0;
+  color: var(--text-primary);
+}
+
+.oneoff-result pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 .structure-hint {
-  margin-top: 12px;
-  background: rgba(15, 23, 42, 0.5);
+  margin-top: var(--space-md);
+  background: var(--bg-tertiary);
   border-radius: 14px;
-  padding: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  padding: var(--space-md);
+  border: 1px solid var(--border-subtle);
+}
+
+.structure-hint h5 {
+  margin: 0 0 var(--space-sm) 0;
+  font-size: 0.875rem;
+  color: var(--text-accent);
 }
 
 .structure-hint pre {
-  margin: 8px 0 0;
+  margin: var(--space-sm) 0 0;
   white-space: pre-wrap;
-  font-family: 'Roboto Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.85rem;
+  color: var(--text-secondary);
 }

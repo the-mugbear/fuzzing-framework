@@ -245,13 +245,13 @@ function StateWalkerPage() {
                     className={`field-value ${sentFormatted?.valueClass || ''}`}
                     title={sentFormatted?.fieldType || ''}
                   >
-                    {sentValue ? <code>{sentFormatted?.displayValue}</code> : <span className="no-value">—</span>}
+                    {sentValue ? <code>{sentFormatted?.displayValue}</code> : <span className="no-value">-</span>}
                   </td>
                   <td
                     className={`field-value ${responseFormatted?.valueClass || ''}`}
                     title={responseFormatted?.fieldType || ''}
                   >
-                    {responseValue ? <code>{responseFormatted?.displayValue}</code> : <span className="no-value">—</span>}
+                    {responseValue ? <code>{responseFormatted?.displayValue}</code> : <span className="no-value">-</span>}
                   </td>
                 </tr>
               );
@@ -380,7 +380,7 @@ function StateWalkerPage() {
                     <span key={i} className="path-item">
                       {state}
                       {i < walkerState.state_history.length - 1 && (
-                        <span className="path-arrow">→</span>
+                        <span className="path-arrow">&gt;</span>
                       )}
                     </span>
                   ))
@@ -405,7 +405,7 @@ function StateWalkerPage() {
                     <div className="transition-info">
                       <div className="transition-flow">
                         <span className="from-state">{transition.from}</span>
-                        <span className="arrow">→</span>
+                        <span className="arrow">&gt;</span>
                         <span className="to-state">{transition.to}</span>
                       </div>
                       <div className="transition-details">
@@ -457,16 +457,16 @@ function StateWalkerPage() {
                         <div className="execution-record-title">
                           <span className="execution-number">#{execution.execution_number}</span>
                           <span className={`execution-status ${execution.success ? 'success' : 'failure'}`}>
-                            {execution.success ? '✓' : '✗'}
+                            {execution.success ? 'OK' : 'FAIL'}
                           </span>
                           <div className="execution-transition">
                             <span className="old-state">{execution.old_state}</span>
-                            <span className="arrow">→</span>
+                            <span className="arrow">&gt;</span>
                             <span className="new-state">{execution.new_state}</span>
                             <span className="message-type">{execution.message_type}</span>
                           </div>
                         </div>
-                        <span className="expand-icon">{isExpanded ? '▼' : '▶'}</span>
+                        <span className="expand-icon">{isExpanded ? 'v' : '>'}</span>
                       </div>
 
                       {isExpanded && (

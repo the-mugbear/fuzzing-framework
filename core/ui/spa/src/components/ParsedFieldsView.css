@@ -5,39 +5,39 @@
 
 .fields-empty {
   text-align: center;
-  padding: 40px 20px;
-  color: #888;
+  padding: 40px var(--space-xl);
+  color: var(--text-tertiary);
   font-style: italic;
 }
 
 .fields-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .fields-table thead {
-  background: #2a2a2a;
+  background: var(--bg-secondary);
   position: sticky;
   top: 0;
 }
 
 .fields-table th {
-  padding: 12px;
+  padding: var(--space-md);
   text-align: left;
   font-weight: 600;
-  color: #e0e0e0;
-  border-bottom: 2px solid #444;
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--border-active);
 }
 
 .fields-table tbody tr {
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--border-color);
   transition: background-color 0.15s;
 }
 
 .fields-table tbody tr:hover,
 .fields-table tbody tr.hovered {
-  background-color: #2a2a2a;
+  background-color: var(--bg-secondary);
 }
 
 .fields-table tbody tr.immutable {
@@ -45,32 +45,32 @@
 }
 
 .fields-table td {
-  padding: 10px 12px;
-  color: #e0e0e0;
+  padding: 10px var(--space-md);
+  color: var(--text-primary);
 }
 
 .field-name {
   font-weight: 500;
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .immutable-badge {
-  font-size: 10px;
-  background: #444;
-  color: #aaa;
+  font-size: 0.625rem;
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
   padding: 2px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   text-transform: uppercase;
   font-weight: 600;
-  font-family: system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 
 .field-value {
-  font-family: 'Courier New', monospace;
-  color: #a0a0ff;
+  font-family: var(--font-mono);
+  color: #a5b4fc;
 }
 
 .field-type {
@@ -79,9 +79,9 @@
 
 .type-badge {
   display: inline-block;
-  padding: 4px 8px;
-  border-radius: 3px;
-  font-size: 11px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  font-size: 0.6875rem;
   font-weight: 600;
   color: white;
   text-transform: uppercase;
@@ -89,19 +89,19 @@
 
 .field-offset,
 .field-size {
-  font-family: 'Courier New', monospace;
-  color: #888;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
   text-align: center;
 }
 
 .field-hex {
-  font-family: 'Courier New', monospace;
-  background: #1a1a1a;
-  padding: 4px 8px;
-  border-radius: 3px;
+  font-family: var(--font-mono);
+  background: var(--bg-primary);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
 }
 
 .field-hex code {
-  color: #ffa500;
-  font-size: 12px;
+  color: var(--color-warning-text);
+  font-size: 0.75rem;
 }

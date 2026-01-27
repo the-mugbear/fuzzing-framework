@@ -244,12 +244,12 @@ function StateGraphPage() {
           <h1>State Machine Visualization</h1>
           <div className="graph-subtitle-row">
             <p className="graph-subtitle">
-              Session {graphData.session_id.slice(0, 8)}... · Protocol {graphData.protocol}
+              Session {graphData.session_id.slice(0, 8)}...  |  Protocol {graphData.protocol}
             </p>
             <div className="status-chips">
               <span className={`status-pill ${isRefreshing ? 'live' : ''}`}>
-                {isRefreshing ? 'Refreshing…' : 'Synced'}
-                {lastUpdated ? ` · ${lastUpdated.toLocaleTimeString()}` : ''}
+                {isRefreshing ? 'Refreshing...' : 'Synced'}
+                {lastUpdated ? `  |  ${lastUpdated.toLocaleTimeString()}` : ''}
               </span>
             </div>
           </div>
@@ -267,7 +267,7 @@ function StateGraphPage() {
           </div>
           <div className="control-buttons">
             <button onClick={loadGraphData} className="refresh-btn" disabled={isRefreshing}>
-              {isRefreshing ? 'Refreshing…' : 'Refresh Now'}
+              {isRefreshing ? 'Refreshing...' : 'Refresh Now'}
             </button>
           </div>
         </div>

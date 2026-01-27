@@ -198,6 +198,14 @@
   align-items: center;
 }
 
+.handler-row .handler-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: rgba(226, 232, 240, 0.85);
+}
+
 .handler-row input,
 .handler-row select {
   border-radius: 10px;
@@ -213,6 +221,10 @@
   font-family: 'Roboto Mono', 'Courier New', monospace;
   font-size: 0.82rem;
   white-space: pre;
+}
+
+.code-area--tall {
+  min-height: 560px;
 }
 
 .button-row {

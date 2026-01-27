@@ -86,7 +86,7 @@ function FieldMutationPanel({
     return (
       <div className="field-mutation-panel empty">
         <div className="empty-state">
-          <span className="empty-icon">👆</span>
+          <span className="empty-icon">Select</span>
           <h4>No Field Selected</h4>
           <p>Click a field in the table above to select it for mutation</p>
         </div>
@@ -171,7 +171,7 @@ function FieldMutationPanel({
 
       <div className="panel-footer">
         <p className="hint">
-          💡 <strong>Tip:</strong> The diff viewer will show exactly what changed after you apply a mutation.
+          <strong>Tip:</strong> The diff viewer will show exactly what changed after you apply a mutation.
         </p>
       </div>
     </div>

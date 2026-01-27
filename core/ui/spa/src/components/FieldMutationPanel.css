@@ -4,7 +4,7 @@
   gap: 1rem;
   padding: 1.25rem;
   background: var(--card-bg);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
 }
 
@@ -54,7 +54,7 @@
 
 .field-name {
   color: var(--accent-color);
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
 }
 
 .field-info {
@@ -67,20 +67,20 @@
   padding: 0.25rem 0.5rem;
   background: rgba(59, 130, 246, 0.2);
   border: 1px solid rgba(59, 130, 246, 0.3);
-  border-radius: 4px;
-  color: #93c5fd;
+  border-radius: var(--radius-sm);
+  color: var(--text-accent);
   font-weight: 600;
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
 }
 
 .field-size {
   padding: 0.25rem 0.5rem;
   background: rgba(139, 92, 246, 0.2);
   border: 1px solid rgba(139, 92, 246, 0.3);
-  border-radius: 4px;
-  color: #c084fc;
+  border-radius: var(--radius-sm);
+  color: #c4b5fd;
   font-weight: 600;
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
 }
 
 .mutation-tabs {
@@ -98,7 +98,7 @@
   color: var(--text-secondary);
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-normal);
   margin-bottom: -2px;
 }
 
@@ -145,9 +145,9 @@
   padding: 0.75rem;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-normal);
   text-align: left;
 }
 
@@ -155,7 +155,7 @@
   border-color: var(--accent-color);
   background: rgba(59, 130, 246, 0.1);
   transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-sm);
 }
 
 .mutation-button:active:not(:disabled) {
@@ -168,11 +168,11 @@
 }
 
 .mutation-button.structure {
-  border-left: 3px solid #8b5cf6;
+  border-left: 3px solid var(--accent-secondary);
 }
 
 .mutation-button.byte {
-  border-left: 3px solid #ef4444;
+  border-left: 3px solid var(--color-error);
 }
 
 .mutation-label {

@@ -52,9 +52,9 @@ function StateMachineCard({ info }: Props) {
           {info.transitions?.map((transition, idx) => (
             <tr key={`${transition.from_state}-${transition.to_state}-${idx}`}>
               <td>{transition.from_state}</td>
-              <td>{transition.message_type || transition.trigger || '—'}</td>
+              <td>{transition.message_type || transition.trigger || '-'}</td>
               <td>{transition.to_state}</td>
-              <td>{transition.expected_response || '—'}</td>
+              <td>{transition.expected_response || '-'}</td>
             </tr>
           ))}
         </tbody>

@@ -1,6 +1,6 @@
 # 5. Agent and Core Communication
 
-**Last Updated: 2025-11-25**
+**Last Updated: 2026-01-26**
 
 To increase the throughput of test cases and scale up the fuzzing process, the engine supports distributing the workload to multiple remote **Agents**. An agent is a separate, lightweight process that is responsible for executing test cases against a specific target.
 

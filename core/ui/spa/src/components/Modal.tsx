@@ -6,20 +6,24 @@ interface ModalProps {
   open: boolean;
   onClose: () => void;
   children: ReactNode;
+  className?: string;
 }
 
-function Modal({ title, open, onClose, children }: ModalProps) {
+function Modal({ title, open, onClose, children, className }: ModalProps) {
   if (!open) {
     return null;
   }
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-dialog" onClick={(event) => event.stopPropagation()}>
+      <div
+        className={`modal-dialog${className ? ` ${className}` : ''}`}
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="modal-header">
           <h3>{title}</h3>
-          <button type="button" onClick={onClose}>
-            ×
+          <button type="button" className="modal-close-btn" onClick={onClose}>
+            X
           </button>
         </div>
         <div className="modal-body">{children}</div>

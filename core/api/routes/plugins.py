@@ -453,6 +453,56 @@ def _format_parsed_fields(
     return fields, offset
 
 
+def _parse_partial_packet(
+    parser: ProtocolParser, packet_bytes: bytes
+) -> Tuple[Dict[str, Any], int, Optional[str], Optional[str]]:
+    """
+    Parse as many fields as possible, stopping at the first failure.
+
+    Returns:
+        (parsed_fields, bit_offset, error_message, error_field)
+    """
+    fields: Dict[str, Any] = {}
+    bit_offset = 0
+
+    for block in parser.blocks:
+        field_name = block.get("name")
+        field_type = block.get("type", "")
+
+        try:
+            if field_type == "bits":
+                value, bits_consumed = parser._parse_bits_field(packet_bytes, bit_offset, block)
+                fields[field_name] = value
+                bit_offset += bits_consumed
+            elif field_type == "bytes":
+                if bit_offset % 8 != 0:
+                    bit_offset = ((bit_offset + 7) // 8) * 8
+                byte_offset = bit_offset // 8
+                value, bytes_consumed = parser._parse_bytes_field(packet_bytes, byte_offset, block, fields)
+                fields[field_name] = value
+                bit_offset += bytes_consumed * 8
+            elif field_type.startswith("uint") or field_type.startswith("int"):
+                if bit_offset % 8 != 0:
+                    bit_offset = ((bit_offset + 7) // 8) * 8
+                byte_offset = bit_offset // 8
+                value, bytes_consumed = parser._parse_integer_field(packet_bytes, byte_offset, block)
+                fields[field_name] = value
+                bit_offset += bytes_consumed * 8
+            elif field_type == "string":
+                if bit_offset % 8 != 0:
+                    bit_offset = ((bit_offset + 7) // 8) * 8
+                byte_offset = bit_offset // 8
+                value, bytes_consumed = parser._parse_string_field(packet_bytes, byte_offset, block, fields)
+                fields[field_name] = value
+                bit_offset += bytes_consumed * 8
+            else:
+                raise ValueError(f"Unsupported field type: {field_type}")
+        except Exception as exc:
+            return fields, bit_offset, str(exc), field_name
+
+    return fields, bit_offset, None, None
+
+
 def _detect_mutated_field(original: bytes, mutated: bytes, parser: ProtocolParser, blocks: List[dict]) -> Optional[str]:
     try:
         original_fields = parser.parse(original)
@@ -517,6 +567,8 @@ class PacketParseRequest(BaseModel):
 
     packet: str  # Hex string, base64, or text
     format: str = "hex"  # "hex", "base64", or "text"
+    model: str = "request"  # "request" (data_model) or "response" (response_model)
+    allow_partial: bool = False  # Allow partial parsing for malformed packets
 
 
 class ParsedField(BaseModel):
@@ -547,7 +599,7 @@ async def parse_packet_endpoint(
     plugin_manager=Depends(get_plugin_manager),
 ):
     """
-    Parse a raw packet according to the protocol data_model.
+    Parse a raw packet according to the protocol data_model or response_model.
 
     Useful for:
     - Debugging field offsets and sizes
@@ -574,8 +626,17 @@ async def parse_packet_endpoint(
                 success=False, total_bytes=0, fields=[], error=f"Failed to decode packet: {str(e)}"
             )
 
-        # Denormalize data_model to get bytes back
-        denormalized_model = denormalize_data_model_from_json(plugin.data_model)
+        # Select request/response model
+        if request.model not in {"request", "response"}:
+            raise HTTPException(status_code=400, detail="Invalid model selection. Use 'request' or 'response'.")
+
+        if request.model == "response" and plugin.response_model:
+            model_source = plugin.response_model
+        else:
+            model_source = plugin.data_model
+
+        # Denormalize model to get bytes back
+        denormalized_model = denormalize_data_model_from_json(model_source)
         parser = ProtocolParser(denormalized_model)
 
         # Parse the packet
@@ -602,6 +663,33 @@ async def parse_packet_endpoint(
             )
 
         except Exception as e:
+            if request.allow_partial:
+                blocks = denormalized_model.get("blocks", [])
+                parsed_fields_dict, bit_offset, partial_error, partial_field = _parse_partial_packet(
+                    parser, packet_bytes
+                )
+                if parsed_fields_dict:
+                    fields, offset = _format_parsed_fields(blocks, parsed_fields_dict, packet_bytes)
+                    warnings = [
+                        f"Partial parse stopped at '{partial_field}': {partial_error}"
+                        if partial_error and partial_field
+                        else "Partial parse returned before completion"
+                    ]
+                    if offset < len(packet_bytes):
+                        warnings.append(f"{len(packet_bytes) - offset} trailing bytes not parsed")
+                    logger.info(
+                        "packet_parsed_partial",
+                        plugin=plugin_name,
+                        total_bytes=len(packet_bytes),
+                        fields=len(fields),
+                    )
+                    return PacketParseResponse(
+                        success=True,
+                        total_bytes=len(packet_bytes),
+                        fields=fields,
+                        warnings=warnings,
+                    )
+
             logger.error("packet_parse_failed", plugin=plugin_name, error=str(e))
             return PacketParseResponse(success=False, total_bytes=len(packet_bytes), fields=[], error=str(e))
 

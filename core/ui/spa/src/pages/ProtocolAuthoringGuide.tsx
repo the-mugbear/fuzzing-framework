@@ -59,7 +59,7 @@ response_handlers = [
         }
     }
 ]`}</pre>
-        <p>The orchestrator parses every response with <code>response_model</code>, evaluates the handlers, and automatically queues the follow-up requests they describe—perfect for handshake → authenticated pipelines.</p>
+        <p>The orchestrator parses every response with <code>response_model</code>, evaluates the handlers, and automatically queues the follow-up requests they describe-perfect for handshake to authenticated pipelines.</p>
       </section>
 
       <section>
@@ -109,7 +109,7 @@ response_handlers = [
 
       <section>
         <h2>5. Create a Response Validator: The "Logic Oracle"</h2>
-        <p>The fuzzer automatically detects crashes and hangs. The optional `validate_response` function is your "logic oracle"—it detects when the target violates the protocol's rules <em>without</em> crashing. This is how you find logic bugs, information leaks, and other non-crash vulnerabilities.</p>
+        <p>The fuzzer automatically detects crashes and hangs. The optional `validate_response` function is your "logic oracle"-it detects when the target violates the protocol's rules <em>without</em> crashing. This is how you find logic bugs, information leaks, and other non-crash vulnerabilities.</p>
         <pre>{`def validate_response(response: bytes) -> bool:
     # Rule 1: Response must start with the correct magic bytes.
     if not response.startswith(b"BANK"):

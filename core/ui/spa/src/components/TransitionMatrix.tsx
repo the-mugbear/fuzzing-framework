@@ -67,13 +67,13 @@ function TransitionMatrix({ states, transitions }: TransitionMatrixProps) {
     if (cell.count === 0) {
       return {
         display: '',
-        tooltip: `${from} → ${to}: Never taken${cell.label ? ` (${cell.label})` : ''}`
+        tooltip: `${from}  ->  ${to}: Never taken${cell.label ? ` (${cell.label})` : ''}`
       };
     }
 
     return {
       display: cell.count.toLocaleString(),
-      tooltip: `${from} → ${to}: ${cell.count.toLocaleString()} times${cell.label ? ` (${cell.label})` : ''}`
+      tooltip: `${from}  ->  ${to}: ${cell.count.toLocaleString()} times${cell.label ? ` (${cell.label})` : ''}`
     };
   };
 

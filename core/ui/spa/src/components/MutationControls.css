@@ -1,45 +1,48 @@
 .mutation-controls {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--space-2xl);
 }
 
 .mutator-section h4 {
-  margin: 0 0 4px 0;
+  margin: 0 0 var(--space-xs) 0;
   font-size: 1.05rem;
-  color: white;
+  color: var(--text-primary);
 }
 
 .section-desc {
-  margin: 0 0 12px 0;
+  margin: 0 0 var(--space-md) 0;
   font-size: 0.85rem;
-  color: #93c5fd;
+  color: var(--text-accent);
 }
 
 .mutator-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .mutator-btn {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  padding: 12px 16px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(15, 23, 42, 0.4);
-  color: white;
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-normal);
   text-align: left;
+  min-height: 80px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .mutator-btn:hover:not(:disabled) {
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: var(--border-active);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-md);
 }
 
 .mutator-btn:active:not(:disabled) {
@@ -74,13 +77,13 @@
 .mutator-label {
   font-weight: 600;
   font-size: 0.95rem;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
   display: block;
 }
 
 .mutator-desc {
   font-size: 0.8rem;
-  color: #cbd5e1;
+  color: var(--text-secondary);
   line-height: 1.3;
   display: block;
 }

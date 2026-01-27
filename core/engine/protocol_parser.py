@@ -134,36 +134,58 @@ class ProtocolParser:
                     # Serialize bit field
                     num_bits = block['size']
                     bit_order = block.get('bit_order', 'msb')
+                    endian = block.get('endian', 'big')
 
                     # Mask value to bit width
                     mask = (1 << num_bits) - 1
                     value = value & mask
 
-                    # Add bits to buffer
-                    if bit_order == 'msb':
-                        # MSB-first: shift value left and OR with buffer
-                        bit_buffer = (bit_buffer << num_bits) | value
+                    # Calculate if this field spans multiple bytes
+                    bit_in_buffer_pos = bits_in_buffer % 8
+                    bytes_needed = (bit_in_buffer_pos + num_bits + 7) // 8
+
+                    # For multi-byte little-endian fields, use dedicated method
+                    if bytes_needed > 1 and endian == 'little':
+                        # Flush any pending bits first (pad to byte boundary)
+                        if bits_in_buffer > 0:
+                            if bits_in_buffer < 8:
+                                bit_buffer <<= (8 - bits_in_buffer)
+                            result.append(bit_buffer & 0xFF)
+                            bit_buffer = 0
+                            bits_in_buffer = 0
+                            bit_offset = ((bit_offset + 7) // 8) * 8
+
+                        # Use _serialize_bits_field which handles endianness correctly
+                        field_bytes, bits_produced = self._serialize_bits_field(value, block, 0)
+                        result.extend(field_bytes)
+                        bit_offset += bits_produced
                     else:
-                        # LSB-first: shift buffer left and OR with value
-                        bit_buffer = bit_buffer | (value << bits_in_buffer)
-
-                    bits_in_buffer += num_bits
-
-                    # Emit complete bytes
-                    while bits_in_buffer >= 8:
+                        # Standard streaming approach for single-byte or big-endian fields
+                        # Add bits to buffer
                         if bit_order == 'msb':
-                            # MSB-first: extract from top
-                            byte_val = (bit_buffer >> (bits_in_buffer - 8)) & 0xFF
-                            bits_in_buffer -= 8
-                            bit_buffer &= (1 << bits_in_buffer) - 1  # Keep remaining bits
+                            # MSB-first: shift value left and OR with buffer
+                            bit_buffer = (bit_buffer << num_bits) | value
                         else:
-                            # LSB-first: extract from bottom
-                            byte_val = bit_buffer & 0xFF
-                            bit_buffer >>= 8
-                            bits_in_buffer -= 8
-                        result.append(byte_val)
+                            # LSB-first: shift buffer left and OR with value
+                            bit_buffer = bit_buffer | (value << bits_in_buffer)
 
-                    bit_offset += num_bits
+                        bits_in_buffer += num_bits
+
+                        # Emit complete bytes
+                        while bits_in_buffer >= 8:
+                            if bit_order == 'msb':
+                                # MSB-first: extract from top
+                                byte_val = (bit_buffer >> (bits_in_buffer - 8)) & 0xFF
+                                bits_in_buffer -= 8
+                                bit_buffer &= (1 << bits_in_buffer) - 1  # Keep remaining bits
+                            else:
+                                # LSB-first: extract from bottom
+                                byte_val = bit_buffer & 0xFF
+                                bit_buffer >>= 8
+                                bits_in_buffer -= 8
+                            result.append(byte_val)
+
+                        bit_offset += num_bits
 
                 elif field_type == 'bytes':
                     # Byte field - ensure byte alignment
@@ -292,7 +314,19 @@ class ProtocolParser:
             # Check if there's a length field that tells us the size
             length_field = self._find_length_field_for(block['name'])
             if length_field and length_field['name'] in parsed_fields:
-                size = parsed_fields[length_field['name']]
+                size_value = parsed_fields[length_field['name']]
+
+                # Convert size_value to bytes based on size_unit
+                size_unit = length_field.get('size_unit', 'bytes')
+                if size_unit == 'bits':
+                    size = (size_value + 7) // 8  # Convert bits to bytes (round up)
+                elif size_unit == 'words':  # 32-bit words
+                    size = size_value * 4
+                elif size_unit == 'dwords':  # 16-bit words (double-byte)
+                    size = size_value * 2
+                else:  # 'bytes' or unknown - use as-is
+                    size = size_value
+
                 size = min(size, max_size)  # Respect max_size
                 if offset + size > len(data):
                     size = len(data) - offset  # Read what's available

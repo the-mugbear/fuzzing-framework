@@ -186,7 +186,7 @@ function PacketParserPage() {
 
       {findingInfo && (
         <div className="finding-banner">
-          <h3>🔍 Viewing Crash Finding</h3>
+          <h3>Viewing Crash Finding</h3>
           <div className="finding-details">
             <div className="detail-item">
               <strong>Finding ID:</strong> {findingInfo.id}
@@ -227,7 +227,7 @@ function PacketParserPage() {
                 onChange={(e) => setSelectedProtocol(e.target.value)}
                 disabled={loading || protocolsLoading}
               >
-                <option value="">{protocolsLoading ? 'Loading…' : 'Select protocol…'}</option>
+                <option value="">{protocolsLoading ? 'Loading...' : 'Select protocol...'}</option>
                 {protocols.map((p) => (
                   <option key={p} value={p}>
                     {p}
@@ -255,7 +255,7 @@ function PacketParserPage() {
 
           <div className="form-actions">
             <button type="submit" className="btn btn-primary" disabled={loading}>
-              {loading ? 'Parsing…' : 'Parse Packet'}
+              {loading ? 'Parsing...' : 'Parse Packet'}
             </button>
             <button type="button" className="btn btn-secondary" onClick={handleLoadExample}>
               Load Example

@@ -64,9 +64,9 @@ function StateCoverageTable({ states, currentState }: StateCoverageTableProps) {
   });
 
   const getStateIcon = (state: StateInfo) => {
-    if (state.id === currentState) return '●';
-    if (state.visits > 0) return '●';
-    return '○';
+    if (state.id === currentState) return '*';
+    if (state.visits > 0) return '*';
+    return '-';
   };
 
   const getStateClass = (state: StateInfo) => {
@@ -97,13 +97,13 @@ function StateCoverageTable({ states, currentState }: StateCoverageTableProps) {
               className={`col-name sortable ${sortField === 'name' ? 'sorted' : ''}`}
               onClick={() => handleSort('name')}
             >
-              State Name {sortField === 'name' && (sortDirection === 'asc' ? '↑' : '↓')}
+              State Name {sortField === 'name' && (sortDirection === 'asc' ? '(asc)' : '(desc)')}
             </th>
             <th
               className={`col-visits sortable ${sortField === 'visits' ? 'sorted' : ''}`}
               onClick={() => handleSort('visits')}
             >
-              Visits {sortField === 'visits' && (sortDirection === 'asc' ? '↑' : '↓')}
+              Visits {sortField === 'visits' && (sortDirection === 'asc' ? '(asc)' : '(desc)')}
             </th>
             <th className="col-last-seen">Last Seen</th>
             <th className="col-transitions">Transitions Out</th>
@@ -111,7 +111,7 @@ function StateCoverageTable({ states, currentState }: StateCoverageTableProps) {
               className={`col-coverage sortable ${sortField === 'coverage' ? 'sorted' : ''}`}
               onClick={() => handleSort('coverage')}
             >
-              Coverage {sortField === 'coverage' && (sortDirection === 'asc' ? '↑' : '↓')}
+              Coverage {sortField === 'coverage' && (sortDirection === 'asc' ? '(asc)' : '(desc)')}
             </th>
           </tr>
         </thead>

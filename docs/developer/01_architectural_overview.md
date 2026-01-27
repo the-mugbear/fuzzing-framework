@@ -1,6 +1,6 @@
 # 1. Architectural Overview
 
-**Last Updated: 2025-11-25**
+**Last Updated: 2026-01-26**
 
 This document provides a high-level technical overview of the fuzzer's architecture. It is intended for developers who want to understand how the system works, contribute to its development, or debug complex issues.
 
@@ -20,9 +20,9 @@ The system is built around a central **Orchestrator** that manages the entire fu
                              │             ▲                      │
                              │             │ Results              │ Test Cases
                              ▼             │                      ▼
-                      ┌────────────────┐ ┌─┴────────────────┐   ┌───────────────────┐
-                      │ Protocol       │ │ Corpus & Crashes │   │      Target       │
-                      │ Plugins        │ │ (File System)    │   │ (Application)     │
+                      ┌────────────────┐ ┌──────────────────┐   ┌───────────────────┐
+                      │ Protocol       │ │ Data Persistence │   │      Target       │
+                      │ Plugins        │ │ (SQLite + Files) │   │ (Application)     │
                       └────────────────┘ └──────────────────┘   └───────────────────┘
 ```
 
@@ -48,23 +48,33 @@ This component is responsible for altering seed data to create new test cases. I
 
 *   **StatefulFuzzingSession**: When a plugin provides a `state_model`, the orchestrator uses this class to manage the fuzzing session according to the protocol's state machine, ensuring messages are sent in a valid sequence.
 
-### 5. Corpus & Crash Triage (`core/corpus/store.py` & `core/engine/crash_handler.py`)
+### 5. State Machine Walker (`core/api/routes/walker.py`)
 
-*   **CorpusStore**: Manages the collection of seeds and crash-inducing test cases (findings).
-*   **CrashReporter**: Saves the details of any crash-inducing test case to the `data/crashes` directory.
+The State Machine Walker is an interactive debugging and exploration tool for protocols with a `state_model`. It provides a dedicated API and UI (`/state-walker`) that allows a developer to:
+*   Manually step through the protocol's state machine one transition at a time.
+*   Verify that the `state_model` is correctly defined and that transitions behave as expected.
+*   Craft and send specific messages for any given state, helping to debug server responses.
+*   Generate seed data for use in full fuzzing sessions.
+The backend logic in `walker.py` manages walker sessions in memory.
 
-### 6. Advanced Logic Components
+### 6. Data Persistence (`core/corpus/store.py`, `core/engine/crash_handler.py`, `core/engine/history_store.py`)
+
+The fuzzer persists several types of data to the `/data` volume:
+*   **Corpus (`/data/corpus`)**: The `CorpusStore` manages the collection of interesting test cases (seeds) that are used as a starting point for mutations. These are stored as individual files.
+*   **Crashes (`/data/crashes`)**: When a test case causes the target to crash, the `CrashReporter` saves the finding, including the payload and metadata, to a file for later analysis.
+*   **Execution History (`/data/correlation.db`)**: The `ExecutionHistoryStore` records every single test case execution into a SQLite database. It uses an async, batched writer for high performance and maintains a small in-memory cache of recent records to keep the UI responsive. This database is critical for post-session analysis, debugging, and visualization.
+
+### 7. Advanced Logic Components
 
 *   **ResponsePlanner (`core/engine/response_planner.py`)**: When a plugin defines `response_handlers`, this component evaluates server responses and queues follow-up messages, enabling the fuzzer to navigate complex, interactive protocols.
 *   **BehaviorProcessor (`core/protocol_behavior.py`)**: Applies deterministic transformations to a test case before it is sent, such as updating a sequence number or timestamp, based on `behavior` rules in the plugin.
-*   **ExecutionHistoryStore (`core/engine/history_store.py`)**: Records every test case execution, including sent data, received data, and timestamps, for later analysis and replay.
 
-### 7. Agents (`agent/main.py` & `core/agents/manager.py`)
+### 8. Agents (`agent/main.py` & `core/agents/manager.py`)
 
 *   **Agent**: A lightweight, standalone process that polls the Core API for work, executes test cases against its assigned target, and reports back the results.
 *   **Agent Manager**: Manages the pool of registered agents and queues work for them.
 
-### 8. Web UI (`core/ui/spa/`)
+### 9. Web UI (`core/ui/spa/`)
 
 A React-based Single Page Application that provides a user-friendly interface for controlling the fuzzer and visualizing results.
 
@@ -83,8 +93,8 @@ A typical fuzzing session proceeds as follows:
 7.  **Execution**: The final test case is sent to the target, either directly from the core or via an agent.
 8.  **Monitoring & Response**: The executor monitors the target for crashes, hangs, or other anomalies.
 9.  **Result Reporting**: The result is reported back to the `FuzzOrchestrator`.
-10. **Crash Handling**: If a crash was detected, the `CrashReporter` saves the finding.
-11. **History Recording**: The `ExecutionHistoryStore` records the details of the sent test case and the received response.
+10. **Crash Handling**: If a crash was detected, the `CrashReporter` saves the finding to the filesystem.
+11. **History Recording**: The `ExecutionHistoryStore` queues the execution record for writing to the SQLite database.
 12. **Response Planning**: The `ResponsePlanner` analyzes the server's response and, if it matches a rule in the plugin, queues a new follow-up message.
 13. **Iteration**: The loop repeats until the user stops the session or a limit is reached.
 

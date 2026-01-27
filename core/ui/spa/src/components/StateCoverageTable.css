@@ -1,7 +1,7 @@
 .state-coverage-table-container {
-  background: var(--bg-secondary, #2a2a3a);
-  border: 1px solid var(--border-color, #3a3a4a);
-  border-radius: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   padding: 1.5rem;
   margin-bottom: 1.5rem;
 }
@@ -15,12 +15,12 @@
 
 .table-header h3 {
   margin: 0;
-  color: var(--text-primary, #e0e0e8);
+  color: var(--text-primary);
   font-size: 1.3rem;
 }
 
 .table-summary {
-  color: var(--text-secondary, #9999aa);
+  color: var(--text-secondary);
   font-size: 0.9rem;
 }
 
@@ -31,13 +31,13 @@
 }
 
 .state-coverage-table thead {
-  border-bottom: 2px solid var(--border-color, #3a3a4a);
+  border-bottom: 2px solid var(--border-color);
 }
 
 .state-coverage-table th {
   padding: 0.75rem;
   text-align: left;
-  color: var(--text-secondary, #9999aa);
+  color: var(--text-secondary);
   font-weight: 600;
   font-size: 0.85rem;
   text-transform: uppercase;
@@ -47,25 +47,25 @@
 .state-coverage-table th.sortable {
   cursor: pointer;
   user-select: none;
-  transition: color 0.2s;
+  transition: color var(--transition-normal);
 }
 
 .state-coverage-table th.sortable:hover {
-  color: var(--text-primary, #e0e0e8);
+  color: var(--text-primary);
 }
 
 .state-coverage-table th.sorted {
-  color: var(--primary-color, #2196F3);
+  color: var(--accent-color);
 }
 
 .state-coverage-table tbody tr {
-  border-bottom: 1px solid var(--border-color, #3a3a4a);
-  transition: background-color 0.2s;
+  border-bottom: 1px solid var(--border-color);
+  transition: background-color var(--transition-normal);
   cursor: pointer;
 }
 
 .state-coverage-table tbody tr:hover {
-  background: var(--bg-tertiary, #3a3a4a);
+  background: var(--bg-tertiary);
 }
 
 .state-coverage-table tbody tr.state-current {
@@ -78,7 +78,7 @@
 
 .state-coverage-table td {
   padding: 1rem 0.75rem;
-  color: var(--text-primary, #e0e0e8);
+  color: var(--text-primary);
 }
 
 .col-icon {
@@ -92,15 +92,15 @@
 }
 
 .state-icon.state-current {
-  color: #22c55e;
+  color: var(--color-success);
 }
 
 .state-icon.state-visited {
-  color: #3b82f6;
+  color: var(--accent-color);
 }
 
 .state-icon.state-unvisited {
-  color: #94a3b8;
+  color: var(--text-tertiary);
   opacity: 0.5;
 }
 
@@ -116,11 +116,11 @@
   display: inline-block;
   margin-left: 0.5rem;
   padding: 0.2rem 0.5rem;
-  background: #22c55e;
+  background: var(--color-success);
   color: white;
   font-size: 0.75rem;
   font-weight: 600;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -133,7 +133,7 @@
 
 .col-last-seen {
   width: 120px;
-  color: var(--text-secondary, #9999aa);
+  color: var(--text-secondary);
   font-size: 0.85rem;
 }
 
@@ -143,7 +143,7 @@
 }
 
 .col-transitions .complete {
-  color: #22c55e;
+  color: var(--color-success);
   font-weight: 600;
 }
 
@@ -161,31 +161,31 @@
   min-width: 45px;
   text-align: right;
   font-weight: 600;
-  color: var(--text-primary, #e0e0e8);
+  color: var(--text-primary);
 }
 
 .coverage-percent.complete {
-  color: #22c55e;
+  color: var(--color-success);
 }
 
 .coverage-bar {
   flex: 1;
   height: 6px;
-  background: var(--bg-tertiary, #3a3a4a);
-  border-radius: 3px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 
 .coverage-fill {
   height: 100%;
-  background: linear-gradient(90deg, #3b82f6, #22c55e);
+  background: linear-gradient(90deg, var(--accent-color), var(--color-success));
   transition: width 0.3s ease;
 }
 
 .empty-table {
   text-align: center;
   padding: 3rem;
-  color: var(--text-secondary, #9999aa);
+  color: var(--text-secondary);
   font-size: 1rem;
 }
 

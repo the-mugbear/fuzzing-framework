@@ -167,7 +167,7 @@ function InfoTooltip({
 }) {
   return (
     <button type="button" className={`tooltip-trigger ${className}`.trim()} aria-label={label}>
-      ⓘ
+      i
       <span className="tooltip-content">{children}</span>
     </button>
   );
@@ -697,15 +697,32 @@ function ProtocolStudioPage() {
             <h4>Metadata</h4>
             <div className="form-grid">
               <label>
-                Module Name
+                <span className="label-with-tooltip">
+                  Module Name
+                  <InfoTooltip label="Module name help" className="inline">
+                    <p>Python module identifier for the plugin.</p>
+                    <p>Used in generated code and displayed in the UI.</p>
+                  </InfoTooltip>
+                </span>
                 <input value={moduleName} onChange={(e) => setModuleName(e.target.value)} placeholder="my_protocol" />
               </label>
               <label>
-                Version
+                <span className="label-with-tooltip">
+                  Version
+                  <InfoTooltip label="Version help" className="inline">
+                    <p>Semantic version for your plugin.</p>
+                    <p>Helps track protocol changes over time.</p>
+                  </InfoTooltip>
+                </span>
                 <input value={version} onChange={(e) => setVersion(e.target.value)} placeholder="0.1.0" />
               </label>
               <label className="span-2">
-                Description
+                <span className="label-with-tooltip">
+                  Description
+                  <InfoTooltip label="Description help" className="inline">
+                    <p>Short summary shown in the UI and documentation.</p>
+                  </InfoTooltip>
+                </span>
                 <input
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -748,7 +765,13 @@ function ProtocolStudioPage() {
                   </div>
                   <div className="form-grid">
                     <label>
-                      Name
+                      <span className="label-with-tooltip">
+                        Name
+                        <InfoTooltip label="Field name help" className="inline">
+                          <p>Unique identifier for this field in your data model.</p>
+                          <p>Used by size fields, response handlers, and validators.</p>
+                        </InfoTooltip>
+                      </span>
                       <input
                         value={block.name}
                         onChange={(e) => updateBlock(block.id, { name: e.target.value })}
@@ -756,7 +779,13 @@ function ProtocolStudioPage() {
                       />
                     </label>
                     <label>
-                      Type
+                      <span className="label-with-tooltip">
+                        Type
+                        <InfoTooltip label="Field type help" className="inline">
+                          <p>Defines how the field is parsed and serialized (bytes, ints, bits, string).</p>
+                          <p>Bit fields support 1-64 bits and optional bit order.</p>
+                        </InfoTooltip>
+                      </span>
                       <select
                         value={block.type}
                         onChange={(e) => updateBlock(block.id, { type: e.target.value as FieldType })}
@@ -783,7 +812,13 @@ function ProtocolStudioPage() {
                       />
                     </label>
                     <label>
-                      Max Size
+                      <span className="label-with-tooltip">
+                        Max Size
+                        <InfoTooltip label="Max size help" className="inline">
+                          <p>Optional upper bound for variable-length fields.</p>
+                          <p>Applies to bytes/string fields to cap payload growth.</p>
+                        </InfoTooltip>
+                      </span>
                       <input
                         value={block.maxSize}
                         onChange={(e) => updateBlock(block.id, { maxSize: e.target.value })}
@@ -805,7 +840,13 @@ function ProtocolStudioPage() {
                       />
                     </label>
                     <label>
-                      Endian
+                      <span className="label-with-tooltip">
+                        Endian
+                        <InfoTooltip label="Endian help" className="inline">
+                          <p>Byte order for multi-byte integers and bit fields.</p>
+                          <p>Use big for network order, little for host order.</p>
+                        </InfoTooltip>
+                      </span>
                       <select
                         value={block.endian}
                         onChange={(e) => updateBlock(block.id, { endian: e.target.value as EndianType })}
@@ -816,7 +857,13 @@ function ProtocolStudioPage() {
                       </select>
                     </label>
                     <label>
-                      Bit Order
+                      <span className="label-with-tooltip">
+                        Bit Order
+                        <InfoTooltip label="Bit order help" className="inline">
+                          <p>Controls how bits are ordered within each byte.</p>
+                          <p>Used for bits fields; keep default for MSB-first protocols.</p>
+                        </InfoTooltip>
+                      </span>
                       <select
                         value={block.bitOrder}
                         onChange={(e) => updateBlock(block.id, { bitOrder: e.target.value as BitOrder })}
@@ -827,7 +874,13 @@ function ProtocolStudioPage() {
                       </select>
                     </label>
                     <label>
-                      Mutable
+                      <span className="label-with-tooltip">
+                        Mutable
+                        <InfoTooltip label="Mutable help" className="inline">
+                          <p>Allow the mutator to change this field.</p>
+                          <p>Mark false for checksums, magic bytes, or fixed headers.</p>
+                        </InfoTooltip>
+                      </span>
                       <select
                         value={block.mutable ? 'yes' : 'no'}
                         onChange={(e) => updateBlock(block.id, { mutable: e.target.value === 'yes' })}
@@ -837,7 +890,13 @@ function ProtocolStudioPage() {
                       </select>
                     </label>
                     <label className="span-2">
-                      Description
+                      <span className="label-with-tooltip">
+                        Description
+                        <InfoTooltip label="Description help" className="inline">
+                          <p>Human-readable notes for this field.</p>
+                          <p>Shown in UI and documentation for quick context.</p>
+                        </InfoTooltip>
+                      </span>
                       <input
                         value={block.description}
                         onChange={(e) => updateBlock(block.id, { description: e.target.value })}
@@ -863,7 +922,13 @@ function ProtocolStudioPage() {
                       </select>
                     </label>
                     <label>
-                      Size Of
+                      <span className="label-with-tooltip">
+                        Size Of
+                        <InfoTooltip label="Size of help" className="inline">
+                          <p>Comma-separated list of fields this size field covers.</p>
+                          <p>Order matters; size is computed over these fields.</p>
+                        </InfoTooltip>
+                      </span>
                       <input
                         value={block.sizeOf}
                         onChange={(e) => updateBlock(block.id, { sizeOf: e.target.value })}
@@ -871,7 +936,13 @@ function ProtocolStudioPage() {
                       />
                     </label>
                     <label>
-                      Size Unit
+                      <span className="label-with-tooltip">
+                        Size Unit
+                        <InfoTooltip label="Size unit help" className="inline">
+                          <p>Units for the size field (bytes, bits, words).</p>
+                          <p>Defaults to bytes for backward compatibility.</p>
+                        </InfoTooltip>
+                      </span>
                       <select
                         value={block.sizeUnit}
                         onChange={(e) => updateBlock(block.id, { sizeUnit: e.target.value as SizeUnit })}
@@ -922,7 +993,13 @@ function ProtocolStudioPage() {
                   </div>
                   <div className="form-grid">
                     <label>
-                      Name
+                      <span className="label-with-tooltip">
+                        Name
+                        <InfoTooltip label="Response field name help" className="inline">
+                          <p>Identifier for the response field.</p>
+                          <p>Used by response handlers and parsing.</p>
+                        </InfoTooltip>
+                      </span>
                       <input
                         value={block.name}
                         onChange={(e) => updateResponseBlock(block.id, { name: e.target.value })}
@@ -930,7 +1007,13 @@ function ProtocolStudioPage() {
                       />
                     </label>
                     <label>
-                      Type
+                      <span className="label-with-tooltip">
+                        Type
+                        <InfoTooltip label="Response field type help" className="inline">
+                          <p>Defines how incoming bytes are parsed.</p>
+                          <p>Use bits for packed flags, bytes for raw payloads.</p>
+                        </InfoTooltip>
+                      </span>
                       <select
                         value={block.type}
                         onChange={(e) => updateResponseBlock(block.id, { type: e.target.value as FieldType })}
@@ -957,7 +1040,13 @@ function ProtocolStudioPage() {
                       />
                     </label>
                     <label>
-                      Max Size
+                      <span className="label-with-tooltip">
+                        Max Size
+                        <InfoTooltip label="Response max size help" className="inline">
+                          <p>Optional limit for variable response fields.</p>
+                          <p>Helps guard against oversized payloads.</p>
+                        </InfoTooltip>
+                      </span>
                       <input
                         value={block.maxSize}
                         onChange={(e) => updateResponseBlock(block.id, { maxSize: e.target.value })}
@@ -978,7 +1067,13 @@ function ProtocolStudioPage() {
                       />
                     </label>
                     <label>
-                      Endian
+                      <span className="label-with-tooltip">
+                        Endian
+                        <InfoTooltip label="Response endian help" className="inline">
+                          <p>Byte order for multi-byte response fields.</p>
+                          <p>Use big for network order, little for host order.</p>
+                        </InfoTooltip>
+                      </span>
                       <select
                         value={block.endian}
                         onChange={(e) => updateResponseBlock(block.id, { endian: e.target.value as EndianType })}
@@ -989,7 +1084,13 @@ function ProtocolStudioPage() {
                       </select>
                     </label>
                     <label>
-                      Bit Order
+                      <span className="label-with-tooltip">
+                        Bit Order
+                        <InfoTooltip label="Response bit order help" className="inline">
+                          <p>Controls bit ordering within each byte.</p>
+                          <p>Only relevant for bits fields.</p>
+                        </InfoTooltip>
+                      </span>
                       <select
                         value={block.bitOrder}
                         onChange={(e) => updateResponseBlock(block.id, { bitOrder: e.target.value as BitOrder })}
@@ -1000,7 +1101,13 @@ function ProtocolStudioPage() {
                       </select>
                     </label>
                     <label>
-                      Mutable
+                      <span className="label-with-tooltip">
+                        Mutable
+                        <InfoTooltip label="Response mutable help" className="inline">
+                          <p>Controls if this field is fuzzed when used as a seed.</p>
+                          <p>Typically false for fixed response headers.</p>
+                        </InfoTooltip>
+                      </span>
                       <select
                         value={block.mutable ? 'yes' : 'no'}
                         onChange={(e) => updateResponseBlock(block.id, { mutable: e.target.value === 'yes' })}
@@ -1010,7 +1117,13 @@ function ProtocolStudioPage() {
                       </select>
                     </label>
                     <label className="span-2">
-                      Description
+                      <span className="label-with-tooltip">
+                        Description
+                        <InfoTooltip label="Response description help" className="inline">
+                          <p>Optional notes about this response field.</p>
+                          <p>Useful when fields are derived or have protocol quirks.</p>
+                        </InfoTooltip>
+                      </span>
                       <input
                         value={block.description}
                         onChange={(e) => updateResponseBlock(block.id, { description: e.target.value })}
@@ -1053,11 +1166,23 @@ function ProtocolStudioPage() {
             </div>
             <div className="form-grid">
               <label>
-                Initial State
+                <span className="label-with-tooltip">
+                  Initial State
+                  <InfoTooltip label="Initial state help" className="inline">
+                    <p>Starting state for the state machine.</p>
+                    <p>Use a stable entry point like INIT or DISCONNECTED.</p>
+                  </InfoTooltip>
+                </span>
                 <input value={initialState} onChange={(e) => setInitialState(e.target.value)} />
               </label>
               <label className="span-2">
-                States (comma-separated)
+                <span className="label-with-tooltip">
+                  States (comma-separated)
+                  <InfoTooltip label="States list help" className="inline">
+                    <p>All possible states for the protocol.</p>
+                    <p>Comma-separated values map to state_model.states.</p>
+                  </InfoTooltip>
+                </span>
                 <input
                   value={states}
                   onChange={(e) => setStates(e.target.value)}
@@ -1082,7 +1207,12 @@ function ProtocolStudioPage() {
                   </div>
                   <div className="form-grid">
                     <label>
-                      From
+                      <span className="label-with-tooltip">
+                        From
+                        <InfoTooltip label="Transition from help" className="inline">
+                          <p>State where this transition starts.</p>
+                        </InfoTooltip>
+                      </span>
                       <input
                         value={transition.from}
                         onChange={(e) => updateTransition(transition.id, { from: e.target.value })}
@@ -1090,7 +1220,12 @@ function ProtocolStudioPage() {
                       />
                     </label>
                     <label>
-                      To
+                      <span className="label-with-tooltip">
+                        To
+                        <InfoTooltip label="Transition to help" className="inline">
+                          <p>State where this transition ends.</p>
+                        </InfoTooltip>
+                      </span>
                       <input
                         value={transition.to}
                         onChange={(e) => updateTransition(transition.id, { to: e.target.value })}
@@ -1098,7 +1233,12 @@ function ProtocolStudioPage() {
                       />
                     </label>
                     <label>
-                      Message Type
+                      <span className="label-with-tooltip">
+                        Message Type
+                        <InfoTooltip label="Message type help" className="inline">
+                          <p>Optional label that ties a transition to a message type.</p>
+                        </InfoTooltip>
+                      </span>
                       <input
                         value={transition.messageType}
                         onChange={(e) => updateTransition(transition.id, { messageType: e.target.value })}
@@ -1106,7 +1246,12 @@ function ProtocolStudioPage() {
                       />
                     </label>
                     <label>
-                      Trigger
+                      <span className="label-with-tooltip">
+                        Trigger
+                        <InfoTooltip label="Trigger help" className="inline">
+                          <p>Optional event label for orchestration or documentation.</p>
+                        </InfoTooltip>
+                      </span>
                       <input
                         value={transition.trigger}
                         onChange={(e) => updateTransition(transition.id, { trigger: e.target.value })}
@@ -1114,7 +1259,12 @@ function ProtocolStudioPage() {
                       />
                     </label>
                     <label className="span-2">
-                      Expected Response
+                      <span className="label-with-tooltip">
+                        Expected Response
+                        <InfoTooltip label="Expected response help" className="inline">
+                          <p>Optional response label to verify transition completion.</p>
+                        </InfoTooltip>
+                      </span>
                       <input
                         value={transition.expectedResponse}
                         onChange={(e) => updateTransition(transition.id, { expectedResponse: e.target.value })}
@@ -1159,7 +1309,13 @@ function ProtocolStudioPage() {
                     )}
                   </div>
                   <label>
-                    Handler Name
+                    <span className="label-with-tooltip">
+                      Handler Name
+                      <InfoTooltip label="Handler name help" className="inline">
+                        <p>Identifier for the response handler.</p>
+                        <p>Use a descriptive name like sync_session_token.</p>
+                      </InfoTooltip>
+                    </span>
                     <input
                       value={handler.name}
                       onChange={(e) => updateResponseHandler(handler.id, { name: e.target.value })}
@@ -1182,16 +1338,32 @@ function ProtocolStudioPage() {
                     <p className="section-hint">Comma-separated values are treated as OR matches.</p>
                     {handler.matchRules.map((rule) => (
                       <div key={rule.id} className="handler-row">
-                        <input
-                          value={rule.field}
-                          onChange={(e) => updateMatchRule(handler.id, rule.id, { field: e.target.value })}
-                          placeholder="status"
-                        />
-                        <input
-                          value={rule.values}
-                          onChange={(e) => updateMatchRule(handler.id, rule.id, { values: e.target.value })}
-                          placeholder="0x00, 0x01"
-                        />
+                        <label className="handler-field">
+                          <span className="label-with-tooltip">
+                            Field
+                            <InfoTooltip label="Match field help" className="inline">
+                              <p>Response field name to match against.</p>
+                            </InfoTooltip>
+                          </span>
+                          <input
+                            value={rule.field}
+                            onChange={(e) => updateMatchRule(handler.id, rule.id, { field: e.target.value })}
+                            placeholder="status"
+                          />
+                        </label>
+                        <label className="handler-field">
+                          <span className="label-with-tooltip">
+                            Values
+                            <InfoTooltip label="Match values help" className="inline">
+                              <p>Comma-separated allowed values (e.g., 0x00, 0x01).</p>
+                            </InfoTooltip>
+                          </span>
+                          <input
+                            value={rule.values}
+                            onChange={(e) => updateMatchRule(handler.id, rule.id, { values: e.target.value })}
+                            placeholder="0x00, 0x01"
+                          />
+                        </label>
                         {handler.matchRules.length > 1 && (
                           <button
                             type="button"
@@ -1219,60 +1391,124 @@ function ProtocolStudioPage() {
                     </div>
                     {handler.setRules.map((rule) => (
                       <div key={rule.id} className="handler-row">
-                        <input
-                          value={rule.targetField}
-                          onChange={(e) => updateSetRule(handler.id, rule.id, { targetField: e.target.value })}
-                          placeholder="session_id"
-                        />
-                        <select
-                          value={rule.sourceType}
-                          onChange={(e) =>
-                            updateSetRule(handler.id, rule.id, { sourceType: e.target.value as 'literal' | 'copy' })
-                          }
-                        >
-                          <option value="copy">Copy from response</option>
-                          <option value="literal">Literal value</option>
-                        </select>
-                        {rule.sourceType === 'literal' ? (
+                        <label className="handler-field">
+                          <span className="label-with-tooltip">
+                            Target Field
+                            <InfoTooltip label="Target field help" className="inline">
+                              <p>Request field to update before the next send.</p>
+                            </InfoTooltip>
+                          </span>
                           <input
-                            value={rule.literalValue}
-                            onChange={(e) => updateSetRule(handler.id, rule.id, { literalValue: e.target.value })}
-                            placeholder="0x10"
+                            value={rule.targetField}
+                            onChange={(e) => updateSetRule(handler.id, rule.id, { targetField: e.target.value })}
+                            placeholder="session_id"
                           />
+                        </label>
+                        <label className="handler-field">
+                          <span className="label-with-tooltip">
+                            Source
+                            <InfoTooltip label="Source type help" className="inline">
+                              <p>Copy a response field or set a literal value.</p>
+                            </InfoTooltip>
+                          </span>
+                          <select
+                            value={rule.sourceType}
+                            onChange={(e) =>
+                              updateSetRule(handler.id, rule.id, { sourceType: e.target.value as 'literal' | 'copy' })
+                            }
+                          >
+                            <option value="copy">Copy from response</option>
+                            <option value="literal">Literal value</option>
+                          </select>
+                        </label>
+                        {rule.sourceType === 'literal' ? (
+                          <label className="handler-field">
+                            <span className="label-with-tooltip">
+                              Literal
+                              <InfoTooltip label="Literal value help" className="inline">
+                                <p>Value to assign directly to the target field.</p>
+                              </InfoTooltip>
+                            </span>
+                            <input
+                              value={rule.literalValue}
+                              onChange={(e) => updateSetRule(handler.id, rule.id, { literalValue: e.target.value })}
+                              placeholder="0x10"
+                            />
+                          </label>
                         ) : (
                           <>
-                            <input
-                              value={rule.responseField}
-                              onChange={(e) => updateSetRule(handler.id, rule.id, { responseField: e.target.value })}
-                              placeholder="session_token"
-                            />
-                            <input
-                              value={rule.extractStart}
-                              onChange={(e) => updateSetRule(handler.id, rule.id, { extractStart: e.target.value })}
-                              placeholder="bit start"
-                            />
-                            <input
-                              value={rule.extractCount}
-                              onChange={(e) => updateSetRule(handler.id, rule.id, { extractCount: e.target.value })}
-                              placeholder="bit count"
-                            />
-                            <select
-                              value={rule.operation}
-                              onChange={(e) =>
-                                updateSetRule(handler.id, rule.id, { operation: e.target.value as ResponseOperation })
-                              }
-                            >
-                              {RESPONSE_OPERATIONS.map((operation) => (
-                                <option key={operation || 'none'} value={operation}>
-                                  {operation || 'no-op'}
-                                </option>
-                              ))}
-                            </select>
-                            <input
-                              value={rule.operationValue}
-                              onChange={(e) => updateSetRule(handler.id, rule.id, { operationValue: e.target.value })}
-                              placeholder="op value"
-                            />
+                            <label className="handler-field">
+                              <span className="label-with-tooltip">
+                                Response Field
+                                <InfoTooltip label="Response field help" className="inline">
+                                  <p>Response field to copy from.</p>
+                                </InfoTooltip>
+                              </span>
+                              <input
+                                value={rule.responseField}
+                                onChange={(e) => updateSetRule(handler.id, rule.id, { responseField: e.target.value })}
+                                placeholder="session_token"
+                              />
+                            </label>
+                            <label className="handler-field">
+                              <span className="label-with-tooltip">
+                                Bit Start
+                                <InfoTooltip label="Extract start help" className="inline">
+                                  <p>Start bit for extract_bits (0-based).</p>
+                                </InfoTooltip>
+                              </span>
+                              <input
+                                value={rule.extractStart}
+                                onChange={(e) => updateSetRule(handler.id, rule.id, { extractStart: e.target.value })}
+                                placeholder="bit start"
+                              />
+                            </label>
+                            <label className="handler-field">
+                              <span className="label-with-tooltip">
+                                Bit Count
+                                <InfoTooltip label="Extract count help" className="inline">
+                                  <p>Number of bits to extract.</p>
+                                </InfoTooltip>
+                              </span>
+                              <input
+                                value={rule.extractCount}
+                                onChange={(e) => updateSetRule(handler.id, rule.id, { extractCount: e.target.value })}
+                                placeholder="bit count"
+                              />
+                            </label>
+                            <label className="handler-field">
+                              <span className="label-with-tooltip">
+                                Operation
+                                <InfoTooltip label="Operation help" className="inline">
+                                  <p>Optional transformation applied after copying.</p>
+                                </InfoTooltip>
+                              </span>
+                              <select
+                                value={rule.operation}
+                                onChange={(e) =>
+                                  updateSetRule(handler.id, rule.id, { operation: e.target.value as ResponseOperation })
+                                }
+                              >
+                                {RESPONSE_OPERATIONS.map((operation) => (
+                                  <option key={operation || 'none'} value={operation}>
+                                    {operation || 'no-op'}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="handler-field">
+                              <span className="label-with-tooltip">
+                                Op Value
+                                <InfoTooltip label="Operation value help" className="inline">
+                                  <p>Value used by the selected operation.</p>
+                                </InfoTooltip>
+                              </span>
+                              <input
+                                value={rule.operationValue}
+                                onChange={(e) => updateSetRule(handler.id, rule.id, { operationValue: e.target.value })}
+                                placeholder="op value"
+                              />
+                            </label>
                           </>
                         )}
                         {handler.setRules.length > 1 && (
@@ -1299,10 +1535,10 @@ function ProtocolStudioPage() {
             <p>Copy this into a plugin file, or validate it before saving.</p>
           </div>
           <div className="panel-section">
-            <textarea className="code-area" readOnly value={generatedCode} />
+            <textarea className="code-area code-area--tall" readOnly value={generatedCode} />
             <div className="button-row">
               <button type="button" onClick={validateGeneratedCode} disabled={codeValidationLoading}>
-                {codeValidationLoading ? 'Validating…' : 'Validate Generated Code'}
+                {codeValidationLoading ? 'Validating...' : 'Validate Generated Code'}
               </button>
             </div>
             {codeValidationError && <p className="error">{codeValidationError}</p>}
@@ -1320,7 +1556,7 @@ function ProtocolStudioPage() {
             <div className="section-header">
               <h4>Validate Custom Plugin Code</h4>
               <button type="button" onClick={validateCustomCode} disabled={customValidationLoading}>
-                {customValidationLoading ? 'Validating…' : 'Validate Custom Code'}
+                {customValidationLoading ? 'Validating...' : 'Validate Custom Code'}
               </button>
             </div>
             <textarea

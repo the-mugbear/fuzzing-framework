@@ -119,6 +119,7 @@ data_model = {
             # The fuzzer will automatically set this to the TOTAL size of
             # these three fields combined:
             "size_of": ["message_type", "flags", "session_id"],
+            "mutable": False,          # NEVER mutate - required for target to accept message
 
             # HOW IT WORKS:
             # Before sending a message, the framework calculates:
@@ -1372,4 +1373,4 @@ def validate_response(response: bytes) -> bool:
 #   - Read test files in tests/ for usage examples
 #   - Examine core/models.py for complete field reference
 #
-# Happy fuzzing! 🐛🔍
+# Happy fuzzing!

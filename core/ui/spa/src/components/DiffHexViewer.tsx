@@ -146,7 +146,7 @@ function DiffHexViewer({
 
         <div className="diff-divider">
           <div className="divider-line"></div>
-          <div className="divider-icon">→</div>
+          <div className="divider-icon">&gt;</div>
           <div className="divider-line"></div>
         </div>
 
@@ -169,7 +169,7 @@ function DiffHexViewer({
 
       {mutationSummary.bytesChanged === 0 && (
         <div className="no-changes-notice">
-          ⚠️ No bytes were changed by this mutation. This may indicate the mutation
+          Warning: No bytes were changed by this mutation. This may indicate the mutation
           strategy didn't find suitable targets in this message.
         </div>
       )}

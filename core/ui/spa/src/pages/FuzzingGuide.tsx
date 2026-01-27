@@ -19,7 +19,7 @@ const FuzzingGuide: React.FC = () => {
             <tr><td><strong>Mutator</strong></td><td>Algorithm that transforms a seed (e.g., <code>bitflip</code>, <code>havoc</code>, <code>splice</code>). Choose them via <code>enabled_mutators</code>.</td></tr>
             <tr><td><strong>Behavior</strong></td><td>Declarative rule attached to a protocol block (e.g., “increment sequence”, “add constant”). Behaviors run before every send to keep deterministic fields valid.</td></tr>
             <tr><td><strong>Agent Mode</strong></td><td>Test cases are executed by remote agents that talk to the target and stream results back to the core.</td></tr>
-            <tr><td><strong>One-off Test</strong></td><td>Single payload execution via <code>POST /api/tests/execute</code>—use it for quick validation or reproduction.</td></tr>
+            <tr><td><strong>One-off Test</strong></td><td>Single payload execution via <code>POST /api/tests/execute</code>-use it for quick validation or reproduction.</td></tr>
           </tbody>
         </table>
       </section>

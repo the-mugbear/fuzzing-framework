@@ -1,6 +1,6 @@
 # 3. Stateful Fuzzing
 
-**Last Updated: 2025-11-25**
+**Last Updated: 2026-01-26**
 
 Many network protocols are stateful. This means the validity of a message, or the server's interpretation of it, depends on the sequence of messages that preceded it. Fuzzing such protocols with random, stateless messages is highly inefficient, as most test cases will be immediately rejected.
 

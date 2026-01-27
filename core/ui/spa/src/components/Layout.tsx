@@ -41,7 +41,7 @@ function Layout() {
               <div className="masthead-title-row">
                 <h1>Protocol Fuzzer Console</h1>
                 <Link className="docs-link" to="/guides">
-                  Documentation Hub ↗
+                  Documentation Hub
                 </Link>
               </div>
               <p className="subtitle">
@@ -51,7 +51,7 @@ function Layout() {
             <div className="masthead-meta">
               <div>
                 <span>Targets</span>
-                <strong>Simple TCP · Feature Showcase</strong>
+                <strong>Simple TCP  |  Feature Showcase</strong>
               </div>
             </div>
           </header>

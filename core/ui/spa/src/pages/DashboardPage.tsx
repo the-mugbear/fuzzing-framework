@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useReducer, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import StatusBadge from '../components/StatusBadge';
 import Toast, { ToastVariant } from '../components/Toast';
+import Tooltip from '../components/Tooltip';
 import { api } from '../services/api';
 import './DashboardPage.css';
 
@@ -47,12 +48,14 @@ interface CreateSessionForm {
   rate_limit_per_second: number | '';
   max_iterations: number | '';
   timeout_per_test_ms: number;
-  // NEW: Targeting options
+  // Targeting options
   fuzzing_mode: string;
   target_state: string;
-  show_advanced: boolean;
   show_field_controls: boolean;
   mutable_fields: string[];  // Field names that should be mutated
+  // Session lifecycle options
+  session_reset_interval: number | '';
+  enable_termination_fuzzing: boolean;
 }
 
 type FormAction =
@@ -69,12 +72,14 @@ const initialForm: CreateSessionForm = {
   rate_limit_per_second: '',
   max_iterations: '',
   timeout_per_test_ms: 5000,
-  // NEW: Targeting options
+  // Targeting options
   fuzzing_mode: 'random',
   target_state: '',
-  show_advanced: false,
   show_field_controls: false,
   mutable_fields: [],
+  // Session lifecycle options
+  session_reset_interval: '',
+  enable_termination_fuzzing: false,
 };
 
 function formReducer(state: CreateSessionForm, action: FormAction): CreateSessionForm {
@@ -89,6 +94,7 @@ function formReducer(state: CreateSessionForm, action: FormAction): CreateSessio
 }
 
 function DashboardPage() {
+  const navigate = useNavigate();
   const [protocols, setProtocols] = useState<string[]>([]);
   const [sessions, setSessions] = useState<FuzzSession[]>([]);
   const [loading, setLoading] = useState(false);
@@ -193,6 +199,12 @@ function DashboardPage() {
       if (form.target_state && form.target_state.trim() !== '') {
         payload.target_state = form.target_state.trim();
       }
+      if (form.session_reset_interval !== '') {
+        payload.session_reset_interval = Number(form.session_reset_interval);
+      }
+      if (form.enable_termination_fuzzing) {
+        payload.enable_termination_fuzzing = true;
+      }
 
       await api('/api/sessions', {
         method: 'POST',
@@ -248,6 +260,10 @@ function DashboardPage() {
     }
   };
 
+  const handleOpenGraph = (id: string) => {
+    navigate(`/state-graph?session=${encodeURIComponent(id)}`);
+  };
+
   const runningSessions = sessions.filter((session) => session.status === 'RUNNING').length;
   const totalTests = sessions.reduce((acc, session) => acc + (session.total_tests || 0), 0);
   const totalCrashes = sessions.reduce((acc, session) => acc + (session.crashes || 0), 0);
@@ -264,7 +280,10 @@ function DashboardPage() {
         </div>
         <form className="session-form" onSubmit={handleCreate}>
           <label>
-            Protocol
+            <span className="label-text">
+              Protocol
+              <Tooltip content="Select a protocol plugin that defines message structure and state machine for fuzzing." />
+            </span>
             <select
               value={form.protocol}
               onChange={(e) => dispatch({ type: 'set_field', field: 'protocol', value: e.target.value })}
@@ -278,22 +297,31 @@ function DashboardPage() {
             </select>
           </label>
           <label>
-            Target Host
-              <input
+            <span className="label-text">
+              Target Host
+              <Tooltip content="Hostname or IP of the target. Use 'target' for Docker service name, or 'host.docker.internal' for host machine." />
+            </span>
+            <input
                 value={form.target_host}
               onChange={(e) => dispatch({ type: 'set_field', field: 'target_host', value: e.target.value })}
             />
           </label>
           <label>
-            Target Port
-              <input
+            <span className="label-text">
+              Target Port
+              <Tooltip content="TCP/UDP port the target listens on. Must match the protocol's expected port." />
+            </span>
+            <input
                 type="number"
                 value={form.target_port}
               onChange={(e) => dispatch({ type: 'set_field', field: 'target_port', value: Number(e.target.value) })}
             />
           </label>
           <label>
-            Execution Mode
+            <span className="label-text">
+              Execution Mode
+              <Tooltip content="Core: Execute tests locally. Agent: Distribute tests to remote workers near the target." />
+            </span>
             <select
               value={form.execution_mode}
               onChange={(e) => dispatch({ type: 'set_field', field: 'execution_mode', value: e.target.value as 'core' | 'agent' })}
@@ -303,7 +331,10 @@ function DashboardPage() {
             </select>
           </label>
           <label>
-            Mutation Strategy
+            <span className="label-text">
+              Mutation Strategy
+              <Tooltip content="Hybrid: Mix of structure-aware and byte-level. Structure-Aware: Respects protocol fields. Byte-Level: Random byte mutations." />
+            </span>
             <select
               value={form.mutation_mode}
               onChange={(e) => dispatch({ type: 'set_field', field: 'mutation_mode', value: e.target.value })}
@@ -315,7 +346,10 @@ function DashboardPage() {
           </label>
           {form.mutation_mode === 'hybrid' && (
             <label>
-              Structure-Aware Weight ({form.structure_aware_weight}%)
+              <span className="label-text">
+                Structure-Aware Weight ({form.structure_aware_weight}%)
+                <Tooltip content="Percentage of mutations that use structure-aware logic vs byte-level. Higher = more field-aware mutations." />
+              </span>
               <input
                 type="range"
                 min="0"
@@ -328,8 +362,11 @@ function DashboardPage() {
             </label>
           )}
           <label>
-            Rate Limit (tests/sec)
-              <input
+            <span className="label-text">
+              Rate Limit (tests/sec)
+              <Tooltip content="Throttle test execution to avoid overwhelming the target. Leave empty for maximum speed." />
+            </span>
+            <input
                 type="number"
                 min="1"
                 placeholder="Unlimited"
@@ -344,8 +381,11 @@ function DashboardPage() {
               />
           </label>
           <label>
-            Max Iterations
-              <input
+            <span className="label-text">
+              Max Iterations
+              <Tooltip content="Stop session after this many test cases. Leave empty to run indefinitely until manually stopped." />
+            </span>
+            <input
                 type="number"
                 min="1"
                 placeholder="No limit"
@@ -360,8 +400,11 @@ function DashboardPage() {
               />
           </label>
           <label>
-            Timeout per Test (ms)
-              <input
+            <span className="label-text">
+              Timeout per Test (ms)
+              <Tooltip content="Maximum time to wait for target response. Increase for slow targets, decrease for faster feedback." />
+            </span>
+            <input
                 type="number"
                 min="100"
                 value={form.timeout_per_test_ms}
@@ -369,61 +412,76 @@ function DashboardPage() {
             />
           </label>
 
-          {/* NEW: Advanced Targeting Options */}
-          <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color, #ddd)' }}>
-            <button
-              type="button"
-              onClick={() => dispatch({ type: 'set_field', field: 'show_advanced', value: !form.show_advanced })}
-              style={{ marginBottom: '0.5rem', background: 'transparent', border: '1px solid', padding: '0.5rem 1rem' }}
+          <label>
+            <span className="label-text">
+              Fuzzing Mode
+              <Tooltip content="Random: Default exploration. Breadth-First: Visit all states evenly. Depth-First: Follow deep paths. Targeted: Focus on one state." />
+            </span>
+            <select
+              value={form.fuzzing_mode}
+              onChange={(e) => dispatch({ type: 'set_field', field: 'fuzzing_mode', value: e.target.value })}
             >
-              {form.show_advanced ? '▼' : '▶'} Advanced Targeting Options
-            </button>
+              <option value="random">Random (Default)</option>
+              <option value="breadth_first">Breadth-First (Explore all states evenly)</option>
+              <option value="depth_first">Depth-First (Follow deep paths)</option>
+              <option value="targeted">Targeted (Focus on specific state)</option>
+            </select>
+          </label>
 
-            {form.show_advanced && (
-              <>
-                <label>
-                  Fuzzing Mode
-                  <select
-                    value={form.fuzzing_mode}
-                    onChange={(e) => dispatch({ type: 'set_field', field: 'fuzzing_mode', value: e.target.value })}
-                  >
-                    <option value="random">Random (Default)</option>
-                    <option value="breadth_first">Breadth-First (Explore all states evenly)</option>
-                    <option value="depth_first">Depth-First (Follow deep paths)</option>
-                    <option value="targeted">Targeted (Focus on specific state)</option>
-                  </select>
-                  <span className="hint">
-                    Strategy for exploring protocol states. Breadth-first ensures all states are tested;
-                    depth-first follows deep execution paths; targeted focuses on a specific state.
-                  </span>
-                </label>
+          {form.fuzzing_mode === 'targeted' && (
+            <label>
+              <span className="label-text">
+                Target State
+                <Tooltip content="The specific state to focus testing on. The fuzzer will navigate to this state and concentrate mutations there." />
+              </span>
+              <select
+                value={form.target_state}
+                onChange={(e) => dispatch({ type: 'set_field', field: 'target_state', value: e.target.value })}
+                disabled={protocolStates.length === 0}
+              >
+                <option value="">
+                  {protocolStates.length === 0 ? 'No states available' : 'Select a state'}
+                </option>
+                {protocolStates.map((state) => (
+                  <option key={state} value={state}>
+                    {state}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
-                {form.fuzzing_mode === 'targeted' && (
-                  <label>
-                    Target State
-                    <select
-                      value={form.target_state}
-                      onChange={(e) => dispatch({ type: 'set_field', field: 'target_state', value: e.target.value })}
-                      disabled={protocolStates.length === 0}
-                    >
-                      <option value="">
-                        {protocolStates.length === 0 ? 'No states available' : 'Select a state'}
-                      </option>
-                      {protocolStates.map((state) => (
-                        <option key={state} value={state}>
-                          {state}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="hint">
-                      State to focus testing on (required for targeted mode). The fuzzer will navigate to this state
-                      and concentrate mutations there.
-                    </span>
-                  </label>
-                )}
-              </>
-            )}
-          </div>
+          <label>
+            <span className="label-text">
+              Session Reset Interval
+              <Tooltip content="Reset protocol state machine every N test cases. Helps test connection setup/teardown and prevents getting stuck in deep states." />
+            </span>
+            <input
+              type="number"
+              min="1"
+              placeholder="No reset"
+              value={form.session_reset_interval}
+              onChange={(e) =>
+                dispatch({
+                  type: 'set_field',
+                  field: 'session_reset_interval',
+                  value: e.target.value ? Number(e.target.value) : '',
+                })
+              }
+            />
+          </label>
+
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={form.enable_termination_fuzzing}
+              onChange={(e) => dispatch({ type: 'set_field', field: 'enable_termination_fuzzing', value: e.target.checked })}
+            />
+            <span className="label-text">
+              Enable Termination Fuzzing
+              <Tooltip content="Periodically inject termination/close state transitions to test connection cleanup, resource deallocation, and session teardown code." />
+            </span>
+          </label>
 
           <button type="submit">Create Session</button>
         </form>
@@ -436,7 +494,7 @@ function DashboardPage() {
             <h2>Sessions</h2>
           </div>
           <div className="session-toolbar">
-            <span className="hint">Last refreshed {lastUpdated || '—'}</span>
+            <span className="hint">Last refreshed {lastUpdated || '-'}</span>
             <button onClick={refreshSessions} disabled={loading}>
               Refresh
             </button>
@@ -483,14 +541,14 @@ function DashboardPage() {
                   <tr key={session.id}>
                     <td>
                       <Link className="session-link" to={`/correlation?session=${encodeURIComponent(session.id)}`}>
-                        {session.id.slice(0, 8)}…
+                        {session.id.slice(0, 8)}...
                       </Link>
                     </td>
                     <td>{session.protocol}</td>
                     <td>
                       <StatusBadge value={session.status} />
                       {session.current_state && (
-                        <div style={{ fontSize: '0.85em', color: '#666', marginTop: '0.25rem' }}>
+                        <div style={{ fontSize: '0.85em', color: 'var(--text-tertiary)', marginTop: '0.25rem' }}>
                           State: {session.current_state}
                         </div>
                       )}
@@ -498,15 +556,15 @@ function DashboardPage() {
                     <td>
                       {session.target_host}:{session.target_port}
                       {session.target_state && (
-                        <div style={{ fontSize: '0.85em', color: '#666', marginTop: '0.25rem' }}>
-                          → {session.target_state}
+                        <div style={{ fontSize: '0.85em', color: 'var(--text-tertiary)', marginTop: '0.25rem' }}>
+                          Target: {session.target_state}
                         </div>
                       )}
                     </td>
                     <td>
-                      <div>{session.total_tests} tests · {session.crashes} crashes</div>
+                      <div>{session.total_tests} tests | {session.crashes} crashes</div>
                       {hasCoverage && (
-                        <div style={{ fontSize: '0.85em', color: '#0066cc', marginTop: '0.25rem' }}>
+                        <div style={{ fontSize: '0.85em', color: 'var(--text-accent)', marginTop: '0.25rem' }}>
                           Coverage: {visitedStates}/{totalStates} states ({coveragePct}%)
                         </div>
                       )}
@@ -532,16 +590,17 @@ function DashboardPage() {
                           disabled={actionInProgress === session.id}
                           title="Delete session"
                         >
-                          🗑️
+                          Delete
                         </button>
                         {hasCoverage && (
-                          <Link
-                            to={`/state-graph?session=${encodeURIComponent(session.id)}`}
-                            className="graph-link"
+                          <button
+                            type="button"
+                            className="ghost"
                             title="View State Graph"
+                            onClick={() => handleOpenGraph(session.id)}
                           >
-                            📊 Graph
-                          </Link>
+                            State Graph
+                          </button>
                         )}
                       </div>
                     </td>

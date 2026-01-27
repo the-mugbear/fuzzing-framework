@@ -15,6 +15,8 @@ interface DataBlock {
   size?: number;
   size_of?: string;
   is_size_field?: boolean;
+  endian?: string;
+  bit_order?: string;
   references?: string | string[] | null;
 }
 
@@ -165,7 +167,7 @@ function InfoTooltip({
 }) {
   return (
     <button type="button" className={`tooltip-trigger ${className}`.trim()} aria-label={label}>
-      ⓘ
+      i
       <span className="tooltip-content">{children}</span>
     </button>
   );
@@ -362,7 +364,7 @@ function PluginDebuggerPage() {
                           {Object.entries(handler.set_fields).map(([field, value]) => (
                             <div key={field} className="field-mapping">
                               <span className="target-field">{field}</span>
-                              <span className="mapping-arrow">←</span>
+                              <span className="mapping-arrow">&lt;-</span>
                               <span className="source-value">
                                 {typeof value === 'object' && value !== null && 'copy_from_response' in value
                                   ? `response.${(value as Record<string, unknown>).copy_from_response}`
@@ -403,7 +405,7 @@ function PluginDebuggerPage() {
                 onClick={validatePlugin}
                 disabled={state.validationLoading}
               >
-                {state.validationLoading ? 'Validating…' : 'Validate Plugin'}
+                {state.validationLoading ? 'Validating...' : 'Validate Plugin'}
               </button>
             </div>
             <div className="validation-details">
@@ -424,7 +426,7 @@ function PluginDebuggerPage() {
                 <p>Verifies size_of targets, response copies, and mutability coverage.</p>
               </div>
             </div>
-            {state.validationLoading && <div className="validation-loading">Analyzing plugin…</div>}
+            {state.validationLoading && <div className="validation-loading">Analyzing plugin...</div>}
             {!state.validationLoading && state.validationError && <p className="error">{state.validationError}</p>}
             {!state.validationLoading && !state.validationError && state.validationResult && (
               <ValidationPanel
@@ -489,7 +491,7 @@ function PluginDebuggerPage() {
             />
           </label>
           <button type="button" onClick={generatePreview} disabled={state.previewLoading}>
-            {state.previewLoading ? 'Generating…' : 'Generate Previews'}
+            {state.previewLoading ? 'Generating...' : 'Generate Previews'}
           </button>
         </div>
       </div>
@@ -603,7 +605,7 @@ function renderDefault(defaultValue: unknown) {
   if (defaultValue && typeof defaultValue === 'object') {
     return JSON.stringify(defaultValue);
   }
-  return '—';
+  return '-';
 }
 
 function describeMutability(block: DataBlock) {
@@ -632,7 +634,7 @@ function describeBehavior(block: DataBlock) {
     behaviors.push(`Size of: ${targets}`);
   }
 
-  return behaviors.length ? behaviors.join(' • ') : '—';
+  return behaviors.length ? behaviors.join(' |') : '-';
 }
 
 function describeNotes(block: DataBlock) {
@@ -652,7 +654,7 @@ function describeNotes(block: DataBlock) {
   if (!notes.length && block.description) {
     notes.push(block.description);
   }
-  return notes.length ? notes.join(' • ') : '—';
+  return notes.length ? notes.join(' |') : '-';
 }
 
 function renderBlockTooltip(block: DataBlock): ReactNode {
@@ -664,6 +666,8 @@ function renderBlockTooltip(block: DataBlock): ReactNode {
         <li>Mutable: {describeMutability(block)}</li>
         {block.size !== undefined && <li>Width: {block.size} byte(s)</li>}
         {block.default !== undefined && <li>Default: {renderDefault(block.default)}</li>}
+        {block.endian && <li>Endian: {block.endian}</li>}
+        {block.bit_order && <li>Bit order: {block.bit_order}</li>}
         {block.behavior && <li>Behavior: {describeBehavior(block)}</li>}
         {block.size_of && <li>Length relationship: {block.size_of}</li>}
         {block.references && (
@@ -689,7 +693,7 @@ function findResponseDependencies(
       if (targetField === fieldName && typeof value === 'object') {
         const valueObj = value as Record<string, unknown>;
         if (valueObj.copy_from_response && typeof valueObj.copy_from_response === 'string') {
-          dependencies.push(`← ${valueObj.copy_from_response} (${handler.name})`);
+          dependencies.push(`&lt;- ${valueObj.copy_from_response} (${handler.name})`);
         }
       }
     });
@@ -707,11 +711,11 @@ function renderBlockInspectorTable(
     <table className="blocks-table">
       <thead>
         <tr>
-          <th>Field</th>
-          <th>Type</th>
-          <th>Mutability</th>
-          <th>Behavior</th>
-          <th>Dependencies</th>
+          <th title="Field name from the model, in on-wire order.">Field</th>
+          <th title="Type used for parsing and serialization.">Type</th>
+          <th title="Whether this field is mutated during fuzzing.">Mutability</th>
+          <th title="Pre-send behavior (increment, add_constant, size_of).">Behavior</th>
+          <th title="Other fields this entry depends on or references.">Dependencies</th>
         </tr>
       </thead>
       <tbody>
@@ -736,7 +740,7 @@ function renderBlockInspectorTable(
                     className="tooltip-trigger"
                     aria-label={`Details for ${block.name}`}
                   >
-                    ⓘ
+                    i
                     <span className="tooltip-content">{renderBlockTooltip(block)}</span>
                   </button>
                 </div>
@@ -755,12 +759,12 @@ function renderBlockInspectorTable(
                   <div className="dependencies-list">
                     {sizeTarget.map((target) => (
                       <span key={target} className="dep-tag size-dep" title="Size field for">
-                        → {target}
+                        &gt; {target}
                       </span>
                     ))}
                     {references.map((ref) => (
                       <span key={ref} className="dep-tag ref-dep" title="References">
-                        ⚡ {ref}
+                        Ref: {ref}
                       </span>
                     ))}
                     {responseDeps.map((dep, i) => (
@@ -770,7 +774,7 @@ function renderBlockInspectorTable(
                     ))}
                   </div>
                 ) : (
-                  '—'
+                  '-'
                 )}
               </td>
             </tr>

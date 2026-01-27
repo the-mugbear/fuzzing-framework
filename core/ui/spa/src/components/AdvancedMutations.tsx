@@ -19,14 +19,14 @@ function AdvancedMutations({ onMutate, disabled, seedCount }: AdvancedMutationsP
         onClick={() => setIsExpanded(!isExpanded)}
         type="button"
       >
-        <span className="expand-icon">{isExpanded ? '▼' : '▶'}</span>
+        <span className="expand-icon">{isExpanded ? 'Hide' : 'Show'}</span>
         <span>Advanced: Full-Message Mutations</span>
       </button>
 
       {isExpanded && (
         <div className="advanced-content">
           <p className="warning-text">
-            ⚠️ These mutations affect <strong>random positions across the entire message</strong>,
+            Warning: These mutations affect <strong>random positions across the entire message</strong>,
             not just a single field. Use for exploratory testing when you want maximum chaos.
           </p>
 
@@ -38,7 +38,7 @@ function AdvancedMutations({ onMutate, disabled, seedCount }: AdvancedMutationsP
               disabled={disabled}
               title="Applies 2-10 aggressive random operations: insert, delete, duplicate, shuffle"
             >
-              <span className="mutation-icon">💥</span>
+              <span className="mutation-icon">H</span>
               <div className="mutation-content">
                 <span className="mutation-label">Havoc</span>
                 <span className="mutation-desc">
@@ -58,7 +58,7 @@ function AdvancedMutations({ onMutate, disabled, seedCount }: AdvancedMutationsP
                   : 'Combines portions of two different base messages at random split points'
               }
             >
-              <span className="mutation-icon">🔀</span>
+              <span className="mutation-icon">S</span>
               <div className="mutation-content">
                 <span className="mutation-label">
                   Splice {isSpliceDisabled && '(Requires 2+ messages)'}

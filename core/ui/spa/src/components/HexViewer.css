@@ -1,43 +1,43 @@
 .hex-viewer {
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
-  background: #1a1a1a;
-  color: #e0e0e0;
-  padding: 12px;
-  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: var(--space-md);
+  border-radius: var(--radius-sm);
   overflow-x: auto;
   line-height: 1.6;
 }
 
 .hex-line {
   display: flex;
-  gap: 16px;
+  gap: var(--space-lg);
   margin-bottom: 2px;
 }
 
 .hex-offset {
-  color: #888;
+  color: var(--text-tertiary);
   user-select: none;
   min-width: 50px;
 }
 
 .hex-bytes {
   display: flex;
-  gap: 4px;
+  gap: var(--space-xs);
   flex-wrap: wrap;
 }
 
 .hex-byte {
   cursor: pointer;
-  padding: 2px 4px;
+  padding: 2px var(--space-xs);
   border-radius: 2px;
   transition: background-color 0.1s;
 }
 
 .hex-byte:hover,
 .hex-byte.hovered {
-  background-color: #444 !important;
-  outline: 1px solid #666;
+  background-color: var(--bg-secondary) !important;
+  outline: 1px solid var(--border-active);
 }
 
 .hex-byte.highlighted {
@@ -47,8 +47,8 @@
 .hex-ascii {
   display: flex;
   margin-left: auto;
-  padding-left: 16px;
-  border-left: 1px solid #444;
+  padding-left: var(--space-lg);
+  border-left: 1px solid var(--border-active);
 }
 
 .ascii-char {
@@ -62,8 +62,8 @@
 
 .ascii-char:hover,
 .ascii-char.hovered {
-  background-color: #444 !important;
-  outline: 1px solid #666;
+  background-color: var(--bg-secondary) !important;
+  outline: 1px solid var(--border-active);
 }
 
 .ascii-char.highlighted {
@@ -71,7 +71,7 @@
 }
 
 .hex-empty {
-  color: #888;
+  color: var(--text-tertiary);
   text-align: center;
-  padding: 20px;
+  padding: var(--space-xl);
 }

@@ -36,7 +36,7 @@ After : len=0xA | payload="HELLO, WORLD"`}</pre></div>
             <h3>Good for finding:</h3>
             <p>Bugs caused by unexpected flag combinations, subtle parsing errors, and vulnerabilities in custom binary encodings.</p>
             <div className="strategy-example"><pre>{`# The third bit of the character 'A' (01000001) is flipped.
-'A' (0x41) → 'C' (0x43)`}</pre></div>
+'A' (0x41) -> 'C' (0x43)`}</pre></div>
           </div>
           <div className="strategy-card byte">
             <div className="strategy-badge byte">Byte Flip</div>
@@ -45,7 +45,7 @@ After : len=0xA | payload="HELLO, WORLD"`}</pre></div>
             <h3>Good for finding:</h3>
             <p>Classic buffer overflows, parsing errors, and crashes when handling invalid opcodes or magic headers.</p>
             <div className="strategy-example"><pre>{`# The second byte of the magic header "STCP" is replaced with a random byte.
-"STCP" → "S\x9A\x43\x50"`}</pre></div>
+"STCP" -> "S\x9A\x43\x50"`}</pre></div>
           </div>
           <div className="strategy-card byte">
             <div className="strategy-badge byte">Arithmetic</div>
@@ -54,7 +54,7 @@ After : len=0xA | payload="HELLO, WORLD"`}</pre></div>
             <h3>Good for finding:</h3>
             <p>Integer overflow and underflow bugs, which can lead to buffer overflows or logic errors. For example, adding 1 to a length field of `0xFFFF` might wrap it around to `0x0000`, causing the application to miscalculate a buffer size.</p>
             <div className="strategy-example"><pre>{`# Adds a value to a 2-byte sequence number.
-Sequence: 0x001A → 0x011A`}</pre></div>
+Sequence: 0x001A -> 0x011A`}</pre></div>
           </div>
           <div className="strategy-card byte">
             <div className="strategy-badge byte">Interesting Values</div>
@@ -63,7 +63,7 @@ Sequence: 0x001A → 0x011A`}</pre></div>
             <h3>Good for finding:</h3>
             <p>Edge-case bugs, division-by-zero errors, and integer overflows. It's a more targeted way of finding the same kinds of bugs as the Arithmetic strategy.</p>
             <div className="strategy-example"><pre>{`# Replaces a 4-byte length field with common boundary values.
-Length: 0x0000000A → 0xFFFFFFFF or 0x80000000`}</pre></div>
+Length: 0x0000000A -> 0xFFFFFFFF or 0x80000000`}</pre></div>
           </div>
           <div className="strategy-card byte">
             <div className="strategy-badge byte">Havoc</div>

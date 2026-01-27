@@ -175,6 +175,71 @@ class StatefulFuzzingSession:
 
         return transitions
 
+    def get_termination_states(self) -> List[str]:
+        """
+        Identify terminal/termination states in the protocol.
+
+        Terminal states are:
+        1. States with no outgoing transitions (dead ends)
+        2. States whose names suggest termination (DISCONNECTED, CLOSED, etc.)
+
+        Returns:
+            List of state names considered termination states
+        """
+        termination_keywords = [
+            "disconnect", "terminated", "closed", "end", "exit",
+            "final", "done", "complete", "shutdown", "bye"
+        ]
+
+        termination_states = set()
+
+        # Get all states with outgoing transitions
+        states_with_outgoing = set(
+            t.get("from") for t in self.state_model.get("transitions", [])
+        )
+
+        # States with no outgoing transitions are terminal
+        for state in self.state_model.get("states", []):
+            if state not in states_with_outgoing:
+                termination_states.add(state)
+
+            # States with termination-related names
+            state_lower = state.lower()
+            if any(keyword in state_lower for keyword in termination_keywords):
+                termination_states.add(state)
+
+        logger.debug(
+            "termination_states_identified",
+            states=list(termination_states),
+            count=len(termination_states)
+        )
+
+        return list(termination_states)
+
+    def get_transitions_to_termination(self) -> List[dict]:
+        """
+        Get transitions that lead to termination states.
+
+        Useful for testing cleanup/teardown code paths.
+
+        Returns:
+            List of transition dicts that lead to termination states
+        """
+        termination_states = set(self.get_termination_states())
+
+        termination_transitions = [
+            t for t in self.state_model.get("transitions", [])
+            if t.get("to") in termination_states
+        ]
+
+        logger.debug(
+            "termination_transitions_found",
+            count=len(termination_transitions),
+            message_types=[t.get("message_type") for t in termination_transitions]
+        )
+
+        return termination_transitions
+
     def select_transition(self) -> Optional[dict]:
         """
         Choose which valid transition to take.

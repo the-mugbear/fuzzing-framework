@@ -449,6 +449,12 @@ class FuzzOrchestrator:
             # Stateless: round-robin seed selection
             return seeds[iteration % len(seeds)]
 
+        # Check for termination test injection
+        if self._should_inject_termination_test(session, stateful_session, iteration):
+            termination_seed = self._select_termination_message(session, stateful_session, seeds)
+            if termination_seed:
+                return termination_seed
+
         # Stateful: select based on fuzzing mode
         base_seed = self._select_message_for_fuzzing_mode(
             session,
@@ -589,6 +595,8 @@ class FuzzOrchestrator:
     ) -> None:
         """
         Update stateful fuzzing state after test execution.
+
+        Tracks reset statistics and handles termination fuzzing injection.
         """
         # Update state based on response
         stateful_session.update_state(
@@ -602,11 +610,108 @@ class FuzzOrchestrator:
         session.state_coverage = stateful_session.get_state_coverage()
         session.transition_coverage = stateful_session.get_transition_coverage()
 
+        # Track tests since last reset
+        session.tests_since_last_reset += 1
+
         # Periodic reset
         reset_interval = self._get_reset_interval(session)
         if stateful_session.should_reset(iteration, reset_interval=reset_interval):
             logger.debug("periodic_state_reset", iteration=iteration)
             stateful_session.reset_to_initial_state()
+            session.session_resets += 1
+            session.tests_since_last_reset = 0
+
+    def _should_inject_termination_test(
+        self,
+        session: FuzzSession,
+        stateful_session: StatefulFuzzingSession,
+        iteration: int
+    ) -> bool:
+        """
+        Determine if we should inject a termination test.
+
+        Termination tests exercise cleanup/teardown code by forcing
+        transitions to termination states.
+
+        Args:
+            session: Fuzzing session
+            stateful_session: StatefulFuzzingSession instance
+            iteration: Current iteration
+
+        Returns:
+            True if should inject termination test
+        """
+        if not session.enable_termination_fuzzing:
+            return False
+
+        # Inject termination tests periodically (every ~50 tests by default)
+        termination_interval = getattr(settings, 'termination_test_interval', 50)
+        if iteration > 0 and iteration % termination_interval == 0:
+            # Check if there are termination transitions available
+            termination_transitions = stateful_session.get_transitions_to_termination()
+            if termination_transitions:
+                return True
+
+        return False
+
+    def _select_termination_message(
+        self,
+        session: FuzzSession,
+        stateful_session: StatefulFuzzingSession,
+        seeds: List[bytes]
+    ) -> Optional[bytes]:
+        """
+        Select a message that will trigger a termination transition.
+
+        Args:
+            session: Fuzzing session
+            stateful_session: StatefulFuzzingSession instance
+            seeds: Available seed messages
+
+        Returns:
+            Seed message for termination, or None if not available
+        """
+        termination_transitions = stateful_session.get_transitions_to_termination()
+        if not termination_transitions:
+            return None
+
+        # Find a transition from current state that leads to termination
+        current_state = stateful_session.current_state
+        for transition in termination_transitions:
+            if transition.get("from") == current_state:
+                message_type = transition.get("message_type")
+                if message_type:
+                    seed = stateful_session.find_seed_for_message_type(message_type, seeds)
+                    if seed:
+                        logger.info(
+                            "termination_test_selected",
+                            current_state=current_state,
+                            message_type=message_type,
+                            target_state=transition.get("to")
+                        )
+                        session.termination_tests += 1
+                        return seed
+
+        # No direct termination from current state - try navigating to a state
+        # that can terminate
+        for transition in termination_transitions:
+            from_state = transition.get("from")
+            message_type = transition.get("message_type")
+
+            # Try to find path to the from_state
+            if from_state and from_state != current_state:
+                nav_message = self._select_message_toward_target(from_state, stateful_session)
+                if nav_message:
+                    seed = stateful_session.find_seed_for_message_type(nav_message, seeds)
+                    if seed:
+                        logger.debug(
+                            "navigating_toward_termination",
+                            current_state=current_state,
+                            intermediate_target=from_state
+                        )
+                        return seed
+
+        return None
 
     async def _run_fuzzing_loop(self, session_id: str):
         """
@@ -1233,7 +1338,7 @@ class FuzzOrchestrator:
 
     def _get_reset_interval(self, session: FuzzSession) -> int:
         """
-        Determine state reset interval based on fuzzing mode.
+        Determine state reset interval based on session config and fuzzing mode.
 
         Args:
             session: Fuzzing session
@@ -1241,6 +1346,11 @@ class FuzzOrchestrator:
         Returns:
             Reset interval in iterations
         """
+        # Use session-specific interval if configured
+        if session.session_reset_interval is not None:
+            return session.session_reset_interval
+
+        # Fall back to mode-based defaults
         if session.fuzzing_mode == "breadth_first":
             # Reset frequently to explore all states evenly
             return settings.stateful_reset_interval_bfs

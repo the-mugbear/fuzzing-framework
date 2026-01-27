@@ -1,0 +1,110 @@
+.tooltip-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.tooltip-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: var(--space-sm);
+  border-radius: var(--radius-full);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-active);
+  color: var(--text-accent);
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: help;
+  transition: all var(--transition-fast);
+}
+
+.tooltip-trigger:hover {
+  background: var(--accent-color);
+  color: white;
+  border-color: var(--accent-color);
+}
+
+.tooltip-content {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  min-width: 200px;
+  max-width: 300px;
+  padding: var(--space-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-active);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  pointer-events: auto;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--transition-fast), visibility var(--transition-fast);
+}
+
+/* Invisible bridge to prevent tooltip from closing when moving mouse to it */
+.tooltip-content::before {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 10px;
+}
+
+.tooltip-wrapper:hover .tooltip-content,
+.tooltip-content:hover {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Arrow pointing down */
+.tooltip-content::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--border-active);
+}
+
+/* Position variants */
+.tooltip-content.position-bottom {
+  bottom: auto;
+  top: calc(100% + 8px);
+}
+
+.tooltip-content.position-bottom::after {
+  top: auto;
+  bottom: 100%;
+  border-top-color: transparent;
+  border-bottom-color: var(--border-active);
+}
+
+.tooltip-content.position-bottom::before {
+  top: auto;
+  bottom: 100%;
+}
+
+.tooltip-content.position-left {
+  bottom: auto;
+  top: 50%;
+  left: auto;
+  right: calc(100% + 8px);
+  transform: translateY(-50%);
+}
+
+.tooltip-content.position-right {
+  bottom: auto;
+  top: 50%;
+  left: calc(100% + 8px);
+  transform: translateY(-50%);
+}

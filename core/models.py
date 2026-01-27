@@ -174,7 +174,20 @@ class FuzzSession(BaseModel):
         default=None, description="Current protocol state (for stateful protocols)"
     )
 
-    # NEW: Field mutation tracking
+    # Session lifecycle configuration
+    session_reset_interval: Optional[int] = Field(
+        default=None, description="Reset protocol state every N test cases"
+    )
+    enable_termination_fuzzing: bool = Field(
+        default=False, description="Periodically inject termination state transitions"
+    )
+
+    # Session lifecycle tracking
+    session_resets: int = Field(default=0, description="Number of state machine resets")
+    termination_tests: int = Field(default=0, description="Number of termination tests injected")
+    tests_since_last_reset: int = Field(default=0, description="Tests executed since last reset")
+
+    # Field mutation tracking
     field_mutation_counts: Dict[str, int] = Field(
         default_factory=dict, description="Per-field mutation counts: {field_name: count}"
     )
@@ -248,6 +261,14 @@ class FuzzConfig(BaseModel):
     )
     field_mutation_config: Optional[Dict[str, Any]] = Field(
         default=None, description="Per-field mutation configuration {field_name: {mutators: [...], weight: 0.8}}"
+    )
+
+    # Session lifecycle options
+    session_reset_interval: Optional[int] = Field(
+        default=None, description="Reset protocol state every N test cases (None = use mode default)"
+    )
+    enable_termination_fuzzing: bool = Field(
+        default=False, description="Periodically inject termination state transitions to test cleanup code"
     )
 
 

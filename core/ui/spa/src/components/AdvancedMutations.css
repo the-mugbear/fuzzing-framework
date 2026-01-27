@@ -1,9 +1,9 @@
 .advanced-mutations {
   display: flex;
   flex-direction: column;
-  background: rgba(239, 68, 68, 0.05);
+  background: var(--color-error-bg);
   border: 1px solid rgba(239, 68, 68, 0.2);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 
@@ -17,7 +17,7 @@
   color: var(--text-primary);
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background var(--transition-normal);
   text-align: left;
   width: 100%;
 }
@@ -27,7 +27,7 @@
 }
 
 .expand-icon {
-  color: #f87171;
+  color: var(--color-error-text);
   font-size: 0.875rem;
 }
 
@@ -42,16 +42,16 @@
 .warning-text {
   margin: 0;
   padding: 0.75rem;
-  background: rgba(251, 146, 60, 0.1);
-  border: 1px solid rgba(251, 146, 60, 0.3);
-  border-radius: 6px;
+  background: var(--color-warning-bg);
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius-md);
   font-size: 0.875rem;
   color: var(--text-secondary);
   line-height: 1.5;
 }
 
 .warning-text strong {
-  color: #fb923c;
+  color: var(--color-warning-text);
   font-weight: 600;
 }
 
@@ -68,14 +68,14 @@
   padding: 1rem;
   background: var(--card-bg);
   border: 2px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-normal);
   text-align: left;
 }
 
 .advanced-mutation-btn:hover:not(:disabled) {
-  border-color: #ef4444;
+  border-color: var(--color-error);
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
 }
@@ -90,7 +90,7 @@
 }
 
 .advanced-mutation-btn.splice:hover:not(:disabled) {
-  border-color: #f59e0b;
+  border-color: var(--color-warning);
 }
 
 .mutation-icon {
@@ -121,7 +121,7 @@
   padding: 0.875rem;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   font-size: 0.8125rem;
   color: var(--text-secondary);
 }

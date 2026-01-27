@@ -23,19 +23,19 @@ function ValidationPanel({ issues, summary, valid, pluginName }: ValidationPanel
 
   const renderSuggestion = (issue: ValidationIssue) => {
     if (!issue.suggestion) return null;
-    return <div className="issue-suggestion">💡 {issue.suggestion}</div>;
+    return <div className="issue-suggestion">Tip: {issue.suggestion}</div>;
   };
 
   const getIcon = (severity: string) => {
     switch (severity) {
       case 'error':
-        return '❌';
+        return 'Error';
       case 'warning':
-        return '⚠️';
+        return 'Warn';
       case 'info':
-        return 'ℹ️';
+        return 'Info';
       default:
-        return '•';
+        return 'Note';
     }
   };
 
@@ -180,13 +180,13 @@ function ValidationPanel({ issues, summary, valid, pluginName }: ValidationPanel
   const renderGuidance = (issue: ValidationIssue) => {
     const guidance = getVerboseGuidance(issue);
     if (!guidance) return null;
-    return <div className="issue-guidance">🧭 {guidance}</div>;
+    return <div className="issue-guidance">Guidance: {guidance}</div>;
   };
 
   return (
     <div className="validation-panel">
       <div className={`validation-summary ${valid ? 'valid' : 'invalid'}`}>
-        <div className="summary-icon">{valid ? '✅' : '❌'}</div>
+        <div className="summary-icon">{valid ? 'Valid' : 'Invalid'}</div>
         <div className="summary-text">{summary}</div>
       </div>
 
@@ -279,7 +279,7 @@ function ValidationPanel({ issues, summary, valid, pluginName }: ValidationPanel
 
       {issues.length === 0 && valid && (
         <div className="no-issues">
-          <p>✨ No issues found - your plugin is ready to use!</p>
+          <p>No issues found - your plugin is ready to use!</p>
         </div>
       )}
     </div>

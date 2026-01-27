@@ -1,24 +1,36 @@
 .state-machine-card {
-  margin-top: 24px;
-  padding: 20px;
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(2, 6, 23, 0.6);
+  margin-top: var(--space-2xl);
+  padding: var(--space-xl);
+  border-radius: var(--radius-2xl);
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+}
+
+.state-machine-card h3 {
+  margin: 0 0 var(--space-lg) 0;
+  color: var(--text-primary);
 }
 
 .state-grid {
-  margin: 16px 0;
+  margin: var(--space-lg) 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .state-pill {
-  padding: 6px 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(15, 23, 42, 0.6);
+  padding: 6px var(--space-md);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-active);
+  background: var(--bg-tertiary);
   font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.state-pill.initial {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: var(--accent-color);
+  color: var(--text-accent);
 }
 
 .transition-table {
@@ -29,7 +41,16 @@
 
 .transition-table th,
 .transition-table td {
-  padding: 8px 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: var(--space-sm) 10px;
+  border-bottom: 1px solid var(--border-color);
   text-align: left;
+}
+
+.transition-table th {
+  color: var(--text-accent);
+  font-weight: 600;
+}
+
+.transition-table td {
+  color: var(--text-primary);
 }
