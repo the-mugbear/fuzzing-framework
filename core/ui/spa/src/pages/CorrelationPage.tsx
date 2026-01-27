@@ -31,6 +31,7 @@ interface TestCaseExecutionRecord {
   payload_preview: string;
   response_preview?: string | null;
   raw_payload_b64: string;
+  raw_response_b64?: string | null;
   mutation_strategy?: string | null;
   mutators_applied?: string[];
 }
@@ -72,6 +73,23 @@ interface StateCoverageStats {
   total_transitions_executed?: number;
 }
 
+interface ParsedField {
+  name: string;
+  value: any;
+  hex: string;
+  offset: number;
+  size: number;
+  type: string;
+}
+
+interface PacketParseResponse {
+  success: boolean;
+  total_bytes: number;
+  fields: ParsedField[];
+  warnings?: string[];
+  error?: string | null;
+}
+
 function CorrelationPage() {
   const location = useLocation();
   const [sessions, setSessions] = useState<FuzzSessionSummary[]>([]);
@@ -94,6 +112,19 @@ function CorrelationPage() {
   const [coverage, setCoverage] = useState<StateCoverageStats | null>(null);
   const [coverageError, setCoverageError] = useState<string | null>(null);
   const [reportPending, setReportPending] = useState(false);
+  const [historyOffset, setHistoryOffset] = useState(0);
+  const [historyLimit] = useState(500);
+  const [selectedResults, setSelectedResults] = useState<string[]>([]);
+  const [selectedStates, setSelectedStates] = useState<string[]>([]);
+  const [selectedMutators, setSelectedMutators] = useState<string[]>([]);
+  const [timelineRange, setTimelineRange] = useState({ startPct: 0, endPct: 100 });
+  const [timelineInitialized, setTimelineInitialized] = useState(false);
+  const [parsedPayload, setParsedPayload] = useState<PacketParseResponse | null>(null);
+  const [parsedResponse, setParsedResponse] = useState<PacketParseResponse | null>(null);
+  const [parseLoading, setParseLoading] = useState(false);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [payloadEncoding, setPayloadEncoding] = useState<'hex' | 'base64'>('hex');
+  const [responseEncoding, setResponseEncoding] = useState<'hex' | 'base64'>('hex');
 
   const fetchCoverage = useCallback(() => {
     if (!selectedSessionId) {
@@ -155,6 +186,61 @@ function CorrelationPage() {
   }, [fetchCoverage]);
 
   const selectedSession = useMemo(() => sessions.find((s) => s.id === selectedSessionId), [sessions, selectedSessionId]);
+
+  const timelineExecutions = useMemo(() => {
+    if (!history?.executions) return [];
+    return [...history.executions].sort((a, b) =>
+      new Date(a.timestamp_sent).getTime() - new Date(b.timestamp_sent).getTime()
+    );
+  }, [history]);
+
+  const timelineBounds = useMemo(() => {
+    if (timelineExecutions.length === 0) return null;
+    const start = new Date(timelineExecutions[0].timestamp_sent).getTime();
+    const end = new Date(timelineExecutions[timelineExecutions.length - 1].timestamp_sent).getTime();
+    return { start, end };
+  }, [timelineExecutions]);
+
+  const selectedWindow = useMemo(() => {
+    if (!timelineBounds) return null;
+    const span = Math.max(1, timelineBounds.end - timelineBounds.start);
+    const start = timelineBounds.start + (span * timelineRange.startPct) / 100;
+    const end = timelineBounds.start + (span * timelineRange.endPct) / 100;
+    return {
+      start: Math.min(start, end),
+      end: Math.max(start, end),
+    };
+  }, [timelineBounds, timelineRange]);
+
+  const filteredExecutions = useMemo(() => {
+    if (!history?.executions) return [];
+    if (!selectedWindow) return history.executions;
+    return history.executions.filter((execution) => {
+      const ts = new Date(execution.timestamp_sent).getTime();
+      if (ts < selectedWindow.start || ts > selectedWindow.end) {
+        return false;
+      }
+
+      if (selectedResults.length > 0 && !selectedResults.includes(execution.result)) {
+        return false;
+      }
+
+      if (selectedStates.length > 0) {
+        if (!execution.state_at_send || !selectedStates.includes(execution.state_at_send)) {
+          return false;
+        }
+      }
+
+      if (selectedMutators.length > 0) {
+        const applied = execution.mutators_applied || [];
+        if (!applied.some((mutator) => selectedMutators.includes(mutator))) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [history, selectedWindow, selectedResults, selectedStates, selectedMutators]);
 
   const mutationInsights = useMemo(() => {
     if (!history || history.executions.length === 0) {
@@ -233,7 +319,7 @@ function CorrelationPage() {
   }, [coverage]);
 
   const formatRuntime = (seconds: number) => {
-    if (!seconds) return '—';
+    if (!seconds) return '-';
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
     const secs = Math.floor(seconds % 60);
@@ -251,6 +337,23 @@ function CorrelationPage() {
       .replace(/_/g, ' ')
       .replace(/\b\w/g, (match) => match.toUpperCase());
 
+  const formatTimestamp = (value: number) => new Date(value).toLocaleString();
+
+  const base64ToHex = (value: string | null | undefined, fallback?: string) => {
+    if (!value) return fallback || '';
+    try {
+      const binary = atob(value);
+      let hex = '';
+      for (let i = 0; i < binary.length; i += 1) {
+        const byte = binary.charCodeAt(i).toString(16).padStart(2, '0');
+        hex += byte;
+      }
+      return hex;
+    } catch {
+      return fallback || '';
+    }
+  };
+
   useEffect(() => {
     if (!selectedSessionId) {
       return;
@@ -259,21 +362,92 @@ function CorrelationPage() {
   }, [selectedSessionId]);
 
   useEffect(() => {
+    setTimelineInitialized(false);
+    setHistoryOffset(0);
+  }, [selectedSessionId]);
+
+  useEffect(() => {
+    if (!timelineInitialized && timelineBounds) {
+      setTimelineRange({ startPct: 0, endPct: 100 });
+      setTimelineInitialized(true);
+    }
+  }, [timelineBounds, timelineInitialized]);
+
+  useEffect(() => {
     if (!selectedSessionId || selectedSession?.status !== 'RUNNING') {
       return;
     }
-    const id = window.setInterval(fetchHistory, 5000);
+    const id = window.setInterval(() => fetchHistory(), 5000);
     return () => window.clearInterval(id);
-  }, [selectedSessionId, selectedSession?.status]);
+  }, [selectedSessionId, selectedSession?.status, historyOffset]);
 
-  const fetchHistory = () => {
+  useEffect(() => {
+    if (!selectedExecution || !selectedSession?.protocol) {
+      setParsedPayload(null);
+      setParsedResponse(null);
+      setParseError(null);
+      setParseLoading(false);
+      return;
+    }
+
+    let active = true;
+    const run = async () => {
+      setParseLoading(true);
+      setParseError(null);
+      setParsedPayload(null);
+      setParsedResponse(null);
+      try {
+        const payloadParse = await api<PacketParseResponse>(`/api/plugins/${selectedSession.protocol}/parse`, {
+          method: 'POST',
+          body: JSON.stringify({
+            packet: selectedExecution.raw_payload_b64,
+            format: 'base64',
+            allow_partial: true,
+          }),
+        });
+        if (!active) return;
+        setParsedPayload(payloadParse);
+
+        if (selectedExecution.raw_response_b64) {
+          const responseParse = await api<PacketParseResponse>(`/api/plugins/${selectedSession.protocol}/parse`, {
+            method: 'POST',
+            body: JSON.stringify({
+              packet: selectedExecution.raw_response_b64,
+              format: 'base64',
+              model: 'response',
+              allow_partial: true,
+            }),
+          });
+          if (!active) return;
+          setParsedResponse(responseParse);
+        }
+      } catch (err) {
+        if (!active) return;
+        setParseError((err as Error).message);
+      } finally {
+        if (active) {
+          setParseLoading(false);
+        }
+      }
+    };
+
+    run();
+    return () => {
+      active = false;
+    };
+  }, [selectedExecution, selectedSession?.protocol]);
+
+  const fetchHistory = (nextOffset: number = historyOffset) => {
     if (!selectedSessionId) {
       return;
     }
     setLoadingHistory(true);
-    api<ExecutionHistoryResponse>(`/api/sessions/${selectedSessionId}/execution_history?limit=50`)
+    api<ExecutionHistoryResponse>(
+      `/api/sessions/${selectedSessionId}/execution_history?limit=${historyLimit}&offset=${nextOffset}`,
+    )
       .then((data) => {
         setHistory(data);
+        setHistoryOffset(nextOffset);
         if (data.executions.length) {
           const timestamps = data.executions
             .slice(0, 5)
@@ -324,6 +498,114 @@ function CorrelationPage() {
     setSelectedExecution(execution);
     const timestamp = new Date(execution.timestamp_sent).toLocaleString();
     setReplayLog((prev) => [`Selected sequence ${execution.sequence_number} (${timestamp})`, ...prev]);
+  };
+
+  const handleTimelineStartChange = (value: number) => {
+    setTimelineRange((prev) => ({
+      startPct: Math.min(value, prev.endPct),
+      endPct: prev.endPct,
+    }));
+  };
+
+  const handleTimelineEndChange = (value: number) => {
+    setTimelineRange((prev) => ({
+      startPct: prev.startPct,
+      endPct: Math.max(value, prev.startPct),
+    }));
+  };
+
+  const resetTimeline = () => setTimelineRange({ startPct: 0, endPct: 100 });
+
+  const canPageNewer = historyOffset > 0;
+  const canPageOlder = history ? historyOffset + history.returned_count < history.total_count : false;
+
+  const sequenceRange = useMemo(() => {
+    if (!history || history.executions.length === 0) return null;
+    const sequences = history.executions.map((execution) => execution.sequence_number);
+    return {
+      min: Math.min(...sequences),
+      max: Math.max(...sequences),
+    };
+  }, [history]);
+
+  const filterOptions = useMemo(() => {
+    const resultSet = new Set<string>();
+    const stateSet = new Set<string>();
+    const mutatorSet = new Set<string>();
+
+    history?.executions.forEach((execution) => {
+      if (execution.result) {
+        resultSet.add(execution.result);
+      }
+      if (execution.state_at_send) {
+        stateSet.add(execution.state_at_send);
+      }
+      (execution.mutators_applied || []).forEach((mutator) => mutatorSet.add(mutator));
+    });
+
+    return {
+      results: Array.from(resultSet).sort(),
+      states: Array.from(stateSet).sort(),
+      mutators: Array.from(mutatorSet).sort(),
+    };
+  }, [history]);
+
+  const toggleFilterValue = (value: string, current: string[], setter: (next: string[]) => void) => {
+    if (current.includes(value)) {
+      setter(current.filter((item) => item !== value));
+    } else {
+      setter([...current, value]);
+    }
+  };
+
+  const renderParsedFields = (parsed: PacketParseResponse | null, emptyLabel: string) => {
+    if (parseLoading) {
+      return <div className="parsed-empty">Parsing fields...</div>;
+    }
+    if (parseError) {
+      return <div className="parsed-empty">Parse failed: {parseError}</div>;
+    }
+    if (!parsed) {
+      return <div className="parsed-empty">{emptyLabel}</div>;
+    }
+    if (!parsed.success) {
+      return <div className="parsed-empty">Parse failed: {parsed.error || 'Unable to parse packet.'}</div>;
+    }
+    if (parsed.fields.length === 0) {
+      return <div className="parsed-empty">No fields returned from parser.</div>;
+    }
+
+    return (
+      <>
+        {parsed.warnings && parsed.warnings.length > 0 && (
+          <div className="parsed-warning">{parsed.warnings.join(' ')}</div>
+        )}
+        <table className="parsed-table">
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>Type</th>
+              <th>Offset</th>
+              <th>Size</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {parsed.fields.map((field) => (
+              <tr key={`${field.name}-${field.offset}`}>
+                <td>{field.name}</td>
+                <td>{field.type}</td>
+                <td>{field.offset}</td>
+                <td>{field.size}</td>
+                <td>
+                  <code>{field.hex}</code>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </>
+    );
   };
 
   const handleSequenceSearch = async (event: FormEvent) => {
@@ -450,15 +732,15 @@ function CorrelationPage() {
           <select value={selectedSessionId} onChange={(e) => setSelectedSessionId(e.target.value)}>
             {sessions.map((session) => (
               <option key={session.id} value={session.id}>
-                {session.protocol} · {session.id.slice(0, 8)}
+                {session.protocol} | {session.id.slice(0, 8)}
               </option>
             ))}
           </select>
-          <button type="button" onClick={fetchHistory} disabled={loadingHistory}>
-            {loadingHistory ? 'Loading…' : 'Refresh'}
+          <button type="button" onClick={() => fetchHistory()} disabled={loadingHistory}>
+            {loadingHistory ? 'Loading...' : 'Refresh'}
           </button>
           <button type="button" className="ghost" onClick={handleDownloadReport} disabled={reportPending}>
-            {reportPending ? 'Building…' : 'Export Report'}
+            {reportPending ? 'Building...' : 'Export Report'}
           </button>
         </div>
       </div>
@@ -731,52 +1013,234 @@ function CorrelationPage() {
         </div>
       </div>
 
+      {history && (
+        <div className="search-card filter-card">
+          <div className="replay-card-header">
+            <p className="eyebrow">Filters</p>
+            <h3>Focus the execution list</h3>
+          </div>
+          <div className="filter-grid">
+            <div className="filter-group">
+              <span>Results</span>
+              <div className="filter-tags">
+                {filterOptions.results.length === 0 && <span className="filter-empty">No results yet</span>}
+                {filterOptions.results.map((result) => (
+                  <button
+                    key={result}
+                    type="button"
+                    className={`filter-tag ${selectedResults.includes(result) ? 'active' : ''}`}
+                    onClick={() => toggleFilterValue(result, selectedResults, setSelectedResults)}
+                  >
+                    {formatResultLabel(result)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="filter-group">
+              <span>States</span>
+              <div className="filter-tags">
+                {filterOptions.states.length === 0 && <span className="filter-empty">No states recorded</span>}
+                {filterOptions.states.map((state) => (
+                  <button
+                    key={state}
+                    type="button"
+                    className={`filter-tag ${selectedStates.includes(state) ? 'active' : ''}`}
+                    onClick={() => toggleFilterValue(state, selectedStates, setSelectedStates)}
+                  >
+                    {state}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="filter-group">
+              <span>Mutators</span>
+              <div className="filter-tags">
+                {filterOptions.mutators.length === 0 && <span className="filter-empty">No mutators tracked</span>}
+                {filterOptions.mutators.map((mutator) => (
+                  <button
+                    key={mutator}
+                    type="button"
+                    className={`filter-tag ${selectedMutators.includes(mutator) ? 'active' : ''}`}
+                    onClick={() => toggleFilterValue(mutator, selectedMutators, setSelectedMutators)}
+                  >
+                    {mutator}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          {(selectedResults.length > 0 || selectedStates.length > 0 || selectedMutators.length > 0) && (
+            <div className="filter-footer">
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  setSelectedResults([]);
+                  setSelectedStates([]);
+                  setSelectedMutators([]);
+                }}
+              >
+                Clear Filters
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {error && <p className="error">{error}</p>}
 
       {history && (
-        <div className="history-table-wrapper">
-          <div className="history-meta">
-            Showing {history.returned_count} / {history.total_count} executions · Click a row for payload + response
-          </div>
-          <table className="history-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Sent</th>
-                <th>Message</th>
-                <th>State</th>
-                <th>Mutators</th>
-                <th>Result</th>
-                <th>Duration</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.executions.map((execution) => (
-                <tr key={execution.test_case_id} onClick={() => handleTimelineSelect(execution)}>
-                  <td>{execution.sequence_number}</td>
-                  <td>{new Date(execution.timestamp_sent).toLocaleString()}</td>
-                  <td>{execution.message_type || '—'}</td>
-                  <td>{execution.state_at_send || '—'}</td>
-                  <td>
-                    {execution.mutators_applied && execution.mutators_applied.length > 0
-                      ? execution.mutators_applied.slice(0, 3).join(', ')
-                      : '—'}
-                  </td>
-                  <td>
-                    <StatusBadge value={execution.result} />
-                  </td>
-                  <td>{execution.duration_ms.toFixed(1)} ms</td>
+        <>
+          {timelineBounds && (
+            <div className="timeline-card">
+              <div className="timeline-header">
+                <div>
+                  <p className="eyebrow">Session Timeline</p>
+                  <h3>Focus on the exact window you want to inspect</h3>
+                  <p>Drag the handles to filter executions and navigate the session.</p>
+                </div>
+                <button type="button" className="ghost" onClick={resetTimeline}>
+                  Show Full Range
+                </button>
+              </div>
+              <div className="timeline-meta">
+                <div>
+                  <span>Session start</span>
+                  <strong>{formatTimestamp(timelineBounds.start)}</strong>
+                </div>
+                <div>
+                  <span>Session end</span>
+                  <strong>{formatTimestamp(timelineBounds.end)}</strong>
+                </div>
+                {selectedWindow && (
+                  <div>
+                    <span>Selected window</span>
+                    <strong>
+                      {formatTimestamp(selectedWindow.start)} to {formatTimestamp(selectedWindow.end)}
+                    </strong>
+                  </div>
+                )}
+              </div>
+              <div className="timeline-track">
+                <div
+                  className="timeline-range"
+                  style={{
+                    left: `${timelineRange.startPct}%`,
+                    width: `${timelineRange.endPct - timelineRange.startPct}%`,
+                  }}
+                />
+                {timelineExecutions.map((execution) => {
+                  const ts = new Date(execution.timestamp_sent).getTime();
+                  const pct = timelineBounds.end === timelineBounds.start
+                    ? 0
+                    : ((ts - timelineBounds.start) / (timelineBounds.end - timelineBounds.start)) * 100;
+                  return (
+                    <button
+                      key={execution.test_case_id}
+                      type="button"
+                      className="timeline-dot"
+                      style={{ left: `${pct}%` }}
+                      title={`Seq ${execution.sequence_number} | ${new Date(execution.timestamp_sent).toLocaleString()}`}
+                      onClick={() => handleTimelineSelect(execution)}
+                    />
+                  );
+                })}
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={timelineRange.startPct}
+                  onChange={(e) => handleTimelineStartChange(Number(e.target.value))}
+                  className="timeline-handle timeline-start"
+                />
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={timelineRange.endPct}
+                  onChange={(e) => handleTimelineEndChange(Number(e.target.value))}
+                  className="timeline-handle timeline-end"
+                />
+              </div>
+              <div className="timeline-footer">
+                Showing {filteredExecutions.length} of {history.returned_count} executions
+              </div>
+            </div>
+          )}
+
+          <div className="history-table-wrapper">
+            <div className="history-meta">
+              Showing {filteredExecutions.length} / {history.total_count} executions
+              {sequenceRange && (
+                <> | Sequences {sequenceRange.min}-{sequenceRange.max}</>
+              )}
+              | Click a row for payload + response
+            </div>
+            <div className="history-pagination">
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => fetchHistory(Math.max(0, historyOffset - historyLimit))}
+                disabled={!canPageNewer || loadingHistory}
+              >
+                Newer
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => fetchHistory(historyOffset + historyLimit)}
+                disabled={!canPageOlder || loadingHistory}
+              >
+                Older
+              </button>
+              <span className="history-window">
+                Window {historyOffset + 1}-{historyOffset + history.returned_count} of {history.total_count}
+              </span>
+            </div>
+            <table className="history-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Sent</th>
+                  <th>Message</th>
+                  <th>State</th>
+                  <th>Mutators</th>
+                  <th>Result</th>
+                  <th>Duration</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {filteredExecutions.map((execution) => (
+                  <tr key={execution.test_case_id} onClick={() => handleTimelineSelect(execution)}>
+                    <td>{execution.sequence_number}</td>
+                    <td>{new Date(execution.timestamp_sent).toLocaleString()}</td>
+                    <td>{execution.message_type || '-'}</td>
+                    <td>{execution.state_at_send || '-'}</td>
+                    <td>
+                      {execution.mutators_applied && execution.mutators_applied.length > 0
+                        ? execution.mutators_applied.slice(0, 3).join(', ')
+                        : '-'}
+                    </td>
+                    <td>
+                      <StatusBadge value={execution.result} />
+                    </td>
+                    <td>{execution.duration_ms.toFixed(1)} ms</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {filteredExecutions.length === 0 && (
+              <div className="history-empty">No executions in the selected window.</div>
+            )}
+          </div>
+        </>
       )}
 
       <Modal
         open={Boolean(selectedExecution)}
         onClose={() => setSelectedExecution(null)}
-        title={selectedExecution ? `Sequence ${selectedExecution.sequence_number} · ${new Date(selectedExecution.timestamp_sent).toLocaleString()}` : ''}
+        title={selectedExecution ? `Sequence ${selectedExecution.sequence_number} | ${new Date(selectedExecution.timestamp_sent).toLocaleString()}` : ''}
+        className="modal-wide"
       >
         {selectedExecution && (
           <>
@@ -802,27 +1266,83 @@ function CorrelationPage() {
             <div className="detail-body">
               <div>
                 <span>Mutation Strategy</span>
-                <p className="mutator-inline">{selectedExecution.mutation_strategy || '—'}</p>
+                <p className="mutator-inline">{selectedExecution.mutation_strategy || '-'}</p>
               </div>
               <div>
                 <span>Mutators</span>
                 <p className="mutator-inline">
                   {selectedExecution.mutators_applied && selectedExecution.mutators_applied.length > 0
                     ? selectedExecution.mutators_applied.join(', ')
-                    : '—'}
+                    : '-'}
                 </p>
               </div>
-              <div>
-                <span>Payload Preview</span>
-                <pre>{selectedExecution.payload_preview}</pre>
+              <div className="detail-span-full">
+                <div className="detail-row-header">
+                  <span>Payload</span>
+                  <div className="encoding-toggle">
+                    <button
+                      type="button"
+                      className={payloadEncoding === 'hex' ? 'active' : ''}
+                      onClick={() => setPayloadEncoding('hex')}
+                    >
+                      Hex
+                    </button>
+                    <button
+                      type="button"
+                      className={payloadEncoding === 'base64' ? 'active' : ''}
+                      onClick={() => setPayloadEncoding('base64')}
+                    >
+                      Base64
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  readOnly
+                  value={
+                    payloadEncoding === 'hex'
+                      ? base64ToHex(selectedExecution.raw_payload_b64, selectedExecution.payload_preview)
+                      : selectedExecution.raw_payload_b64
+                  }
+                />
               </div>
-              <div>
-                <span>Response Preview</span>
-                <pre>{selectedExecution.response_preview || '—'}</pre>
+              <div className="detail-span-full">
+                <div className="detail-row-header">
+                  <span>Response</span>
+                  <div className="encoding-toggle">
+                    <button
+                      type="button"
+                      className={responseEncoding === 'hex' ? 'active' : ''}
+                      onClick={() => setResponseEncoding('hex')}
+                    >
+                      Hex
+                    </button>
+                    <button
+                      type="button"
+                      className={responseEncoding === 'base64' ? 'active' : ''}
+                      onClick={() => setResponseEncoding('base64')}
+                    >
+                      Base64
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  readOnly
+                  value={
+                    responseEncoding === 'hex'
+                      ? base64ToHex(selectedExecution.raw_response_b64, selectedExecution.response_preview || '-')
+                      : (selectedExecution.raw_response_b64 || '-')
+                  }
+                />
               </div>
-              <div>
-                <span>Base64 Payload</span>
-                <textarea readOnly value={selectedExecution.raw_payload_b64} />
+              <div className="parsed-grid detail-span-full">
+                <div className="parsed-section">
+                  <span>Parsed Payload Fields</span>
+                  {renderParsedFields(parsedPayload, 'Payload parsing will appear here once available.')}
+                </div>
+                <div className="parsed-section">
+                  <span>Parsed Response Fields</span>
+                  {renderParsedFields(parsedResponse, 'No response payload available for this execution.')}
+                </div>
               </div>
             </div>
           </>

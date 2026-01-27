@@ -5,6 +5,7 @@ import FieldMutationPanel from '../components/FieldMutationPanel';
 import AdvancedMutations from '../components/AdvancedMutations';
 import MutationTimeline, { MutationStackEntry } from '../components/MutationTimeline';
 import DiffHexViewer from '../components/DiffHexViewer';
+import Tooltip from '../components/Tooltip';
 import { api, API_BASE } from '../services/api';
 import './MutationWorkbenchPage.css';
 
@@ -185,7 +186,7 @@ function MutationWorkbenchPage() {
         setHexData(seedPreview.hex_dump);
         setBaseHexData(seedPreview.hex_dump);
         setTotalBytes(parseResponse.total_bytes);
-        setStatusMessage(`✓ Loaded base message ${seedIndex + 1}`);
+        setStatusMessage(`OK Loaded base message ${seedIndex + 1}`);
         setTimeout(() => setStatusMessage(''), 3000);
       } else {
         setError(parseResponse.error || 'Failed to parse base message');
@@ -240,7 +241,7 @@ function MutationWorkbenchPage() {
 
       setMutationStack([...mutationStack, stackEntry]);
       setRedoStack([]); // Clear redo stack on new action
-      setStatusMessage(`✓ Updated field: ${fieldName}`);
+      setStatusMessage(`OK Updated field: ${fieldName}`);
       setTimeout(() => setStatusMessage(''), 3000);
     }, 100);
   };
@@ -339,7 +340,7 @@ function MutationWorkbenchPage() {
         setRedoStack([]); // Clear redo stack on new action
         setShowDiffView(true);
         setDiffViewEntry(stackEntry);
-        setStatusMessage(`✓ Applied ${mutatorName} mutation to full message`);
+        setStatusMessage(`OK Applied ${mutatorName} mutation to full message`);
         setTimeout(() => setStatusMessage(''), 3000);
       } else {
         setError(mutateResponse.error || 'Mutation failed');
@@ -413,7 +414,7 @@ function MutationWorkbenchPage() {
         setRedoStack([]); // Clear redo stack on new action
         setShowDiffView(true);
         setDiffViewEntry(stackEntry);
-        setStatusMessage(`✓ Mutated field: ${fieldName}`);
+        setStatusMessage(`OK Mutated field: ${fieldName}`);
         setTimeout(() => setStatusMessage(''), 3000);
       } else {
         setError(response.error || 'Field mutation failed');
@@ -446,7 +447,7 @@ function MutationWorkbenchPage() {
       setDiffViewEntry(prevEntry);
     }
 
-    setStatusMessage(`↶ Undid ${lastEntry.mutator || 'edit'}`);
+    setStatusMessage(`Undid ${lastEntry.mutator || 'edit'}`);
     setTimeout(() => setStatusMessage(''), 3000);
   };
 
@@ -464,7 +465,7 @@ function MutationWorkbenchPage() {
     setShowDiffView(true);
     setDiffViewEntry(nextEntry);
 
-    setStatusMessage(`↷ Redid ${nextEntry.mutator || 'edit'}`);
+    setStatusMessage(`Redid ${nextEntry.mutator || 'edit'}`);
     setTimeout(() => setStatusMessage(''), 3000);
   };
 
@@ -481,7 +482,7 @@ function MutationWorkbenchPage() {
 
     // Note: Full replay would require API support for applying mutations sequentially
     // For now, we'll just reset to base message
-    setStatusMessage('⚠️ Mutation removed - reset to base message');
+    setStatusMessage('Mutation removed - reset to base message');
     setTimeout(() => setStatusMessage(''), 3000);
   };
 
@@ -575,7 +576,7 @@ function MutationWorkbenchPage() {
       };
       setHistory((prev) => [historyEntry, ...prev].slice(0, 10)); // Keep last 10
 
-      setStatusMessage(`✓ Sent ${totalBytes} bytes to ${targetHost}:${targetPort}`);
+      setStatusMessage(`OK Sent ${totalBytes} bytes to ${targetHost}:${targetPort}`);
       setTimeout(() => setStatusMessage(''), 3000);
     } catch (err) {
       setError((err as Error).message);
@@ -600,7 +601,7 @@ function MutationWorkbenchPage() {
       setShowDiffView(false);
     }
 
-    setStatusMessage(`✓ Restored: ${entry.description}`);
+    setStatusMessage(`OK Restored: ${entry.description}`);
     setTimeout(() => setStatusMessage(''), 3000);
   };
 
@@ -643,9 +644,9 @@ function MutationWorkbenchPage() {
         <div className="control-row">
           <div className="control-group">
             <label htmlFor="protocol">
-              Protocol
-              <span className="tooltip" title="Select a protocol to work with">
-                ⓘ
+              <span className="label-text">
+                Protocol
+                <Tooltip content="Select a protocol plugin that defines message structure and validation rules." />
               </span>
             </label>
             <select
@@ -664,12 +665,9 @@ function MutationWorkbenchPage() {
 
           <div className="control-group">
             <label htmlFor="seed">
-              Base Message ({seedIndex + 1} of {seedCount})
-              <span
-                className="tooltip"
-                title="Valid protocol examples to start from. These are defined in the protocol plugin."
-              >
-                ⓘ
+              <span className="label-text">
+                Base Message ({seedIndex + 1} of {seedCount})
+                <Tooltip content="Valid protocol examples to start from. These are defined in the protocol plugin and serve as mutation seeds." />
               </span>
             </label>
             <div className="seed-selector">
@@ -679,7 +677,7 @@ function MutationWorkbenchPage() {
                 disabled={seedIndex === 0 || loading}
                 className="seed-nav-btn"
               >
-                ←
+                Prev
               </button>
               <input
                 id="seed"
@@ -697,7 +695,7 @@ function MutationWorkbenchPage() {
                 disabled={seedIndex >= seedCount - 1 || loading}
                 className="seed-nav-btn"
               >
-                →
+                Next
               </button>
               <button
                 type="button"
@@ -878,7 +876,7 @@ function MutationWorkbenchPage() {
                       </div>
                       <div className="history-result">
                         <span className={entry.response.success ? 'success' : 'failure'}>
-                          {entry.response.success ? '✓' : '✗'}
+                          {entry.response.success ? 'OK' : 'FAIL'}
                         </span>
                         <span>{entry.totalBytes} bytes sent</span>
                         <span>{entry.response.response_bytes} bytes received</span>

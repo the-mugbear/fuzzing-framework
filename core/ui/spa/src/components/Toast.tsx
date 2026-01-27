@@ -13,8 +13,8 @@ function Toast({ message, variant = 'info', onClose }: ToastProps) {
     <div className={`toast-banner toast-${variant}`} role="status">
       <span>{message}</span>
       {onClose && (
-        <button type="button" onClick={onClose}>
-          ×
+        <button type="button" onClick={onClose} aria-label="Close">
+          X
         </button>
       )}
     </div>

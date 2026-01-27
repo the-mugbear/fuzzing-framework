@@ -1,40 +1,61 @@
 .dashboard-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 28px;
+  gap: var(--space-3xl);
 }
 
 .session-form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
-  margin-top: 8px;
+  gap: var(--space-lg);
+  margin-top: var(--space-sm);
 }
 
 .session-form label {
   display: flex;
   flex-direction: column;
   font-size: 0.9rem;
-  gap: 8px;
+  gap: var(--space-sm);
+}
+
+.session-form .label-text {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.session-form .checkbox-label {
+  flex-direction: row;
+  align-items: center;
+}
+
+.session-form .checkbox-label input[type="checkbox"] {
+  width: auto;
+  margin-right: var(--space-sm);
 }
 
 .session-form input,
 .session-form select,
 .session-form button {
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 10px 12px;
-  background: rgba(2, 6, 23, 0.8);
-  color: #f5f5f5;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-active);
+  padding: 10px var(--space-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 .session-form button {
-  background: linear-gradient(120deg, #2563eb, #7c3aed);
+  background: var(--accent-gradient);
   border: none;
   font-weight: 700;
   letter-spacing: 0.4px;
   cursor: pointer;
   grid-column: 1 / -1;
+  transition: transform var(--transition-fast);
+}
+
+.session-form button:hover {
+  transform: translateY(-1px);
 }
 
 .section-header {
@@ -44,16 +65,16 @@
 }
 
 .hint {
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--text-muted);
   font-size: 0.85rem;
 }
 
 .toast {
-  margin-top: 16px;
-  background: rgba(34, 197, 94, 0.15);
-  border: 1px solid rgba(34, 197, 94, 0.4);
-  padding: 12px;
-  border-radius: 12px;
+  margin-top: var(--space-lg);
+  background: var(--color-success-bg);
+  border: 1px solid var(--color-success-border);
+  padding: var(--space-md);
+  border-radius: var(--radius-lg);
   cursor: pointer;
 }
 
@@ -64,38 +85,43 @@
 }
 
 .session-header button {
-  border-radius: 10px;
-  padding: 8px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(2, 6, 23, 0.6);
-  color: white;
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) 14px;
+  border: 1px solid var(--border-active);
+  background: var(--bg-primary);
+  color: var(--text-primary);
   cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.session-header button:hover {
+  background: var(--bg-secondary);
 }
 
 .session-toolbar {
   display: flex;
-  gap: 16px;
+  gap: var(--space-lg);
   align-items: center;
 }
 
 .session-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 12px;
-  margin: 20px 0;
+  gap: var(--space-md);
+  margin: var(--space-xl) 0;
 }
 
 .session-stats div {
-  background: rgba(15, 23, 42, 0.5);
-  border-radius: 16px;
-  padding: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-xl);
+  padding: var(--space-lg);
+  border: 1px solid var(--border-subtle);
 }
 
 .session-stats span {
   text-transform: uppercase;
   font-size: 0.75rem;
-  color: #93c5fd;
+  color: var(--text-accent);
 }
 
 .session-stats strong {
@@ -107,7 +133,7 @@
 .session-table {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 16px;
+  margin-top: var(--space-lg);
   font-size: 0.9rem;
 }
 
@@ -115,11 +141,15 @@
 .session-table td {
   padding: 10px;
   text-align: left;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.session-table th {
+  color: var(--text-secondary);
 }
 
 .session-link {
-  color: #93c5fd;
+  color: var(--text-accent);
   text-decoration: none;
   font-weight: 600;
 }
@@ -130,20 +160,39 @@
 
 .session-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .session-actions button {
-  padding: 6px 12px;
-  border-radius: 10px;
+  padding: 6px var(--space-md);
+  border-radius: var(--radius-md);
   border: none;
   cursor: pointer;
   font-weight: 600;
   background: rgba(59, 130, 246, 0.3);
-  color: white;
+  color: var(--text-primary);
+  transition: background var(--transition-fast);
+}
+
+.session-actions button:hover {
+  background: rgba(59, 130, 246, 0.4);
 }
 
 .session-actions button.ghost {
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--border-active);
+}
+
+.session-actions button.ghost:hover {
+  background: var(--bg-secondary);
+}
+
+.session-actions button.danger {
+  background: var(--color-error-bg);
+  color: var(--color-error-text);
+  border: 1px solid var(--color-error-border);
+}
+
+.session-actions button.danger:hover {
+  background: rgba(248, 113, 113, 0.3);
 }

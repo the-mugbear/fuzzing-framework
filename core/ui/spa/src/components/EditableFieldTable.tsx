@@ -143,10 +143,10 @@ function EditableFieldTable({
                       onClick={() => handleSave(field)}
                       className="save-btn"
                     >
-                      ✓
+                      OK
                     </button>
-                    <button type="button" onClick={handleCancel} className="cancel-btn">
-                      ✕
+                    <button type="button" onClick={handleCancel} className="cancel-btn" aria-label="Cancel">
+                      X
                     </button>
                   </div>
                 )}

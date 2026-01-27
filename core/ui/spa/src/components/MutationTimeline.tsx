@@ -54,7 +54,7 @@ function MutationTimeline({
             className="timeline-btn"
             title="Undo last mutation"
           >
-            ↶ Undo
+            Undo
           </button>
           <button
             type="button"
@@ -63,7 +63,7 @@ function MutationTimeline({
             className="timeline-btn"
             title="Redo mutation"
           >
-            ↷ Redo
+            Redo
           </button>
           <button
             type="button"
@@ -80,7 +80,7 @@ function MutationTimeline({
       <div className="timeline-content">
         {/* Base message */}
         <div className="timeline-entry base-entry">
-          <div className="entry-icon">📦</div>
+          <div className="entry-icon">Base</div>
           <div className="entry-content">
             <div className="entry-title">Base Message</div>
             <div className="entry-subtitle">{baseName}</div>
@@ -96,7 +96,7 @@ function MutationTimeline({
         ) : (
           stack.map((entry, index) => (
             <div key={entry.id} className="timeline-flow">
-              <div className="flow-arrow">↓</div>
+              <div className="flow-arrow">|</div>
               <div
                 className={`timeline-entry mutation-entry ${
                   expandedId === entry.id ? 'expanded' : ''
@@ -104,7 +104,7 @@ function MutationTimeline({
               >
                 <div className="entry-header" onClick={() => toggleExpand(entry.id)}>
                   <div className="entry-icon">
-                    {entry.type === 'manual_edit' ? '✏️' : '⚡'}
+                    {entry.type === 'manual_edit' ? 'Edit' : 'Mut'}
                   </div>
                   <div className="entry-content">
                     <div className="entry-title">
@@ -127,7 +127,7 @@ function MutationTimeline({
                       className="action-btn view-btn"
                       title="View what changed"
                     >
-                      👁
+                      View
                     </button>
                     <button
                       type="button"
@@ -138,7 +138,7 @@ function MutationTimeline({
                       className="action-btn remove-btn"
                       title="Remove this mutation"
                     >
-                      ×
+                      X
                     </button>
                   </div>
                 </div>
@@ -179,7 +179,7 @@ function MutationTimeline({
         {/* Current state indicator */}
         {stack.length > 0 && (
           <div className="timeline-current">
-            <div className="flow-arrow">↓</div>
+            <div className="flow-arrow">|</div>
             <div className="current-state">
               <strong>Current State</strong>
               <p>

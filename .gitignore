@@ -35,8 +35,12 @@ volumes/
 .env
 .env.local
 
-# Ignore markdown files in the root, which are often AI-generated artifacts
-/*.md
+# Ignore some markdown files in the root (AI-generated artifacts)
+# But track important project files
+/audit_suggestions.md
+/codebase_audit_report.md
+/SUB_BYTE_IMPLEMENTATION_PLAN.md
+/SUB_BYTE_IMPLEMENTATION_TODO.md
 
 # Node.js / npm
 node_modules/
