@@ -6,6 +6,83 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added - 2026-01-28
+
+- **Common protocol plugins for real-world fuzzing** (`core/plugins/dns.py`, `core/plugins/mqtt.py`, `core/plugins/modbus_tcp.py`, `core/plugins/tftp.py`, `core/plugins/ntp.py`, `core/plugins/coap.py`)
+  - **DNS** (RFC 1035): Network infrastructure protocol
+    - 16 blocks, 8 bit fields (flags packed into 16 bits: QR, Opcode, AA, TC, RD, RA, Z, RCODE)
+    - 8 seeds covering A, AAAA, MX, TXT, ANY, PTR queries plus version.bind disclosure
+    - Documents common DNS fuzzing targets (name decompression, length fields)
+  - **MQTT v3.1.1**: IoT messaging protocol
+    - 16 blocks, 9 bit fields (connect flags: username, password, will_retain, will_qos, will_flag, clean_session)
+    - 6 seeds including auth flags, will messages, QoS levels, version mismatch
+    - Covers broker authentication and session management vulnerabilities
+  - **Modbus TCP**: Industrial control systems protocol
+    - 6 blocks with MBAP header and PDU structure
+    - 10 seeds covering read coils/registers, write operations, broadcast, device ID query
+    - Includes security warning about fuzzing production ICS/SCADA systems
+  - **TFTP** (RFC 1350): Trivial File Transfer Protocol
+    - 4 blocks for RRQ/WRQ packets with options extension
+    - 10 seeds including path traversal tests, blksize/tsize options, boundary cases
+    - Documents common TFTP vulnerabilities (path traversal, buffer overflows)
+  - **NTP** (RFC 5905): Network Time Protocol
+    - 13 blocks, 3 bit fields (LI, VN, Mode packed in first byte)
+    - 8 seeds covering NTPv3/v4, symmetric/broadcast modes, leap indicators
+    - Documents amplification attacks and timestamp manipulation risks
+  - **CoAP** (RFC 7252): Constrained Application Protocol for IoT
+    - 10 blocks, 5 bit fields (version, type, TKL, code_class, code_detail)
+    - 10 seeds for GET/POST/PUT/DELETE, resource discovery, query parameters
+    - Demonstrates delta-encoded options and payload markers
+  - All plugins include comprehensive tutorial-style comments explaining:
+    - Protocol structure and bit field packing
+    - Security context and common vulnerabilities
+    - RFC references and real-world usage
+  - Impact: Users can immediately fuzz common protocols or use as templates for similar protocols
+  - Testing: Load each plugin in UI, verify seeds parse correctly, test against target services
+
+- **Comprehensive sub-byte/bit field examples in feature_showcase plugin** (`core/plugins/feature_showcase.py:255-424`, `tests/feature_showcase_server.py:30-90,329-530`)
+  - **New bit fields added to data_model** demonstrating advanced patterns:
+    - `qos_level` (3 bits): Quality of Service levels 0-7, mimics IP DSCP/802.1Q PCP patterns
+    - `ecn_bits` (2 bits): Explicit Congestion Notification as defined in RFC 3168
+    - `ack_required` (1 bit): Acknowledgment required flag demonstrating reliable delivery patterns
+    - `more_fragments` (1 bit): Fragmentation continuation flag for multi-part messages
+    - `fragment_offset` (8 bits): Fragment position in reassembled message
+  - **Updated seed corpus** with 6 comprehensive seeds demonstrating:
+    - Seed 1: All bit fields at zero (baseline)
+    - Seed 2: Encryption/compression flags with HIGH priority and Video QoS
+    - Seed 3: Maximum bit field values for edge case testing
+    - Seed 4: First fragment with more_fragments=1
+    - Seed 5: Last fragment with non-zero offset
+    - Seed 6: ECN Congestion Experienced (CE) flag
+  - **Detailed message structure documentation** showing bit packing for all 5 bytes of bit fields
+  - **Test server enhancements**:
+    - Comprehensive bit field parsing and logging
+    - Fragment reassembly logic with buffer management
+    - ECN congestion handling (returns BUSY on CE flag)
+  - **Intentional vulnerabilities for fuzzing demonstration**:
+    - VULNERABILITY #1: encrypted_bit=1 with invalid session crashes (context dereference)
+    - VULNERABILITY #2: ECN=CE with priority=URGENT triggers assertion failure
+    - VULNERABILITY #3: sequence_number=4095 + channel_id=15 causes expensive O(n²) logging
+    - VULNERABILITY #4: fragment_offset > 200 triggers integer overflow in buffer allocation
+    - VULNERABILITY #5: Unlimited fragment buffers enable memory exhaustion
+  - **Updated server header parsing** to handle new bit field layout (MIN_HEADER_SIZE: 26→28, payload_len offset: 22→24)
+  - Impact: Plugin now serves as comprehensive tutorial for implementing sub-byte fields in custom protocols
+  - Testing: Run feature_showcase_server.py, send seeds via nc, verify bit field logging and vulnerability triggers
+
+### Changed - 2026-01-28
+
+- **Refreshed guides hub content and in-app guide accuracy** (`core/ui/spa/src/pages/DocumentationHubPage.tsx:47-247`, `core/ui/spa/src/pages/DocumentationHubPage.css:180-203`, `core/ui/spa/src/pages/GettingStartedGuide.tsx:63-87`, `core/ui/spa/src/pages/FuzzingGuide.tsx:16-127`, `core/ui/spa/src/pages/MutationGuide.tsx:23-30`, `core/ui/spa/src/pages/ProtocolAuthoringGuide.tsx:19-148`)
+  - Updated repository and developer doc paths to match the current docs tree
+  - Aligned protocol authoring guidance with supported behaviors, checksum fields, and route links
+  - Added path wrapping rules to prevent path labels from overflowing in the docs hub cards
+  - Impact: Guides now reflect the actual repository structure and supported features, with readable path labels on smaller screens
+  - Testing: Open the Guides hub and verify path chips wrap; open each guide and confirm protocol authoring links resolve
+- **Added field-based packet builder for one-off tests** (`core/ui/spa/src/pages/OneOffTestPage.tsx:1-285`, `core/ui/spa/src/pages/OneOffTestPage.css:1-160`)
+  - Replaced the static structure hint with per-field inputs derived from the selected protocol
+  - Builds packets via the plugin build endpoint and previews the hex payload before execution
+  - Impact: One-off tests can now be authored using protocol-aware fields instead of raw payload text
+  - Testing: Select a protocol, enter field values, confirm the build preview renders, and execute against the sample target
+
 ### Changed - 2026-01-26
 
 - **UI/UX Review: Standardized visual elements and removed special characters**

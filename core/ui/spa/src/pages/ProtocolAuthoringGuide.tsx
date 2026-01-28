@@ -28,14 +28,14 @@ const ProtocolAuthoringGuide: React.FC = () => {
         {"name": "command", "type": "uint8", "values": {0x01: "LOGIN", 0x02: "TRANSFER", 0x03: "LOGOUT"}, "description": "The operation to be performed."}, 
         {"name": "length", "type": "uint16", "endian": "big", "is_size_field": True, "size_of": "payload", "description": "Length of the variable payload."}, 
         {"name": "payload", "type": "bytes", "max_size": 512, "description": "Variable-length data for the command."}, 
-        {"name": "checksum", "type": "uint32", "behavior": {"operation": "checksum", "algorithm": "crc32", "fields": ["version", "command", "length", "payload"]}, "description": "CRC32 checksum of the message."} 
+        {"name": "checksum", "type": "uint32", "is_checksum": True, "checksum_algorithm": "crc32", "checksum_over": "before", "description": "CRC32 checksum of everything before this field."} 
     ],
     "seeds": [
         b"BANK\x01\x01\x00\x08user:pass", # LOGIN
         b"BANK\x01\x02\x00\x10amount:100,to:123", # TRANSFER
     ],
 }`}</pre>
-        <p>Mark static fields like headers or signatures as <code>mutable: false</code> to prevent the fuzzer from changing them. For variable-length fields, use <code>is_size_field: True</code> and <code>size_of</code> to tell the fuzzer how to calculate lengths automatically. You can point to a single field (<code>"size_of": "payload"</code>) or pass a list (<code>"size_of": ["payload", "trailer"]</code>) when a length covers multiple consecutive blocks. Keep payload fields generous (<code>max_size</code>) so mutators have room to explore.</p>
+        <p>Mark static fields like headers or signatures as <code>mutable: false</code> to prevent the fuzzer from changing them. For variable-length fields, use <code>is_size_field: True</code> and <code>size_of</code> to tell the fuzzer how to calculate lengths automatically. You can point to a single field (<code>"size_of": "payload"</code>) or pass a list (<code>"size_of": ["payload", "trailer"]</code>) when a length covers multiple consecutive blocks. For checksums, add <code>is_checksum: True</code> (or <code>checksum_algorithm</code>) to a fixed-width integer field and optionally set <code>checksum_over</code> to <code>before</code>, <code>after</code>, or <code>all</code>. Keep payload fields generous (<code>max_size</code>) so mutators have room to explore.</p>
       </section>
 
       <section>
@@ -64,7 +64,7 @@ response_handlers = [
 
       <section>
         <h2>4. Add Field Behaviors: The "Protocol Glue"</h2>
-        <p>Behaviors are rules that the fuzzer applies <em>before</em> sending each test case. They are the "glue" that keeps the protocol valid enough for the target to accept the message, even after mutation. This is crucial for getting past the initial parsing stages and into deeper application logic.</p>
+        <p>Behaviors are rules that the fuzzer applies <em>before</em> sending each test case. They are the "glue" that keeps deterministic fields consistent so the target still accepts messages after mutation.</p>
         <pre>{`{
     "name": "sequence",
     "type": "uint16",
@@ -76,19 +76,18 @@ response_handlers = [
     }
 },
 {
-    "name": "checksum",
+    "name": "opcode_bias",
     "type": "uint8",
     "behavior": {
         "operation": "add_constant",
-        "value": 0x55
+        "value": 1
     }
 }`}</pre>
         <ul>
           <li><strong>`increment`</strong>: Automatically increments a sequence number or counter. The fuzzer tracks the current value for the session.</li>
-          <li><strong>`add_constant`</strong>: Adds a constant value to a field. Useful for simple checksums or required values.</li>
-          <li><strong>`checksum`</strong>: Calculates a checksum over a list of fields. Supported algorithms include `crc32`, `xor`, and simple `sum`.</li>
+          <li><strong>`add_constant`</strong>: Adds a constant value to a field. Useful for fixed offsets or required tweaks.</li>
         </ul>
-        <p>Behaviors require fixed-width blocks (e.g., `uint16`, `uint32`, or `bytes` with a `size`). They run in both core and agent modes and remove the need for complex custom mutators.</p>
+        <p>Behaviors require fixed-width blocks (e.g., `uint16`, `uint32`, or `bytes` with a `size`). They run in both core and agent modes and remove the need for complex custom mutators. Checksums are handled by checksum fields during serialization, not by behaviors.</p>
       </section>
 
       <section>
@@ -108,7 +107,7 @@ response_handlers = [
       </section>
 
       <section>
-        <h2>5. Create a Response Validator: The "Logic Oracle"</h2>
+        <h2>6. Create a Response Validator: The "Logic Oracle"</h2>
         <p>The fuzzer automatically detects crashes and hangs. The optional `validate_response` function is your "logic oracle"-it detects when the target violates the protocol's rules <em>without</em> crashing. This is how you find logic bugs, information leaks, and other non-crash vulnerabilities.</p>
         <pre>{`def validate_response(response: bytes) -> bool:
     # Rule 1: Response must start with the correct magic bytes.
@@ -125,7 +124,7 @@ response_handlers = [
       </section>
 
       <section>
-        <h2>6. Test and Refine Your Plugin</h2>
+        <h2>7. Test and Refine Your Plugin</h2>
         <p>Testing is an iterative process. Use the tools provided to ensure your plugin is working correctly.</p>
         <ul>
           <li><strong>Plugin Debugger UI</strong>: Use the "Plugin Debugger" tab in the web UI to preview how the fuzzer parses your seeds and generates mutations. This is the best way to verify that your `data_model` and `behaviors` are correct.</li>
@@ -140,7 +139,7 @@ response_handlers = [
       </section>
 
       <section>
-        <h2>7. Best Practices and Packing Tips</h2>
+        <h2>8. Best Practices and Packing Tips</h2>
         <ul>
           <li><strong>Document Everything</strong>: Use the `description` fields in your `data_model` and add a detailed docstring to the top of your plugin file explaining any quirks or assumptions.</li>
           <li><strong>Sanitize Seeds</strong>: Keep credentials, tokens, and other environment-specific data out of your committed plugin files. Use placeholder values.</li>

@@ -58,22 +58,37 @@ const repositoryDocs: RepoDoc[] = [
   {
     title: 'Quickstart',
     description: 'Run the stack via Docker or local tooling with copy/paste commands.',
-    path: 'QUICKSTART.md',
+    path: 'docs/QUICKSTART.md',
   },
   {
-    title: 'Fuzzing Guide',
-    description: 'Campaign planning, corpus hygiene, and recovery checklists.',
-    path: 'docs/FUZZING_GUIDE.md',
+    title: 'User Guide',
+    description: 'End-to-end usage workflow, UI walkthroughs, and troubleshooting tips.',
+    path: 'docs/USER_GUIDE.md',
   },
   {
-    title: 'Protocol Testing',
-    description: 'Step-by-step instructions for exercising plugins and validating blocks.',
-    path: 'docs/PROTOCOL_TESTING.md',
+    title: 'Protocol Plugin Guide',
+    description: 'Create, test, and validate protocol plugins with real targets.',
+    path: 'docs/PROTOCOL_PLUGIN_GUIDE.md',
   },
   {
-    title: 'OpenAPI Explorer',
-    description: 'Interactive API docs generated from the FastAPI schema (Swagger UI).',
-    path: 'docs/',
+    title: 'Mutation Strategies',
+    description: 'Mutation algorithms, strengths, and coverage tradeoffs.',
+    path: 'docs/MUTATION_STRATEGIES.md',
+  },
+  {
+    title: 'State Coverage Guide',
+    description: 'State graph metrics, coverage signals, and debugging tips.',
+    path: 'docs/STATE_COVERAGE_GUIDE.md',
+  },
+  {
+    title: 'Template Quick Reference',
+    description: 'Protocol template snippets, helper patterns, and field cheat sheets.',
+    path: 'docs/TEMPLATE_QUICK_REFERENCE.md',
+  },
+  {
+    title: 'Protocol Server Templates',
+    description: 'Reference servers and harness patterns for quick target bring-up.',
+    path: 'docs/PROTOCOL_SERVER_TEMPLATES.md',
   },
 ];
 
@@ -81,32 +96,32 @@ const developerReferences: RepoDoc[] = [
   {
     title: 'Architecture Overview',
     description: 'Layer-by-layer breakdown of the orchestrator, engine, and plugins.',
-    path: 'docs/developer/01_overview.md',
+    path: 'docs/developer/01_architectural_overview.md',
   },
   {
-    title: 'Test Case Generation',
+    title: 'Mutation Engine',
     description: 'How seed corpora feed the mutation engine and scheduling loop.',
-    path: 'docs/developer/02_test_case_generation_and_mutation.md',
-  },
-  {
-    title: 'Protocol Parsing & Plugins',
-    description: 'Tips for capturing grammars, declarative behaviors, and validators.',
-    path: 'docs/developer/03_protocol_parsing_and_plugins.md',
+    path: 'docs/developer/02_mutation_engine.md',
   },
   {
     title: 'Stateful Fuzzing',
-    description: 'Details on state walkers, transitions, and replay debugging.',
-    path: 'docs/developer/04_stateful_fuzzing.md',
+    description: 'Tips for state tracking, transitions, and replayable flows.',
+    path: 'docs/developer/03_stateful_fuzzing.md',
   },
   {
-    title: 'Corpus & Agents',
+    title: 'Data Management',
+    description: 'Corpus storage, finding lifecycles, and data retention practices.',
+    path: 'docs/developer/04_data_management.md',
+  },
+  {
+    title: 'Agent & Core Communication',
     description: 'Distributed execution, agent telemetry, and crash artifact handling.',
-    path: 'docs/developer/05_corpus_and_agents.md',
+    path: 'docs/developer/05_agent_and_core_communication.md',
   },
   {
-    title: 'Advanced Logic',
-    description: 'Automatic sizing, response handling, and declarative operations.',
-    path: 'docs/developer/06_advanced_logic.md',
+    title: 'First Debug Session',
+    description: 'Walkthrough of a debugging session with core logs and replay.',
+    path: 'docs/developer/06_first_debug_session.md',
   },
 ];
 
@@ -180,7 +195,7 @@ const DocumentationHubPage = () => {
                 <h3>{guide.title}</h3>
                 <p>{guide.description}</p>
                 <Link className="docs-card-link" to={guide.to}>
-                  Open guide 
+                  Open guide
                 </Link>
               </article>
             ))}

@@ -22,7 +22,7 @@ const MutationGuide: React.FC = () => {
           <div className="strategy-card structure">
             <div className="strategy-badge structure">Structure-Aware</div>
             <h3>How it works:</h3>
-            <p>This strategy leverages the `data_model` you defined in your protocol plugin. It intelligently modifies fields, knowing their type, size, and purpose. For example, it will replace a `string` field with another string, or an `integer` field with another integer. It also works with `behavior` blocks to automatically update lengths, checksums, and sequence numbers.</p>
+            <p>This strategy leverages the `data_model` you defined in your protocol plugin. It intelligently modifies fields, knowing their type, size, and purpose. For example, it will replace a `string` field with another string, or an `integer` field with another integer. It works alongside behaviors for deterministic fields, while size fields and checksum blocks keep derived values consistent.</p>
             <h3>Good for finding:</h3>
             <p>Logic bugs, authentication bypasses, and vulnerabilities in the application's business logic. It's the key to getting past the initial parsing and into the heart of the application.</p>
             <div className="strategy-example"><pre>{`# The fuzzer adds data to the payload and automatically updates the length field.

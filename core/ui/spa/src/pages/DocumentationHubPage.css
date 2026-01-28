@@ -179,9 +179,12 @@
 
 .docs-card-path {
   margin-top: auto;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-wrap: wrap;
+  max-width: 100%;
+  min-width: 0;
   background: rgba(255, 255, 255, 0.06);
   border: 1px dashed rgba(255, 255, 255, 0.18);
   border-radius: 0.65rem;
@@ -195,6 +198,9 @@
   border-radius: 0.45rem;
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: #e0e7ff;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
 }
 
 @media (max-width: 640px) {

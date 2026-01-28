@@ -28,7 +28,27 @@ from core.plugins import feature_showcase
 
 
 class FeatureShowcaseServer:
-    """Stateful TCP server tailored for the Feature Showcase protocol."""
+    """Stateful TCP server tailored for the Feature Showcase protocol.
+
+    This server demonstrates how to implement a protocol handler that:
+    1. Uses the same ProtocolParser as the fuzzer for consistency
+    2. Processes bit-level fields for fine-grained control
+    3. Validates incoming messages and responds appropriately
+    4. Contains INTENTIONAL VULNERABILITIES for fuzzing to discover
+
+    INTENTIONAL VULNERABILITIES (for educational fuzzing):
+    --------------------------------------------------------
+    1. BUFFER OVERFLOW: Fragment offset > 200 triggers integer overflow
+       in buffer allocation (see _process_fragment_fields)
+    2. RESOURCE EXHAUSTION: Sending many fragments with more_fragments=1
+       without a final fragment causes memory leak
+    3. CRASH ON INVALID STATE: encrypted_bit=1 with invalid session crashes
+    4. LOGIC BUG: ECN CE flag with priority=URGENT causes assertion failure
+    5. DENIAL OF SERVICE: sequence_number=4095 with channel_id=15 triggers
+       expensive logging operation
+
+    These bugs are marked with # VULNERABILITY comment for easy identification.
+    """
 
     def __init__(self, host: str = "0.0.0.0", port: int = 9001) -> None:
         self.host = host
@@ -46,8 +66,35 @@ class FeatureShowcaseServer:
         self.response_parser = ProtocolParser(feature_showcase.response_model)
         self.message_types = self._build_message_type_map()
         # Track active sessions keyed by token
-        self.sessions: Dict[int, Dict[str, str]] = {}
+        self.sessions: Dict[int, Dict[str, object]] = {}
         self.message_counter = 0
+
+        # Fragment reassembly buffer: {(session_id, sequence_number): {offset: data}}
+        # VULNERABILITY: No limit on buffer size - memory exhaustion possible
+        self.fragment_buffers: Dict[tuple, Dict[int, bytes]] = {}
+
+        # Priority name mapping for logging
+        self.priority_names = {0: "LOW", 1: "NORMAL", 2: "HIGH", 3: "URGENT"}
+
+        # QoS level names
+        self.qos_names = {
+            0: "Best Effort",
+            1: "Background",
+            2: "Spare",
+            3: "Excellent Effort",
+            4: "Controlled Load",
+            5: "Video",
+            6: "Voice",
+            7: "Network Control"
+        }
+
+        # ECN state names
+        self.ecn_names = {
+            0: "Not-ECT",
+            1: "ECT(1)",
+            2: "ECT(0)",
+            3: "CE"
+        }
 
     def _build_message_type_map(self) -> Dict[int, str]:
         """Invert the `values` mapping on the message_type block."""
@@ -151,6 +198,7 @@ class FeatureShowcaseServer:
             # ================================================================
             # For this protocol, we need at least the initial fields to
             # determine message length. The structure is:
+            #
             #   Offset  Size  Field
             #   ------  ----  -----
             #   0       4     magic
@@ -160,17 +208,45 @@ class FeatureShowcaseServer:
             #   8       1     message_type
             #   9       2     flags
             #   11      8     session_id
-            #   19      1     bit fields byte (encrypted, compressed, fragmented, priority, reserved)
-            #   20      2     sequence_number (12 bits) + channel_id (4 bits)
-            #   22      4     payload_len <- KEY: First length field we need!
             #
-            # So we need to read at least 22+4 = 26 bytes to get payload_len.
+            # BIT FIELDS (5 bytes total):
+            #   19      1     Byte 1: [encrypted(1)|compressed(1)|fragmented(1)|priority(2)|reserved(3)]
+            #   20      2     Bytes 2-3: [sequence_number(12)|channel_id(4)]
+            #   22      2     Bytes 4-5: [qos_level(3)|ecn_bits(2)|ack_required(1)|more_fragments(1)|fragment_offset(8)]
+            #
+            #   24      4     payload_len <- KEY: First length field we need!
+            #
+            # So we need to read at least 24+4 = 28 bytes to get payload_len.
             # After that, we'll need to read more to get metadata_len (which
             # comes after the variable-length payload).
             #
             # NOTE: For your own protocol, adjust this to include all fixed
             # fields up to and including the FIRST length field.
-            MIN_HEADER_SIZE = 26  # Enough to include payload_len field
+            #
+            # BIT FIELD PACKING EXPLANATION:
+            # ==============================
+            # Bit fields are packed sequentially from MSB to LSB:
+            #
+            # Byte 19 (offset 19):
+            #   Bit 7: encrypted_bit (1 bit)
+            #   Bit 6: compressed_bit (1 bit)
+            #   Bit 5: fragmented_bit (1 bit)
+            #   Bits 4-3: priority (2 bits)
+            #   Bits 2-0: reserved_bits (3 bits)
+            #
+            # Bytes 20-21 (offset 20-21, big-endian):
+            #   Bits 15-4: sequence_number (12 bits)
+            #   Bits 3-0: channel_id (4 bits)
+            #
+            # Bytes 22-23 (offset 22-23, big-endian):
+            #   Bits 15-13: qos_level (3 bits)
+            #   Bits 12-11: ecn_bits (2 bits)
+            #   Bit 10: ack_required (1 bit)
+            #   Bit 9: more_fragments (1 bit)
+            #   Bits 8-1: fragment_offset (8 bits)
+            #   Bit 0: padding (1 bit, unused)
+            #
+            MIN_HEADER_SIZE = 28  # Enough to include payload_len field
 
             # Read initial header. We use a loop here because recv() might
             # return less than requested (especially over networks).
@@ -190,7 +266,7 @@ class FeatureShowcaseServer:
             # These tell us how much MORE data to read after the fixed fields.
             #
             # For Feature Showcase protocol:
-            #   - Bytes 22-26 (4 bytes): payload_len (uint32, big-endian)
+            #   - Bytes 24-28 (4 bytes): payload_len (uint32, big-endian)
             #   - Bytes after payload: metadata_len (uint16, big-endian)
             #
             # We need to be careful about endianness! Check your protocol spec.
@@ -198,10 +274,11 @@ class FeatureShowcaseServer:
             # metadata_len (network byte order).
             import struct
 
-            # payload_len is at offset 22 (after magic[4] + version[1] + header_len[1] +
-            # checksum[2] + msg_type[1] + flags[2] + session_id[8] + bit_fields[1] +
-            # seq_num_channel[2] = 22)
-            payload_len = struct.unpack('>I', buffer[22:26])[0]  # '>I' = big-endian uint32
+            # payload_len is at offset 24 (after all fixed header and bit fields):
+            #   magic[4] + version[1] + header_len[1] + checksum[2] + msg_type[1] +
+            #   flags[2] + session_id[8] + bit_fields_byte1[1] + seq_channel[2] +
+            #   advanced_bits[2] = 24
+            payload_len = struct.unpack('>I', buffer[24:28])[0]  # '>I' = big-endian uint32
 
             # ================================================================
             # STEP 3: Calculate total message size
@@ -211,11 +288,12 @@ class FeatureShowcaseServer:
             #
             # Offset  Size            Field
             # ------  ----            -----
-            # 0-25    26              Fixed header (including payload_len)
-            # 26      payload_len     Payload data (variable)
-            # 26+N    2               metadata_len field
-            # 26+N+2  metadata_len    Metadata data (variable)
-            # ...     7               Trailing fixed fields (see below)
+            # 0-23    24              Fixed header (before payload_len)
+            # 24-27   4               payload_len field
+            # 28      payload_len     Payload data (variable)
+            # 28+N    2               metadata_len field
+            # 28+N+2  metadata_len    Metadata data (variable)
+            # ...     9               Trailing fixed fields (see below)
             #
             # STRATEGY: Read in stages because metadata_len comes after payload
             # 1. Read up to and including metadata_len field
@@ -223,7 +301,7 @@ class FeatureShowcaseServer:
             # 3. Calculate final total and read remaining bytes
 
             # First, read through the payload and metadata_len field
-            bytes_needed_for_metadata_len = 26 + payload_len + 2  # header + payload + metadata_len field
+            bytes_needed_for_metadata_len = 28 + payload_len + 2  # header + payload + metadata_len field
 
             while len(buffer) < bytes_needed_for_metadata_len:
                 bytes_to_read = bytes_needed_for_metadata_len - len(buffer)
@@ -235,7 +313,7 @@ class FeatureShowcaseServer:
                 buffer += chunk
 
             # Now we can parse metadata_len (comes right after payload)
-            metadata_len_offset = 26 + payload_len
+            metadata_len_offset = 28 + payload_len
             metadata_len = struct.unpack('>H', buffer[metadata_len_offset:metadata_len_offset+2])[0]  # '>H' = big-endian uint16
 
             # Calculate final total message size including trailing fields
@@ -248,8 +326,8 @@ class FeatureShowcaseServer:
             TRAILING_FIELDS_SIZE = 9
 
             # Complete message size calculation:
-            # header(26) + payload(N) + metadata_len_field(2) + metadata(M) + trailing(9)
-            total_message_size = 26 + payload_len + 2 + metadata_len + TRAILING_FIELDS_SIZE
+            # header+bitfields(28) + payload(N) + metadata_len_field(2) + metadata(M) + trailing(9)
+            total_message_size = 28 + payload_len + 2 + metadata_len + TRAILING_FIELDS_SIZE
 
             # ================================================================
             # STEP 4: Read remaining message bytes
@@ -327,7 +405,17 @@ class FeatureShowcaseServer:
                 pass
 
     def _process_message(self, fields: Dict[str, object], client_addr: tuple) -> bytes:
-        """Dispatch based on message_type and craft an appropriate response."""
+        """Dispatch based on message_type and craft an appropriate response.
+
+        This method demonstrates comprehensive bit field processing:
+        1. Extract all bit fields from parsed message
+        2. Validate bit field combinations
+        3. Process fragmentation if applicable
+        4. Route to appropriate handler based on message type
+
+        The bit field processing includes several INTENTIONAL VULNERABILITIES
+        to demonstrate how fuzzing can discover edge cases and bugs.
+        """
         label, trace_id = self._next_message_label()
         magic = fields.get("magic")
         if magic != b"SHOW":
@@ -349,19 +437,126 @@ class FeatureShowcaseServer:
         msg_value = fields.get("message_type")
         msg_name = self.message_types.get(msg_value, "UNKNOWN")
 
-        # Extract and log bit field values
+        # =====================================================================
+        # EXTRACT ALL BIT FIELDS
+        # =====================================================================
+        # Basic flags (Byte 1)
         encrypted_bit = fields.get("encrypted_bit", 0)
         compressed_bit = fields.get("compressed_bit", 0)
         fragmented_bit = fields.get("fragmented_bit", 0)
         priority = fields.get("priority", 0)
+        reserved_bits = fields.get("reserved_bits", 0)
+
+        # Sequence and channel (Bytes 2-3)
         sequence_number = fields.get("sequence_number", 0)
         channel_id = fields.get("channel_id", 0)
 
-        priority_names = {0: "LOW", 1: "NORMAL", 2: "HIGH", 3: "URGENT"}
-        priority_name = priority_names.get(priority, f"UNKNOWN({priority})")
+        # Advanced bit fields (Bytes 4-5)
+        qos_level = fields.get("qos_level", 0)
+        ecn_bits = fields.get("ecn_bits", 0)
+        ack_required = fields.get("ack_required", 0)
+        more_fragments = fields.get("more_fragments", 0)
+        fragment_offset = fields.get("fragment_offset", 0)
 
-        # Map message type to handler functions so contributors can see how to
-        # wire state transitions to concrete server behavior.
+        # Get human-readable names
+        priority_name = self.priority_names.get(priority, f"UNKNOWN({priority})")
+        qos_name = self.qos_names.get(qos_level, f"UNKNOWN({qos_level})")
+        ecn_name = self.ecn_names.get(ecn_bits, f"UNKNOWN({ecn_bits})")
+
+        session_id = fields.get("session_id")
+        session_state = self._describe_session_state(session_id)
+        trace_cookie = fields.get("trace_cookie") or 0
+
+        # =====================================================================
+        # LOG COMPREHENSIVE BIT FIELD STATUS
+        # =====================================================================
+        basic_flags = f"E={encrypted_bit} C={compressed_bit} F={fragmented_bit} P={priority_name}"
+        advanced_flags = f"QoS={qos_name} ECN={ecn_name} ACK={ack_required} MF={more_fragments} OFF={fragment_offset}"
+
+        self._log(
+            "info",
+            f"{label} Received {msg_name} (0x{msg_value:02X}) · session={session_state}",
+            client_addr=client_addr
+        )
+        self._log(
+            "debug",
+            f"  Basic flags: [{basic_flags}] · seq={sequence_number} ch={channel_id}",
+            client_addr=client_addr
+        )
+        self._log(
+            "debug",
+            f"  Advanced: [{advanced_flags}] · trace=0x{trace_cookie:08X}",
+            client_addr=client_addr
+        )
+
+        # =====================================================================
+        # BIT FIELD VALIDATION AND VULNERABILITIES
+        # =====================================================================
+
+        # Check for reserved bits violation (usually ignored but log it)
+        if reserved_bits != 0:
+            self._log(
+                "warning",
+                f"  Reserved bits non-zero: {reserved_bits} (should be 0)",
+                client_addr=client_addr
+            )
+
+        # VULNERABILITY #1: encrypted_bit=1 with invalid session causes crash
+        # Real bug: Server assumes encryption context exists for session
+        if encrypted_bit == 1:
+            if not isinstance(session_id, int) or session_id not in self.sessions:
+                # VULNERABILITY: Dereferencing None encryption context
+                self._log("error", "VULNERABILITY TRIGGERED: encrypted_bit=1 with no valid session", client_addr=client_addr)
+                # Simulate crash by raising exception
+                raise RuntimeError("Encryption context not found for session")
+
+        # VULNERABILITY #2: ECN CE + URGENT priority triggers assertion
+        # Real bug: Conflicting QoS states not handled
+        if ecn_bits == 3 and priority == 3:  # CE + URGENT
+            self._log("error", "VULNERABILITY TRIGGERED: ECN=CE with priority=URGENT", client_addr=client_addr)
+            # This would be an assertion failure in C code
+            assert False, "Invalid QoS state: congestion + urgent priority"
+
+        # VULNERABILITY #3: sequence_number=4095 + channel_id=15 = expensive operation
+        # Real bug: Triggers O(n^2) logging in debug mode
+        if sequence_number == 4095 and channel_id == 15:
+            self._log("warning", "VULNERABILITY TRIGGERED: Max seq+channel causes expensive logging", client_addr=client_addr)
+            # Simulate expensive operation (in real code this might be a log flood)
+            _ = [str(i) for i in range(10000)]  # Intentionally slow
+
+        # Process ECN congestion notification
+        if ecn_bits == 3:  # CE (Congestion Experienced)
+            self._log(
+                "warning",
+                f"  ECN Congestion Experienced flag set - returning BUSY",
+                client_addr=client_addr
+            )
+            return self._build_response(
+                status=0x01,  # BUSY
+                session_token=session_id if isinstance(session_id, int) else 0,
+                details=b"Server experiencing congestion. Reduce transmission rate.",
+                session_state="CONGESTED",
+                trace_id=trace_id,
+                label=label,
+                client_addr=client_addr
+            )
+
+        # =====================================================================
+        # FRAGMENT PROCESSING
+        # =====================================================================
+        if fragmented_bit == 1:
+            fragment_result = self._process_fragment_fields(
+                fields, session_id, sequence_number, fragment_offset,
+                more_fragments, label, trace_id, client_addr
+            )
+            if fragment_result is not None:
+                return fragment_result
+            # If fragment_result is None, continue with normal processing
+            # (complete message has been reassembled into fields['payload'])
+
+        # =====================================================================
+        # ROUTE TO MESSAGE HANDLER
+        # =====================================================================
         handler = {
             "HANDSHAKE_REQUEST": self._handle_handshake,
             "DATA_STREAM": self._handle_data_stream,
@@ -370,21 +565,120 @@ class FeatureShowcaseServer:
             "TERMINATE": self._handle_terminate,
         }.get(msg_name, self._handle_unknown_message)
 
-        session_id = fields.get("session_id")
-        session_state = self._describe_session_state(session_id)
-        trace_cookie = fields.get("trace_cookie") or 0
+        if isinstance(session_id, int) and session_id in self.sessions:
+            self.sessions[session_id]["last_trace_cookie"] = trace_cookie
+            self.sessions[session_id]["last_qos"] = qos_level
+            self.sessions[session_id]["last_priority"] = priority
 
-        # Build bit field flags string
-        flags_str = f"E={encrypted_bit} C={compressed_bit} F={fragmented_bit} P={priority_name}"
+        return handler(fields, label, trace_id, client_addr)
+
+    def _process_fragment_fields(
+        self,
+        fields: Dict[str, object],
+        session_id: Optional[int],
+        sequence_number: int,
+        fragment_offset: int,
+        more_fragments: int,
+        label: str,
+        trace_id: int,
+        client_addr: tuple
+    ) -> Optional[bytes]:
+        """Process fragmented message bit fields.
+
+        This demonstrates handling of fragmentation-related bit fields:
+        - fragmented_bit: Indicates this is part of a fragmented message
+        - more_fragments: More fragments follow (1) or this is the last (0)
+        - fragment_offset: Position of this fragment in reassembled message
+
+        Contains INTENTIONAL VULNERABILITIES for fuzzing to discover:
+        - Fragment offset > 200 causes buffer overallocation
+        - No limit on fragment buffer size
+        - Overlapping fragments not handled correctly
+
+        Returns:
+            Response bytes if fragment handling is complete (more to come or error)
+            None if message should continue to normal processing (reassembly complete)
+        """
+        payload = fields.get("payload") or b""
+        frag_key = (session_id, sequence_number)
+
+        # VULNERABILITY #4: Fragment offset > 200 triggers integer overflow
+        # Real bug: Buffer allocation uses offset * multiplier causing overflow
+        if fragment_offset > 200:
+            self._log("error", f"VULNERABILITY TRIGGERED: fragment_offset={fragment_offset} > 200", client_addr=client_addr)
+            # Simulate integer overflow in buffer allocation
+            buffer_size = fragment_offset * 256  # Could overflow in 16-bit systems
+            if buffer_size > 65535:
+                raise OverflowError(f"Buffer allocation overflow: {buffer_size}")
 
         self._log(
             "info",
-            f"{label} Received {msg_name} (0x{msg_value:02X}) · session={session_state} · [{flags_str}] · seq={sequence_number} ch={channel_id} · trace=0x{trace_cookie:08X}",
+            f"  Fragment: offset={fragment_offset}, more={more_fragments}, size={len(payload)}",
             client_addr=client_addr
         )
-        if isinstance(session_id, int) and session_id in self.sessions:
-            self.sessions[session_id]["last_trace_cookie"] = trace_cookie
-        return handler(fields, label, trace_id, client_addr)
+
+        # Initialize fragment buffer if needed
+        # VULNERABILITY #5: No limit on buffer entries - memory exhaustion
+        if frag_key not in self.fragment_buffers:
+            self.fragment_buffers[frag_key] = {}
+
+        # Store this fragment
+        # VULNERABILITY: Overlapping fragments overwrite without warning
+        if fragment_offset in self.fragment_buffers[frag_key]:
+            self._log(
+                "warning",
+                f"  Duplicate fragment at offset {fragment_offset} - overwriting",
+                client_addr=client_addr
+            )
+        self.fragment_buffers[frag_key][fragment_offset] = payload
+
+        if more_fragments == 1:
+            # More fragments expected - buffer and wait
+            frag_count = len(self.fragment_buffers[frag_key])
+            return self._build_response(
+                status=0x00,
+                session_token=session_id if isinstance(session_id, int) else 0,
+                details=f"Fragment {frag_count} buffered at offset {fragment_offset}. Awaiting more.".encode(),
+                session_state="FRAGMENT_BUFFERED",
+                trace_id=trace_id,
+                label=label,
+                client_addr=client_addr
+            )
+
+        # This is the last fragment - reassemble
+        fragments = self.fragment_buffers.pop(frag_key, {})
+
+        # Sort fragments by offset and concatenate
+        sorted_offsets = sorted(fragments.keys())
+
+        # Check for gaps in fragment sequence
+        expected_offset = 0
+        for offset in sorted_offsets:
+            if offset != expected_offset:
+                self._log(
+                    "warning",
+                    f"  Fragment gap detected: expected offset {expected_offset}, got {offset}",
+                    client_addr=client_addr
+                )
+            expected_offset = offset + len(fragments[offset])
+
+        # Reassemble payload
+        reassembled = b""
+        for offset in sorted_offsets:
+            reassembled += fragments[offset]
+        reassembled += payload  # Add current (last) fragment
+
+        self._log(
+            "success",
+            f"  Reassembled {len(fragments) + 1} fragments into {len(reassembled)} bytes",
+            client_addr=client_addr
+        )
+
+        # Update payload in fields for normal processing
+        fields["payload"] = reassembled
+
+        # Return None to continue with normal message processing
+        return None
 
     def _handle_handshake(self, fields: Dict[str, object], label: str, trace_id: int, client_addr: tuple) -> bytes:
         session_token = secrets.randbits(64)

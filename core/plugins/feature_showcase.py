@@ -423,6 +423,148 @@ data_model = {
         },
 
         # =====================================================================
+        # SUB-BYTE FIELD EXAMPLE 3: Advanced Bit Field Patterns
+        # =====================================================================
+        # The framework supports advanced bit field options:
+        #   - bit_order: 'msb' (default) or 'lsb' - bit numbering within bytes
+        #   - endian: 'big' (default) or 'little' - byte order for multi-byte fields
+        #
+        # These are crucial for protocols that originate from different domains:
+        #   - Network protocols: Usually MSB-first, big-endian
+        #   - Hardware/embedded: Often LSB-first, little-endian
+        #   - Mixed protocols: May have fields with different orderings
+
+        {
+            "name": "qos_level",
+            "type": "bits",
+            "size": 3,                 # 3 bits = 8 QoS levels (0-7)
+            "default": 0,
+
+            # QoS (Quality of Service) LEVEL:
+            # This demonstrates a 3-bit field for fine-grained QoS control.
+            #
+            # TYPICAL QoS LEVELS:
+            #   0 = Best Effort (no guarantees)
+            #   1 = Background (lower than default)
+            #   2 = Spare
+            #   3 = Excellent Effort
+            #   4 = Controlled Load
+            #   5 = Video (low latency, high throughput)
+            #   6 = Voice (very low latency)
+            #   7 = Network Control (highest priority)
+            #
+            # REAL-WORLD EXAMPLES:
+            #   - IP: DSCP (6 bits) in TOS field
+            #   - 802.1Q VLAN: PCP (3 bits) for CoS
+            #   - MQTT: QoS (2 bits) for delivery guarantees
+            #
+            # WHY 3 BITS?
+            # 8 levels is enough for most prioritization schemes while
+            # saving space compared to a full byte.
+        },
+        {
+            "name": "ecn_bits",
+            "type": "bits",
+            "size": 2,                 # 2 bits for ECN (Explicit Congestion Notification)
+            "default": 0,
+
+            # ECN (EXPLICIT CONGESTION NOTIFICATION):
+            # A real-world example from IP headers demonstrating 2-bit fields.
+            #
+            # ECN VALUES (as defined in RFC 3168):
+            #   0b00 = Not-ECT: ECN not supported
+            #   0b01 = ECT(1): ECN capable, codepoint 1
+            #   0b10 = ECT(0): ECN capable, codepoint 0
+            #   0b11 = CE: Congestion Experienced
+            #
+            # This field demonstrates how small bit fields can carry
+            # meaningful protocol information efficiently.
+            #
+            # SERVER BEHAVIOR:
+            # The test server simulates congestion when:
+            #   - ecn_bits == 0b11 (CE): Returns BUSY status
+            #   - ecn_bits == 0b01 or 0b10: Logs ECN capability
+            #   - ecn_bits == 0b00: Normal processing
+        },
+        {
+            "name": "ack_required",
+            "type": "bits",
+            "size": 1,                 # 1 bit flag
+            "default": 1,              # Default to requiring acknowledgment
+
+            # ACK REQUIRED FLAG:
+            # Single bit indicating if this message requires acknowledgment.
+            #
+            # PROTOCOL PATTERNS:
+            #   - TCP: ACK flag in TCP header
+            #   - MQTT: QoS 1+ requires PUBACK
+            #   - Custom protocols: Reliable vs unreliable delivery
+            #
+            # SERVER BEHAVIOR:
+            # When ack_required=1: Server sends a full response with trace_id
+            # When ack_required=0: Server may send minimal or no response
+            #
+            # FUZZING INTEREST:
+            # Test what happens when:
+            #   - ack_required=0 but client waits for response
+            #   - ack_required=1 but server doesn't send ACK (race conditions)
+        },
+        {
+            "name": "more_fragments",
+            "type": "bits",
+            "size": 1,                 # 1 bit flag
+            "default": 0,              # 0 = last/only fragment
+
+            # MORE FRAGMENTS FLAG:
+            # Indicates if more fragments follow this message.
+            #
+            # FRAGMENTATION PROTOCOL:
+            # Large messages are often split into fragments:
+            #   - Fragment 1: more_fragments=1, fragmented_bit=1
+            #   - Fragment 2: more_fragments=1, fragmented_bit=1
+            #   - Fragment N: more_fragments=0, fragmented_bit=1 (last fragment)
+            #   - Non-fragmented: more_fragments=0, fragmented_bit=0
+            #
+            # SERVER BEHAVIOR:
+            # The test server tracks fragment state:
+            #   - more_fragments=1: Buffer payload, wait for more
+            #   - more_fragments=0: Process complete message
+            #
+            # VULNERABILITY:
+            # The test server has an intentional bug where sending
+            # many fragments without a final fragment (more_fragments=0)
+            # causes memory exhaustion. This demonstrates fuzzing
+            # for resource exhaustion bugs.
+        },
+        {
+            "name": "fragment_offset",
+            "type": "bits",
+            "size": 8,                 # 8 bits = 256 fragment positions
+            "default": 0,
+
+            # FRAGMENT OFFSET:
+            # Position of this fragment in the reassembled message.
+            # 8 bits allows 256 fragments (0-255).
+            #
+            # USED WITH:
+            #   - more_fragments: Whether more fragments follow
+            #   - fragmented_bit: Whether this is part of a fragmented message
+            #   - sequence_number: Identifies which message this fragment belongs to
+            #
+            # REASSEMBLY ALGORITHM:
+            # Server collects fragments by sequence_number, orders by
+            # fragment_offset, assembles when more_fragments=0 received.
+            #
+            # VULNERABILITY:
+            # The test server has intentional bugs:
+            #   1. Out-of-order fragments with overlapping offsets crash
+            #   2. Fragment offset > 200 triggers integer overflow in buffer sizing
+            #
+            # This demonstrates how bit fields can carry values that
+            # trigger edge cases in parsing/processing logic.
+        },
+
+        # =====================================================================
         # PART 4: VARIABLE-LENGTH PAYLOAD WITH SIZE FIELD
         # =====================================================================
         # This is the most common pattern in binary protocols:
@@ -668,64 +810,219 @@ data_model = {
     # NOTE: If you omit the "seeds" key or set it to [], the framework will
     # auto-generate seeds from your data_model default values!
 
+    # -------------------------------------------------------------------------
+    # Seed Corpus - UPDATED for Sub-Byte Fields
+    # -------------------------------------------------------------------------
+    # Seeds now include the additional bit fields added to showcase advanced
+    # sub-byte field patterns. Each seed documents the complete message structure
+    # including all bit-packed fields.
+    #
+    # MESSAGE STRUCTURE SUMMARY (with bit fields):
+    # Offset   Size     Field                    Notes
+    # ------   ----     -----                    -----
+    # 0        4        magic                    "SHOW"
+    # 4        1        protocol_version         0x01
+    # 5        1        header_len               Auto-calculated
+    # 6        2        header_checksum          Little-endian
+    # 8        1        message_type             Command identifier
+    # 9        2        flags                    General purpose flags
+    # 11       8        session_id               64-bit session token
+    # 19       1        BIT FIELD BYTE 1:        [encrypted|compressed|fragmented|priority(2)|reserved(3)]
+    # 20       2        BIT FIELD BYTES 2-3:     [sequence_number(12)|channel_id(4)]
+    # 22       2        BIT FIELD BYTES 4-5:     [qos_level(3)|ecn_bits(2)|ack_required(1)|more_fragments(1)|fragment_offset(8)+1 overflow bit]
+    # 24       4        payload_len              Big-endian uint32
+    # 28       N        payload                  Variable length
+    # 28+N     2        metadata_len             Big-endian uint16
+    # 30+N     M        metadata                 Variable length UTF-16-LE
+    # 30+N+M   2        telemetry_counter        Big-endian uint16
+    # 32+N+M   1        opcode_bias              uint8
+    # 33+N+M   4        trace_cookie             Big-endian uint32
+    # 37+N+M   2        footer_marker            "\r\n"
+
     "seeds": [
-        # Seed 1: Basic HANDSHAKE_REQUEST with small payload
-        # Structure breakdown:
-        #   SHOW                                  -> magic (4 bytes)
-        #   \x01                                  -> protocol_version (1 byte)
-        #   \x0B                                  -> header_len = 11 (1 byte)
-        #   \xAD\xDE                              -> header_checksum = 0xDEAD little-endian (2 bytes)
-        #   \x01                                  -> message_type = HANDSHAKE_REQUEST (1 byte)
-        #   \x00\x00                              -> flags = 0 (2 bytes)
-        #   \x00\x00\x00\x00\x00\x00\x00\x01     -> session_id = 1 (8 bytes)
-        #   \x00                                  -> bit fields byte: all flags=0, priority=0, reserved=0 (1 byte)
-        #   \x00\x00                              -> sequence_number(12 bits)=0 + channel_id(4 bits)=0 (2 bytes)
-        #   \x00\x00\x00\x0C                      -> payload_len = 12 (4 bytes)
-        #   Hello World!                          -> payload (12 bytes)
-        #   \x00\x00                              -> metadata_len = 0 (2 bytes)
-        #   (empty)                               -> metadata (0 bytes)
-        #   \x00\x00                              -> telemetry_counter = 0 (2 bytes)
-        #   \x00                                  -> opcode_bias = 0 (1 byte)
-        #   \x00\x00\x00\x00                      -> trace_cookie = 0 (4 bytes)
-        #   \r\n                                  -> footer_marker (2 bytes)
+        # =====================================================================
+        # Seed 1: Basic HANDSHAKE_REQUEST - All Bit Fields at Zero
+        # =====================================================================
+        # This is the simplest valid message with all bit fields cleared.
+        # Use this as a baseline for understanding the message structure.
+        #
+        # BIT FIELD BYTE 1 (offset 19): 0x00
+        #   encrypted_bit   = 0 (bit 7)
+        #   compressed_bit  = 0 (bit 6)
+        #   fragmented_bit  = 0 (bit 5)
+        #   priority        = 0 (bits 4-3) = LOW
+        #   reserved_bits   = 0 (bits 2-0)
+        #
+        # BIT FIELD BYTES 2-3 (offset 20-21): 0x00 0x00
+        #   sequence_number = 0 (bits 15-4, 12 bits)
+        #   channel_id      = 0 (bits 3-0, 4 bits)
+        #
+        # BIT FIELD BYTES 4-5 (offset 22-23): 0x00 0x00
+        #   qos_level       = 0 (bits 15-13, 3 bits) = Best Effort
+        #   ecn_bits        = 0 (bits 12-11, 2 bits) = Not-ECT
+        #   ack_required    = 0 (bit 10, 1 bit)      = No ACK needed
+        #   more_fragments  = 0 (bit 9, 1 bit)       = Last/only fragment
+        #   fragment_offset = 0 (bits 8-1, 8 bits)   = Position 0
+        #   (1 bit padding to byte boundary)
         (b"SHOW\x01\x0B\xAD\xDE\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01"
-         b"\x00\x00\x00"
-         b"\x00\x00\x00\x0C" b"Hello World!" b"\x00\x00" b"\x00\x00" b"\x00" b"\x00\x00\x00\x00" b"\r\n"),
+         b"\x00"              # bit fields byte 1: all zeros
+         b"\x00\x00"          # seq_num(12)=0, channel_id(4)=0
+         b"\x00\x00"          # qos(3)=0, ecn(2)=0, ack(1)=0, more(1)=0, frag_off(8)=0
+         b"\x00\x00\x00\x0C" b"Hello World!"
+         b"\x00\x00"          # metadata_len
+         b"\x00\x00"          # telemetry_counter
+         b"\x00"              # opcode_bias
+         b"\x00\x00\x00\x00"  # trace_cookie
+         b"\r\n"),
 
-        # Seed 2: DATA_STREAM message with bit fields enabled
-        # This demonstrates message type used AFTER handshake with sub-byte fields set.
-        # Structure:
-        #   message_type = 0x10 (DATA_STREAM)
-        #   session_id = 0x0102030405060708 (from previous handshake)
-        #   bit fields = 0xC8 = 1100 1000 binary:
-        #     encrypted_bit = 1 (bit 7)
-        #     compressed_bit = 1 (bit 6)
-        #     fragmented_bit = 0 (bit 5)
-        #     priority = 2 (HIGH) (bits 4-3 = 10 binary)
-        #     reserved = 0 (bits 2-0)
-        #   sequence_number = 42 (0x02A), channel_id = 5 (0x5)
-        #     Packed as: 0x02A5 (12 bits: 0000 0010 1010, 4 bits: 0101)
-        #   payload = "Some stream data" (16 bytes)
+        # =====================================================================
+        # Seed 2: DATA_STREAM with Encryption and Compression Flags
+        # =====================================================================
+        # Demonstrates setting bit flags for encrypted, compressed data
+        # with HIGH priority on channel 5.
+        #
+        # BIT FIELD BYTE 1 (offset 19): 0xC8 = 1100 1000
+        #   encrypted_bit   = 1 (bit 7) - Data is encrypted
+        #   compressed_bit  = 1 (bit 6) - Data is compressed
+        #   fragmented_bit  = 0 (bit 5) - Not fragmented
+        #   priority        = 2 (bits 4-3 = 10) = HIGH
+        #   reserved_bits   = 0 (bits 2-0)
+        #
+        # BIT FIELD BYTES 2-3 (offset 20-21): 0x02 0xA5
+        #   sequence_number = 42 (0x02A in upper 12 bits)
+        #   channel_id      = 5 (0x5 in lower 4 bits)
+        #   Packed: 0000 0010 1010 0101 = 0x02A5
+        #
+        # BIT FIELD BYTES 4-5 (offset 22-23): 0xAC 0x00
+        #   qos_level       = 5 (bits 15-13 = 101) = Video priority
+        #   ecn_bits        = 1 (bits 12-11 = 01)  = ECT(1)
+        #   ack_required    = 1 (bit 10)           = ACK required
+        #   more_fragments  = 0 (bit 9)            = Last fragment
+        #   fragment_offset = 0 (bits 8-1)         = Position 0
+        #   Packed: 1010 1100 0000 0000 = 0xAC00
         (b"SHOW\x01\x0B\xAD\xDE\x10\x00\x01\x01\x02\x03\x04\x05\x06\x07\x08"
-         b"\xC8\x02\xA5"
-         b"\x00\x00\x00\x10" b"Some stream data" b"\x00\x00" b"\x00\x00" b"\x00" b"\x00\x00\x00\x00" b"\r\n"),
+         b"\xC8"              # encrypted=1, compressed=1, priority=HIGH
+         b"\x02\xA5"          # seq_num=42, channel_id=5
+         b"\xAC\x00"          # qos=5(Video), ecn=1(ECT1), ack=1, more=0, frag_off=0
+         b"\x00\x00\x00\x10" b"Some stream data"
+         b"\x00\x00"          # metadata_len
+         b"\x00\x00"          # telemetry_counter
+         b"\x00"              # opcode_bias
+         b"\x00\x00\x00\x00"  # trace_cookie
+         b"\r\n"),
 
-        # Seed 3: TERMINATE message with no payload and different bit patterns
-        # This tests clean shutdown and edge case of zero-length payload with bit fields.
-        # Structure:
-        #   message_type = 0xFF (TERMINATE)
-        #   session_id = 0xFFFFFFFFFFFFFFFF (all bits set)
-        #   bit fields = 0x18 = 0001 1000 binary:
-        #     encrypted_bit = 0 (bit 7)
-        #     compressed_bit = 0 (bit 6)
-        #     fragmented_bit = 0 (bit 5)
-        #     priority = 3 (URGENT) (bits 4-3 = 11 binary)
-        #     reserved = 0 (bits 2-0)
-        #   sequence_number = 4095 (max 12-bit value = 0xFFF), channel_id = 15 (max 4-bit = 0xF)
-        #   payload_len = 0 (no payload)
+        # =====================================================================
+        # Seed 3: TERMINATE with Maximum Bit Field Values
+        # =====================================================================
+        # Tests edge cases by setting bit fields to maximum values.
+        # This can trigger integer overflow bugs in poorly written parsers.
+        #
+        # BIT FIELD BYTE 1 (offset 19): 0x18 = 0001 1000
+        #   encrypted_bit   = 0 (bit 7)
+        #   compressed_bit  = 0 (bit 6)
+        #   fragmented_bit  = 0 (bit 5)
+        #   priority        = 3 (bits 4-3 = 11) = URGENT
+        #   reserved_bits   = 0 (bits 2-0)
+        #
+        # BIT FIELD BYTES 2-3 (offset 20-21): 0xFF 0xFF
+        #   sequence_number = 4095 (0xFFF, max 12-bit value)
+        #   channel_id      = 15 (0xF, max 4-bit value)
+        #
+        # BIT FIELD BYTES 4-5 (offset 22-23): 0xFF 0xFE
+        #   qos_level       = 7 (bits 15-13 = 111) = Network Control (max)
+        #   ecn_bits        = 3 (bits 12-11 = 11)  = CE (Congestion)
+        #   ack_required    = 1 (bit 10)           = ACK required
+        #   more_fragments  = 1 (bit 9)            = More fragments (unusual for TERMINATE!)
+        #   fragment_offset = 255 (bits 8-1)       = Max offset
+        #   Packed: 1111 1111 1111 1110 = 0xFFFE
         (b"SHOW\x01\x0B\xAD\xDE\xFF\x00\x00\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF"
-         b"\x18\xFF\xFF"
-         b"\x00\x00\x00\x00" b"\x00\x00" b"\x00\x00" b"\x00" b"\x00\x00\x00\x00" b"\r\n"),
+         b"\x18"              # priority=URGENT
+         b"\xFF\xFF"          # seq_num=4095(max), channel_id=15(max)
+         b"\xFF\xFE"          # qos=7(max), ecn=3(CE), ack=1, more=1, frag_off=255(max)
+         b"\x00\x00\x00\x00"  # payload_len=0
+         b"\x00\x00"          # metadata_len
+         b"\x00\x00"          # telemetry_counter
+         b"\x00"              # opcode_bias
+         b"\x00\x00\x00\x00"  # trace_cookie
+         b"\r\n"),
+
+        # =====================================================================
+        # Seed 4: Fragmented Message (First Fragment)
+        # =====================================================================
+        # Demonstrates fragmentation bit fields in use. This is the first
+        # of a multi-fragment message.
+        #
+        # BIT FIELD BYTE 1 (offset 19): 0x20 = 0010 0000
+        #   encrypted_bit   = 0
+        #   compressed_bit  = 0
+        #   fragmented_bit  = 1 (bit 5) - This IS a fragment
+        #   priority        = 0 (LOW)
+        #   reserved_bits   = 0
+        #
+        # BIT FIELD BYTES 4-5: 0x02 0x00
+        #   qos_level       = 0 (Best Effort)
+        #   ecn_bits        = 0 (Not-ECT)
+        #   ack_required    = 0
+        #   more_fragments  = 1 (bit 9) - More fragments follow!
+        #   fragment_offset = 0 (bits 8-1) - This is fragment 0
+        #   Packed: 0000 0010 0000 0000 = 0x0200
+        (b"SHOW\x01\x0B\xAD\xDE\x10\x00\x01\x01\x02\x03\x04\x05\x06\x07\x08"
+         b"\x20"              # fragmented_bit=1
+         b"\x00\x01"          # seq_num=0, channel_id=1
+         b"\x02\x00"          # more_fragments=1, fragment_offset=0
+         b"\x00\x00\x00\x08" b"Fragment"
+         b"\x00\x00"
+         b"\x00\x00"
+         b"\x00"
+         b"\x00\x00\x00\x00"
+         b"\r\n"),
+
+        # =====================================================================
+        # Seed 5: Fragmented Message (Last Fragment with Offset)
+        # =====================================================================
+        # Last fragment of a multi-part message with non-zero offset.
+        #
+        # BIT FIELD BYTES 4-5: 0x00 0x10
+        #   qos_level       = 0
+        #   ecn_bits        = 0
+        #   ack_required    = 0
+        #   more_fragments  = 0 (bit 9) - This is the LAST fragment
+        #   fragment_offset = 8 (bits 8-1) - Position 8 in reassembled message
+        #   Packed: 0000 0000 0001 0000 = 0x0010
+        (b"SHOW\x01\x0B\xAD\xDE\x10\x00\x01\x01\x02\x03\x04\x05\x06\x07\x08"
+         b"\x20"              # fragmented_bit=1
+         b"\x00\x01"          # seq_num=0, channel_id=1 (same as first fragment)
+         b"\x00\x10"          # more_fragments=0, fragment_offset=8
+         b"\x00\x00\x00\x04" b"Data"
+         b"\x00\x00"
+         b"\x00\x00"
+         b"\x00"
+         b"\x00\x00\x00\x00"
+         b"\r\n"),
+
+        # =====================================================================
+        # Seed 6: ECN Congestion Experienced (CE) Flag Set
+        # =====================================================================
+        # Tests congestion notification handling. Server should respond
+        # with BUSY status when CE flag is set.
+        #
+        # BIT FIELD BYTES 4-5: 0x18 0x00
+        #   qos_level       = 0
+        #   ecn_bits        = 3 (bits 12-11 = 11) = CE (Congestion Experienced)
+        #   ack_required    = 0
+        #   more_fragments  = 0
+        #   fragment_offset = 0
+        #   Packed: 0001 1000 0000 0000 = 0x1800
+        (b"SHOW\x01\x0B\xAD\xDE\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+         b"\x00"              # all basic flags off
+         b"\x00\x00"          # seq_num=0, channel_id=0
+         b"\x18\x00"          # ecn=3(CE) - signals congestion
+         b"\x00\x00\x00\x05" b"Hello"
+         b"\x00\x00"
+         b"\x00\x00"
+         b"\x00"
+         b"\x00\x00\x00\x00"
+         b"\r\n"),
 
         # TIP: To add more seeds, you can:
         #   1. Use the State Walker UI to execute transitions and export the raw hex
@@ -734,9 +1031,10 @@ data_model = {
         #
         # GOOD SEEDS TO ADD:
         #   - Maximum length payload (tests buffer boundaries)
-        #   - Different flag combinations (tests bitfield logic)
-        #   - Each message_type value (tests all commands)
-        #   - Payloads with special content (nulls, high bytes, format strings)
+        #   - Different QoS/priority combinations
+        #   - Out-of-order fragment offsets (tests reassembly bugs)
+        #   - ECN transitions (Not-ECT -> ECT -> CE)
+        #   - Large fragment_offset values (tests integer overflow)
     ],
 }
 

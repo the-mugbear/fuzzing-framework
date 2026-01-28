@@ -66,7 +66,7 @@ const GettingStartedGuide: React.FC = () => {
           <thead>
             <tr><th>Seed</th><td>A known-good message that the mutator uses as a starting point. High-quality seeds are critical for deep fuzzing.</td></tr>
             <tr><th>Mutation Strategy</th><td>An algorithm for corrupting a seed (e.g., bit flip, byte flip, havoc, splice). Each is designed to trigger different kinds of bugs.</td></tr>
-            <tr><th>Behavior</th><td>A rule applied to a message *before* it is sent, to fix up fields like sequence numbers or checksums. This keeps the message valid enough to be accepted by the target.</td></tr>
+            <tr><th>Behavior</th><td>A rule applied to a message <em>before</em> it is sent, used for deterministic fields like sequence numbers or fixed offsets. Lengths and checksums are handled by size fields and checksum blocks.</td></tr>
           </thead>
           <tbody>
             <tr><th>State Model</th><td>A map of the protocol's states and the messages that transition between them. Essential for fuzzing stateful protocols.</td></tr>
@@ -83,7 +83,7 @@ const GettingStartedGuide: React.FC = () => {
           <li><strong>Use the Plugin Debugger</strong>: This is the most powerful tool for understanding how the fuzzer sees your protocol. Inspect how seeds are parsed and how different mutations affect the output.</li>
           <li><strong>Upload a Custom Seed</strong>: Create a new, valid message for the `simple_tcp` protocol and upload it via the UI. Confirm that it appears in the Mutation previews. This teaches you how to expand the fuzzer's knowledge.</li>
           <li><strong>Replay a Finding</strong>: Once the fuzzer finds a crash, use the "Replay" button to send the exact same payload again. Watch the target's logs to see the crash happen in real-time.</li>
-          <li><strong>Create a New Plugin</strong>: The best way to learn is by doing. Try creating a simple plugin for a well-known protocol like HTTP or Redis. See the <a href="/core/ui/guides/protocol-authoring-guide.html">Comprehensive Protocol Authoring Guide</a>.</li>
+          <li><strong>Create a New Plugin</strong>: The best way to learn is by doing. Try creating a simple plugin for a well-known protocol like HTTP or Redis. See the <a href="/ui/guides/protocol-authoring">Comprehensive Protocol Authoring Guide</a>.</li>
         </ul>
       </section>
     </>

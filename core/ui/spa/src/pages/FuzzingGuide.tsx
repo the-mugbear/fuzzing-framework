@@ -19,7 +19,7 @@ const FuzzingGuide: React.FC = () => {
             <tr><td><strong>Mutator</strong></td><td>Algorithm that transforms a seed (e.g., <code>bitflip</code>, <code>havoc</code>, <code>splice</code>). Choose them via <code>enabled_mutators</code>.</td></tr>
             <tr><td><strong>Behavior</strong></td><td>Declarative rule attached to a protocol block (e.g., “increment sequence”, “add constant”). Behaviors run before every send to keep deterministic fields valid.</td></tr>
             <tr><td><strong>Agent Mode</strong></td><td>Test cases are executed by remote agents that talk to the target and stream results back to the core.</td></tr>
-            <tr><td><strong>One-off Test</strong></td><td>Single payload execution via <code>POST /api/tests/execute</code>-use it for quick validation or reproduction.</td></tr>
+            <tr><td><strong>One-off Test</strong></td><td>Single payload execution via <code>POST /api/tests/execute</code> in core mode-use it for quick validation or reproduction.</td></tr>
           </tbody>
         </table>
       </section>
@@ -46,9 +46,9 @@ const FuzzingGuide: React.FC = () => {
     "behavior": {"operation": "increment", "initial": 0, "step": 1}
 }
 {
-    "name": "checksum",
+    "name": "opcode_bias",
     "type": "uint8",
-    "behavior": {"operation": "add_constant", "value": 0x55}
+    "behavior": {"operation": "add_constant", "value": 1}
 }`}</pre>
               </li>
             </ul>
@@ -82,7 +82,7 @@ const FuzzingGuide: React.FC = () => {
         <div className="callout">
           <ul>
             <li><strong>Good Seeds Trump Raw Speed:</strong> Authentic traffic captures produce deeper coverage.</li>
-            <li><strong>Behaviors for Protocol Glue:</strong> Sequence counters, derived lengths, and checksums belong in behaviors.</li>
+            <li><strong>Behaviors for Protocol Glue:</strong> Sequence counters and deterministic offsets belong in behaviors; lengths and checksums are handled by size fields and checksum blocks.</li>
             <li><strong>Layer Monitoring:</strong> Combine target logs with CPU/memory metrics.</li>
             <li><strong>Split Campaigns:</strong> Stop sessions periodically to snapshot findings.</li>
             <li><strong>Reproduce Outside the Lab:</strong> Replay crashes against staging systems to confirm impact.</li>
@@ -124,7 +124,7 @@ const FuzzingGuide: React.FC = () => {
           <li><strong>Use the One-Off Endpoint</strong>: The <code>POST /api/tests/execute</code> endpoint is your best friend for debugging. Send your seeds one by one to see if they elicit the expected response.</li>
           <li><strong>Review the Protocol Plugin</strong>: Check your <code>size_of</code> fields, <code>endian</code> settings, and <code>behavior</code> blocks. Use the Plugin Debugger in the UI to preview mutations.</li>
         </ol>
-        <p>By systematically analyzing the entire communication chain, you can pinpoint the exact reason for the fuzzer's struggles. For more details, see the <a href="/core/ui/guides/protocol-authoring-guide.html">Comprehensive Protocol Authoring Guide</a>.</p>
+        <p>By systematically analyzing the entire communication chain, you can pinpoint the exact reason for the fuzzer's struggles. For more details, see the <a href="/ui/guides/protocol-authoring">Comprehensive Protocol Authoring Guide</a>.</p>
       </section>
     </>
   );
