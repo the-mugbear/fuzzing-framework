@@ -1,10 +1,59 @@
 """
 Response planner - turns parsed responses into follow-up requests.
+
+This module implements declarative response handling with support for
+copying values from responses and applying transformations.
+
+TRANSFORMATION SUPPORT:
+=======================
+When copying values from responses, you can apply transformations:
+
+1. SIMPLE COPY:
+   {"copy_from_response": "session_token"}
+
+2. COPY WITH SINGLE OPERATION:
+   {
+       "copy_from_response": "server_value",
+       "operation": "and_mask",
+       "value": 0x1F
+   }
+
+3. COPY WITH BIT EXTRACTION:
+   {
+       "copy_from_response": "server_value",
+       "extract_bits": {"start": 0, "count": 5}  # Extract 5 LSBs
+   }
+
+4. COPY WITH TRANSFORMATION PIPELINE:
+   {
+       "copy_from_response": "server_value",
+       "transform": [
+           {"operation": "and_mask", "value": 0x1F},  # Extract 5 LSBs
+           {"operation": "invert", "bit_width": 5},   # Invert within 5 bits
+       ]
+   }
+
+SUPPORTED OPERATIONS:
+=====================
+- add_constant: value + constant
+- subtract_constant: value - constant
+- xor_constant: value ^ constant
+- and_mask: value & mask
+- or_mask: value | mask
+- shift_left: value << count
+- shift_right: value >> count
+- invert: ~value (with optional bit_width to limit inversion range)
+- modulo: value % divisor
+
+For 'invert' operation:
+- Without bit_width: Full bitwise NOT (result depends on Python int)
+- With bit_width: Inverts only the specified number of bits
+  Example: invert with bit_width=5 on value 0x0A (01010) -> 0x15 (10101)
 """
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import structlog
 
@@ -26,6 +75,28 @@ class ResponsePlanner:
             "set_fields": {
                 "command": 0x10,
                 "session_id": {"copy_from_response": "session_token"},
+            },
+        }
+    ]
+
+    Advanced example with bit manipulation:
+
+    response_handlers = [
+        {
+            "name": "derive_header_from_token",
+            "match": {"status": 0x00},
+            "set_fields": {
+                # Copy server value directly
+                "session_token": {"copy_from_response": "server_token"},
+
+                # Extract 5 LSBs and invert them for header field
+                "header_check": {
+                    "copy_from_response": "server_token",
+                    "transform": [
+                        {"operation": "and_mask", "value": 0x1F},
+                        {"operation": "invert", "bit_width": 5},
+                    ]
+                },
             },
         }
     ]
@@ -142,14 +213,24 @@ class ResponsePlanner:
 
     @staticmethod
     def _resolve_field_value(spec: Any, parsed_response: Dict[str, Any]) -> Any:
+        """
+        Resolve a field value specification to an actual value.
+
+        Supports:
+        - Literal values (int, str, bytes, etc.)
+        - {"copy_from_response": "field_name"} - copy from response
+        - {"literal": value} - explicit literal wrapper
+        - {"copy_from_response": ..., "extract_bits": {...}} - bit extraction
+        - {"copy_from_response": ..., "operation": ..., "value": ...} - single op
+        - {"copy_from_response": ..., "transform": [...]} - operation pipeline
+        """
         if isinstance(spec, dict):
             if "copy_from_response" in spec:
                 value = parsed_response.get(spec["copy_from_response"])
 
                 # Bit extraction support for sub-byte field manipulation
+                # Format: {"start": 4, "count": 4} extracts 4 bits starting at bit 4
                 if "extract_bits" in spec:
-                    # Extract arbitrary bit range from integer value
-                    # Format: {"start": 4, "count": 4} extracts 4 bits starting at bit 4
                     start_bit = spec["extract_bits"].get("start", 0)
                     num_bits = spec["extract_bits"].get("count", 8)
 
@@ -157,8 +238,28 @@ class ResponsePlanner:
                         mask = (1 << num_bits) - 1
                         value = (value >> start_bit) & mask
 
-                if "operation" in spec:
-                    value = ResponsePlanner._apply_operation(value, spec.get("operation"), spec.get("value"))
+                # Support for transformation pipeline (list of operations)
+                # Each transform is: {"operation": "op_name", "value": x, "bit_width": y}
+                if "transform" in spec:
+                    transforms = spec["transform"]
+                    if isinstance(transforms, list):
+                        for transform in transforms:
+                            if isinstance(transform, dict):
+                                value = ResponsePlanner._apply_operation(
+                                    value,
+                                    transform.get("operation"),
+                                    transform.get("value"),
+                                    transform.get("bit_width"),
+                                )
+
+                # Support for single operation (backward compatible)
+                elif "operation" in spec:
+                    value = ResponsePlanner._apply_operation(
+                        value,
+                        spec.get("operation"),
+                        spec.get("value"),
+                        spec.get("bit_width"),
+                    )
 
                 return value
             if "literal" in spec:
@@ -166,27 +267,105 @@ class ResponsePlanner:
         return spec
 
     @staticmethod
-    def _apply_operation(value: Any, operation: Any, op_value: Any) -> Any:
+    def _apply_operation(
+        value: Any,
+        operation: Optional[str],
+        op_value: Any = None,
+        bit_width: Optional[int] = None,
+    ) -> Any:
+        """
+        Apply a single transformation operation to a value.
+
+        Args:
+            value: The input value (must be int for most operations)
+            operation: Operation name (add_constant, invert, and_mask, etc.)
+            op_value: Operation parameter (constant to add, mask value, etc.)
+            bit_width: For invert operation, limits inversion to N bits
+
+        Returns:
+            Transformed value
+
+        Supported operations:
+            - add_constant: value + op_value
+            - subtract_constant: value - op_value
+            - xor_constant: value ^ op_value
+            - and_mask: value & op_value
+            - or_mask: value | op_value
+            - shift_left: value << op_value
+            - shift_right: value >> op_value
+            - invert: bitwise NOT, optionally limited to bit_width bits
+            - modulo: value % op_value
+        """
         if not isinstance(value, int):
             return value
+
+        if operation is None:
+            return value
+
+        # Parse op_value if it's a string (allows hex like "0x1F")
         if isinstance(op_value, str):
             try:
                 op_value = int(op_value, 0)
             except ValueError:
-                return value
-        if op_value is None:
-            return value
+                op_value = None
 
+        # Operations that require op_value
         if operation == "add_constant":
+            if op_value is None:
+                return value
             return value + op_value
+
+        if operation == "subtract_constant":
+            if op_value is None:
+                return value
+            return value - op_value
+
         if operation == "xor_constant":
+            if op_value is None:
+                return value
             return value ^ op_value
+
         if operation == "and_mask":
+            if op_value is None:
+                return value
             return value & op_value
+
         if operation == "or_mask":
+            if op_value is None:
+                return value
             return value | op_value
+
         if operation == "shift_left":
+            if op_value is None:
+                return value
             return value << op_value
+
         if operation == "shift_right":
+            if op_value is None:
+                return value
             return value >> op_value
+
+        if operation == "modulo":
+            if op_value is None or op_value == 0:
+                return value
+            return value % op_value
+
+        # Invert operation - bitwise NOT with optional bit width limit
+        if operation == "invert":
+            if bit_width is not None and bit_width > 0:
+                # Invert only within the specified bit width
+                # Example: invert 5 bits -> XOR with 0x1F (0b11111)
+                mask = (1 << bit_width) - 1
+                return (~value) & mask
+            else:
+                # Full inversion - but we need to know the width
+                # Default to inverting within the current value's apparent width
+                # For safety, if op_value is provided, use it as the mask
+                if op_value is not None:
+                    return (~value) & op_value
+                # Otherwise, invert within 32 bits as a reasonable default
+                return (~value) & 0xFFFFFFFF
+
+        # Unknown operation - return unchanged
+        logger.warning("unknown_transform_operation", operation=operation)
         return value

@@ -8,6 +8,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added - 2026-01-28
 
+- **Bitwise transformation pipeline for response handlers** (`core/engine/response_planner.py:1-250`, `core/plugins/transform_demo.py`)
+  - Extended response handlers to support chained transformation operations
+  - New `transform` list syntax for applying multiple operations in sequence:
+    ```python
+    "header_check": {
+        "copy_from_response": "session_token",
+        "transform": [
+            {"operation": "and_mask", "value": 0x1F},
+            {"operation": "invert", "bit_width": 5},
+        ]
+    }
+    ```
+  - New operations added:
+    - `invert`: Bitwise NOT with optional `bit_width` parameter to limit inversion range
+    - `subtract_constant`: Subtract a constant value
+    - `modulo`: Modulo operation
+  - Enhanced `bit_width` parameter for `invert` operation:
+    - Without bit_width: Full 32-bit inversion
+    - With bit_width=N: Inverts only N least significant bits (XOR with 2^N-1)
+  - Added `transform_demo.py` plugin demonstrating:
+    - Copying server token to subsequent messages
+    - Deriving header check field by extracting 5 LSBs and inverting
+    - Chaining and_mask -> invert operations
+  - Backward compatible: Single `operation` syntax still works
+  - Impact: Enables protocols requiring derived/computed fields from server responses
+  - Testing: Load transform_demo plugin, verify transformation pipeline produces correct values
+
 - **Common protocol plugins for real-world fuzzing** (`core/plugins/dns.py`, `core/plugins/mqtt.py`, `core/plugins/modbus_tcp.py`, `core/plugins/tftp.py`, `core/plugins/ntp.py`, `core/plugins/coap.py`)
   - **DNS** (RFC 1035): Network infrastructure protocol
     - 16 blocks, 8 bit fields (flags packed into 16 bits: QR, Opcode, AA, TC, RD, RA, Z, RCODE)
