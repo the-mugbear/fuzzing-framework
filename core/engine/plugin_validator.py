@@ -146,6 +146,9 @@ class PluginValidator:
         # Cross-validation checks
         self._validate_dependencies(data_model)
 
+        # Variable-length field positioning check
+        self._validate_variable_length_positioning(data_model)
+
         logger.info(
             "plugin_validation_complete",
             valid=self.result.is_valid,
@@ -504,6 +507,64 @@ class PluginValidator:
                 "All fields are marked as mutable=False - fuzzer will have no mutations to apply",
                 suggestion="Mark at least one field as mutable for effective fuzzing",
             )
+
+    def _validate_variable_length_positioning(self, data_model: Dict[str, Any]):
+        """
+        Validate that variable-length fields are properly positioned.
+
+        Variable-length fields (max_size without linked length field) must be the
+        last field in the message, otherwise the parser cannot determine field
+        boundaries - it will consume all remaining bytes for the variable field.
+
+        This is a fundamental limitation of the parsing model, not a bug.
+        """
+        blocks = data_model.get("blocks", [])
+        if not blocks:
+            return
+
+        # Build set of fields that have a length field linked to them
+        fields_with_length_ref: Set[str] = set()
+        for block in blocks:
+            if block.get("is_size_field") and "size_of" in block:
+                target = block["size_of"]
+                if isinstance(target, str):
+                    fields_with_length_ref.add(target)
+                elif isinstance(target, list):
+                    fields_with_length_ref.update(target)
+
+        # Check each variable-length field
+        last_idx = len(blocks) - 1
+        for idx, block in enumerate(blocks):
+            name = block.get("name")
+            if not name:
+                continue
+
+            # Is this a variable-length field?
+            # - Has max_size (variable upper bound)
+            # - Does NOT have fixed size
+            # - Does NOT have a length field linked to it
+            has_max_size = "max_size" in block
+            has_fixed_size = "size" in block
+            has_length_ref = name in fields_with_length_ref
+
+            if has_max_size and not has_fixed_size and not has_length_ref:
+                # This is a variable-length field without a length reference
+                if idx < last_idx:
+                    # Not the last field - this will cause parsing issues
+                    following_fields = [b.get("name", f"block_{i}") for i, b in enumerate(blocks[idx + 1:], idx + 1)]
+                    self.result.add_warning(
+                        "data_model",
+                        f"Variable-length field '{name}' is not the last field. "
+                        f"The parser will consume all remaining bytes for this field, "
+                        f"leaving nothing for subsequent fields: {', '.join(following_fields[:3])}"
+                        + (f" (+{len(following_fields) - 3} more)" if len(following_fields) > 3 else ""),
+                        field=name,
+                        suggestion=(
+                            "Either: (1) Add a length field with is_size_field=True and size_of='" + name + "', "
+                            "or (2) Move this field to the end of the message, "
+                            "or (3) Use fixed 'size' instead of 'max_size'"
+                        ),
+                    )
 
 
 def validate_plugin(data_model: Dict[str, Any], state_model: Dict[str, Any]) -> ValidationResult:

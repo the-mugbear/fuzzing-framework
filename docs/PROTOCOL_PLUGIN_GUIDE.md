@@ -150,6 +150,64 @@ data_model = {
     ]
 }
 
+#### Variable-Length Fields (Critical)
+
+The framework requires that variable-length fields (`max_size` without fixed `size`) meet one of these conditions:
+
+1. **Have an explicit length field** - Use `is_size_field`/`size_of` to link a length field
+2. **Be the last field** in the message - Parser reads remaining bytes
+
+**Correct: Length field linked to payload**
+```python
+{
+    "name": "payload_len",
+    "type": "uint16",
+    "is_size_field": True,
+    "size_of": "payload"
+},
+{
+    "name": "payload",
+    "type": "bytes",
+    "max_size": 1024
+}
+```
+
+**Correct: Variable field is last**
+```python
+{
+    "name": "header",
+    "type": "bytes",
+    "size": 4
+},
+{
+    "name": "data",
+    "type": "bytes",
+    "max_size": 1024  # OK - last field, reads remainder
+}
+```
+
+**Incorrect: Variable field followed by more fields without length**
+```python
+# DON'T DO THIS - parser will consume qtype and qclass into qname!
+{
+    "name": "qname",
+    "type": "bytes",
+    "max_size": 255  # No length field!
+},
+{
+    "name": "qtype",   # Will never be parsed correctly
+    "type": "uint16"
+},
+```
+
+**Why this matters**: Without a length field, the parser reads all remaining bytes into the variable field, leaving nothing for subsequent fields. Seeds will fail validation and structure-aware mutations won't work correctly.
+
+**Protocols with implicit length encoding** (null-terminated strings, self-describing formats like DNS labels) should either:
+- Combine the variable portion and trailing fields into a single bytes field
+- Add explicit length tracking if the wire format supports it
+
+See `core/plugins/simple_tcp.py` for a correct minimal example.
+
 #### Sub-Byte Fields (Bits)
 
 For protocols with bit-level fields (IPv4, DNS, Bluetooth, CAN bus, etc.), use the `bits` type to define fields smaller than a byte:
