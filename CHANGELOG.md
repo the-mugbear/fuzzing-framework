@@ -25,8 +25,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     - `subtract_constant`: Subtract a constant value
     - `modulo`: Modulo operation
   - Enhanced `bit_width` parameter for `invert` operation:
-    - Without bit_width: Full 32-bit inversion
-    - With bit_width=N: Inverts only N least significant bits (XOR with 2^N-1)
+    - With bit_width=N (recommended): Inverts only N least significant bits (XOR with 2^N-1)
+    - Without bit_width: Infers width from value with warning (see Fixed section below)
   - Added `transform_demo.py` plugin demonstrating:
     - Copying server token to subsequent messages
     - Deriving header check field by extracting 5 LSBs and inverting
@@ -109,6 +109,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Builds packets via the plugin build endpoint and previews the hex payload before execution
   - Impact: One-off tests can now be authored using protocol-aware fields instead of raw payload text
   - Testing: Select a protocol, enter field values, confirm the build preview renders, and execute against the sample target
+
+### Fixed - 2026-01-28
+
+- **Preserved protocol docstring formatting in plugin debugger** (`core/ui/spa/src/pages/PluginDebuggerPage.tsx:526-585`, `core/ui/spa/src/pages/PluginDebuggerPage.css:64-102`)
+  - Render preformatted blocks (ASCII diagrams/indented sections) in a monospaced container
+  - Preserve line breaks in paragraph blocks to keep section headers readable
+  - Impact: Protocol header diagrams (e.g., DNS) render with correct spacing on the Plugin Debugger page
+  - Testing: Open Plugin Debugger, select DNS plugin, confirm the header diagram aligns and section headings keep their line breaks
+- **Prevented plugin meta cards from stretching to full header height** (`core/ui/spa/src/pages/PluginDebuggerPage.css:40-65`)
+  - Align the header row and meta cards to the top so their borders wrap only the content
+  - Impact: "Blocks" and "States" counters no longer show tall borders in the Plugin Debugger header
+  - Testing: Open Plugin Debugger and confirm the meta cards fit their content height
+- **Fixed invert operation defaulting to 32-bit mask** (`core/engine/response_planner.py:353-380`)
+  - Previously, `invert` without `bit_width` used a 32-bit mask (0xFFFFFFFF), producing incorrect results for smaller fields
+  - Example bug: inverting 0x05 for an 8-bit field returned 0xFFFFFFFA instead of 0xFA
+  - Now logs a warning when `bit_width` is omitted to help plugin authors identify the issue
+  - Falls back to inferring width from value (8/16/32 bits) instead of always using 32 bits
+  - Updated documentation to recommend always specifying `bit_width` for `invert` operations
+  - Impact: Plugin authors get clear warnings; invert behavior is more predictable for common cases
+  - Testing: Use `invert` without `bit_width` on a small value, verify warning logged and result fits field size
 
 ### Changed - 2026-01-26
 

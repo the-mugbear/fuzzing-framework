@@ -42,13 +42,14 @@ SUPPORTED OPERATIONS:
 - or_mask: value | mask
 - shift_left: value << count
 - shift_right: value >> count
-- invert: ~value (with optional bit_width to limit inversion range)
+- invert: ~value (bit_width RECOMMENDED to specify field size)
 - modulo: value % divisor
 
 For 'invert' operation:
-- Without bit_width: Full bitwise NOT (result depends on Python int)
-- With bit_width: Inverts only the specified number of bits
+- With bit_width (RECOMMENDED): Inverts only the specified number of bits
   Example: invert with bit_width=5 on value 0x0A (01010) -> 0x15 (10101)
+- Without bit_width: Infers width from value (8/16/32 bits) - may be incorrect!
+  A warning is logged to help identify missing bit_width parameters.
 """
 from __future__ import annotations
 
@@ -358,13 +359,27 @@ class ResponsePlanner:
                 mask = (1 << bit_width) - 1
                 return (~value) & mask
             else:
-                # Full inversion - but we need to know the width
-                # Default to inverting within the current value's apparent width
-                # For safety, if op_value is provided, use it as the mask
+                # No bit_width specified - this is likely a bug in the plugin
+                # Log a warning to help users identify the issue
+                logger.warning(
+                    "invert_missing_bit_width",
+                    message="invert operation without bit_width may produce incorrect results",
+                    value=value,
+                    hint="Add 'bit_width' parameter to specify field size (e.g., 8 for uint8)",
+                )
+                # Use op_value as explicit mask if provided
                 if op_value is not None:
                     return (~value) & op_value
-                # Otherwise, invert within 32 bits as a reasonable default
-                return (~value) & 0xFFFFFFFF
+                # Infer minimum bit width from value to avoid excessive bits
+                # This uses the smallest standard field size that fits the value
+                if value <= 0xFF:
+                    inferred_width = 8
+                elif value <= 0xFFFF:
+                    inferred_width = 16
+                else:
+                    inferred_width = 32
+                mask = (1 << inferred_width) - 1
+                return (~value) & mask
 
         # Unknown operation - return unchanged
         logger.warning("unknown_transform_operation", operation=operation)

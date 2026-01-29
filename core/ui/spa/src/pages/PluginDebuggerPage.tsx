@@ -544,30 +544,39 @@ function renderPluginDescription(description?: string) {
     return <p className="plugin-description empty">No description provided.</p>;
   }
 
-  const blocks = description.trim().split(/\n\s*\n/);
+  const blocks = description.replace(/\s+$/g, '').split(/\n\s*\n/);
   const listPattern = /^([-*]|\d+[\.)]|•)\s+/;
+  const preformattedPattern = /(^\s{2,}\S)|(\+--\+)|(\|.*\|)/;
 
   return (
     <div className="plugin-description">
       {blocks.map((block, index) => {
-        const lines = block
-          .split('\n')
-          .map((line) => line.trim())
-          .filter(Boolean);
-        if (!lines.length) return null;
-        const isList = lines.every((line) => listPattern.test(line));
+        const rawLines = block.split('\n');
+        const trimmedLines = rawLines.map((line) => line.trim()).filter(Boolean);
+        if (!trimmedLines.length) return null;
+        const isList = trimmedLines.every((line) => listPattern.test(line));
+        const isPreformatted = rawLines.some((line) => preformattedPattern.test(line));
+
+        if (isPreformatted) {
+          const rawBlock = block.replace(/\s+$/g, '');
+          return (
+            <pre key={`desc-${index}`} className="plugin-description-pre">
+              {rawBlock}
+            </pre>
+          );
+        }
         if (isList) {
           return (
             <ul key={`desc-${index}`}>
-              {lines.map((line, lineIndex) => (
+              {trimmedLines.map((line, lineIndex) => (
                 <li key={`desc-${index}-${lineIndex}`}>{line.replace(listPattern, '')}</li>
               ))}
             </ul>
           );
         }
         return (
-          <p key={`desc-${index}`}>
-            {lines.join(' ')}
+          <p key={`desc-${index}`} className="plugin-description-paragraph">
+            {trimmedLines.join('\n')}
           </p>
         );
       })}
