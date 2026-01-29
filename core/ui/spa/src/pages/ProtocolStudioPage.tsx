@@ -1,4 +1,5 @@
-import { ReactNode, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import Tooltip from '../components/Tooltip';
 import ValidationPanel, { ValidationIssue } from '../components/ValidationPanel';
 import { api } from '../services/api';
 import './ProtocolStudioPage.css';
@@ -155,23 +156,6 @@ const EMPTY_RESPONSE_HANDLER: ResponseHandlerRow = {
   matchRules: [{ ...EMPTY_MATCH_RULE }],
   setRules: [{ ...EMPTY_SET_RULE }],
 };
-
-function InfoTooltip({
-  label,
-  children,
-  className = '',
-}: {
-  label: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <button type="button" className={`tooltip-trigger ${className}`.trim()} aria-label={label}>
-      i
-      <span className="tooltip-content">{children}</span>
-    </button>
-  );
-}
 
 function buildPythonStringLiteral(value: string): string {
   const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -699,29 +683,21 @@ function ProtocolStudioPage() {
               <label>
                 <span className="label-with-tooltip">
                   Module Name
-                  <InfoTooltip label="Module name help" className="inline">
-                    <p>Python module identifier for the plugin.</p>
-                    <p>Used in generated code and displayed in the UI.</p>
-                  </InfoTooltip>
+                  <Tooltip content="Python module identifier for the plugin. Used in generated code and displayed in the UI." />
                 </span>
                 <input value={moduleName} onChange={(e) => setModuleName(e.target.value)} placeholder="my_protocol" />
               </label>
               <label>
                 <span className="label-with-tooltip">
                   Version
-                  <InfoTooltip label="Version help" className="inline">
-                    <p>Semantic version for your plugin.</p>
-                    <p>Helps track protocol changes over time.</p>
-                  </InfoTooltip>
+                  <Tooltip content="Semantic version for your plugin. Helps track protocol changes over time." />
                 </span>
                 <input value={version} onChange={(e) => setVersion(e.target.value)} placeholder="0.1.0" />
               </label>
               <label className="span-2">
                 <span className="label-with-tooltip">
                   Description
-                  <InfoTooltip label="Description help" className="inline">
-                    <p>Short summary shown in the UI and documentation.</p>
-                  </InfoTooltip>
+                  <Tooltip content="Short summary shown in the UI and documentation." />
                 </span>
                 <input
                   value={description}
@@ -736,10 +712,7 @@ function ProtocolStudioPage() {
             <div className="section-header">
               <div className="header-with-tooltip">
                 <h4>Blocks</h4>
-                <InfoTooltip label="Blocks help" className="inline">
-                  <p>Blocks are ordered fields that map directly to on-wire bytes/bits.</p>
-                  <p>They are not arbitrary groupings; order controls parsing and serialization.</p>
-                </InfoTooltip>
+                <Tooltip content="Blocks are ordered fields that map directly to on-wire bytes/bits. Order controls parsing and serialization." />
               </div>
               <button type="button" onClick={addBlock} className="secondary-button">
                 Add Block
@@ -767,10 +740,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Name
-                        <InfoTooltip label="Field name help" className="inline">
-                          <p>Unique identifier for this field in your data model.</p>
-                          <p>Used by size fields, response handlers, and validators.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Unique identifier for this field. Used by size fields, response handlers, and validators." />
                       </span>
                       <input
                         value={block.name}
@@ -781,10 +751,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Type
-                        <InfoTooltip label="Field type help" className="inline">
-                          <p>Defines how the field is parsed and serialized (bytes, ints, bits, string).</p>
-                          <p>Bit fields support 1-64 bits and optional bit order.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Defines how the field is parsed and serialized. Bit fields support 1-64 bits." />
                       </span>
                       <select
                         value={block.type}
@@ -800,10 +767,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Size
-                        <InfoTooltip label="Size help" className="inline">
-                          <p>For <code>bytes</code> and integers, size is in bytes.</p>
-                          <p>For <code>bits</code>, size is in bits (1-64).</p>
-                        </InfoTooltip>
+                        <Tooltip content="For bytes/integers, size is in bytes. For bits, size is in bits (1-64)." />
                       </span>
                       <input
                         value={block.size}
@@ -814,10 +778,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Max Size
-                        <InfoTooltip label="Max size help" className="inline">
-                          <p>Optional upper bound for variable-length fields.</p>
-                          <p>Applies to bytes/string fields to cap payload growth.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Optional upper bound for variable-length bytes/string fields." />
                       </span>
                       <input
                         value={block.maxSize}
@@ -828,10 +789,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Default
-                        <InfoTooltip label="Default value help" className="inline">
-                          <p>Bytes defaults accept hex (e.g., DE AD BE EF) or a raw string.</p>
-                          <p>Integers accept decimal or 0x-prefixed hex.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Bytes accept hex (DE AD BE EF) or strings. Integers accept decimal or 0x hex." />
                       </span>
                       <input
                         value={block.defaultValue}
@@ -842,10 +800,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Endian
-                        <InfoTooltip label="Endian help" className="inline">
-                          <p>Byte order for multi-byte integers and bit fields.</p>
-                          <p>Use big for network order, little for host order.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Byte order for multi-byte integers. Use big for network order, little for host." />
                       </span>
                       <select
                         value={block.endian}
@@ -859,10 +814,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Bit Order
-                        <InfoTooltip label="Bit order help" className="inline">
-                          <p>Controls how bits are ordered within each byte.</p>
-                          <p>Used for bits fields; keep default for MSB-first protocols.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Controls how bits are ordered within bytes. Keep default for MSB-first protocols." />
                       </span>
                       <select
                         value={block.bitOrder}
@@ -876,10 +828,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Mutable
-                        <InfoTooltip label="Mutable help" className="inline">
-                          <p>Allow the mutator to change this field.</p>
-                          <p>Mark false for checksums, magic bytes, or fixed headers.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Allow the mutator to change this field. Mark false for checksums or fixed headers." />
                       </span>
                       <select
                         value={block.mutable ? 'yes' : 'no'}
@@ -892,10 +841,7 @@ function ProtocolStudioPage() {
                     <label className="span-2">
                       <span className="label-with-tooltip">
                         Description
-                        <InfoTooltip label="Description help" className="inline">
-                          <p>Human-readable notes for this field.</p>
-                          <p>Shown in UI and documentation for quick context.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Human-readable notes shown in UI and documentation." />
                       </span>
                       <input
                         value={block.description}
@@ -908,10 +854,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Size Field
-                        <InfoTooltip label="Size field help" className="inline">
-                          <p>Enable for length fields that should auto-update.</p>
-                          <p>Use Size Of to list target fields in order.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Enable for length fields that should auto-update based on target fields." />
                       </span>
                       <select
                         value={block.isSizeField ? 'yes' : 'no'}
@@ -924,10 +867,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Size Of
-                        <InfoTooltip label="Size of help" className="inline">
-                          <p>Comma-separated list of fields this size field covers.</p>
-                          <p>Order matters; size is computed over these fields.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Comma-separated list of fields this size field covers. Order matters." />
                       </span>
                       <input
                         value={block.sizeOf}
@@ -938,10 +878,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Size Unit
-                        <InfoTooltip label="Size unit help" className="inline">
-                          <p>Units for the size field (bytes, bits, words).</p>
-                          <p>Defaults to bytes for backward compatibility.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Units for the size field (bytes, bits, words). Defaults to bytes." />
                       </span>
                       <select
                         value={block.sizeUnit}
@@ -964,10 +901,7 @@ function ProtocolStudioPage() {
             <div className="section-header">
               <div className="header-with-tooltip">
                 <h4>Response Model</h4>
-                <InfoTooltip label="Response model help" className="inline">
-                  <p>Define the structure of server responses you want to parse.</p>
-                  <p>Response blocks are ordered fields like request blocks.</p>
-                </InfoTooltip>
+                <Tooltip content="Define the structure of server responses. Response blocks are ordered fields like request blocks." />
               </div>
               <button type="button" onClick={addResponseBlock} className="secondary-button">
                 Add Response Block
@@ -995,10 +929,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Name
-                        <InfoTooltip label="Response field name help" className="inline">
-                          <p>Identifier for the response field.</p>
-                          <p>Used by response handlers and parsing.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Identifier for the response field. Used by response handlers and parsing." />
                       </span>
                       <input
                         value={block.name}
@@ -1009,10 +940,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Type
-                        <InfoTooltip label="Response field type help" className="inline">
-                          <p>Defines how incoming bytes are parsed.</p>
-                          <p>Use bits for packed flags, bytes for raw payloads.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Defines how incoming bytes are parsed. Use bits for packed flags, bytes for raw payloads." />
                       </span>
                       <select
                         value={block.type}
@@ -1028,10 +956,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Size
-                        <InfoTooltip label="Response size help" className="inline">
-                          <p>For <code>bytes</code> and integers, size is in bytes.</p>
-                          <p>For <code>bits</code>, size is in bits (1-64).</p>
-                        </InfoTooltip>
+                        <Tooltip content="For bytes/integers, size is in bytes. For bits, size is in bits (1-64)." />
                       </span>
                       <input
                         value={block.size}
@@ -1042,10 +967,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Max Size
-                        <InfoTooltip label="Response max size help" className="inline">
-                          <p>Optional limit for variable response fields.</p>
-                          <p>Helps guard against oversized payloads.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Optional limit for variable response fields to guard against oversized payloads." />
                       </span>
                       <input
                         value={block.maxSize}
@@ -1056,9 +978,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Default
-                        <InfoTooltip label="Response default help" className="inline">
-                          <p>Defaults are mainly for documentation; response parsing uses live bytes.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Defaults are for documentation; response parsing uses live bytes." />
                       </span>
                       <input
                         value={block.defaultValue}
@@ -1069,10 +989,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Endian
-                        <InfoTooltip label="Response endian help" className="inline">
-                          <p>Byte order for multi-byte response fields.</p>
-                          <p>Use big for network order, little for host order.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Byte order for multi-byte response fields. Use big for network order." />
                       </span>
                       <select
                         value={block.endian}
@@ -1086,10 +1003,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Bit Order
-                        <InfoTooltip label="Response bit order help" className="inline">
-                          <p>Controls bit ordering within each byte.</p>
-                          <p>Only relevant for bits fields.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Controls bit ordering within each byte. Only relevant for bits fields." />
                       </span>
                       <select
                         value={block.bitOrder}
@@ -1103,10 +1017,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Mutable
-                        <InfoTooltip label="Response mutable help" className="inline">
-                          <p>Controls if this field is fuzzed when used as a seed.</p>
-                          <p>Typically false for fixed response headers.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Controls if this field is fuzzed. Typically false for fixed response headers." />
                       </span>
                       <select
                         value={block.mutable ? 'yes' : 'no'}
@@ -1119,10 +1030,7 @@ function ProtocolStudioPage() {
                     <label className="span-2">
                       <span className="label-with-tooltip">
                         Description
-                        <InfoTooltip label="Response description help" className="inline">
-                          <p>Optional notes about this response field.</p>
-                          <p>Useful when fields are derived or have protocol quirks.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Optional notes about this response field for protocol documentation." />
                       </span>
                       <input
                         value={block.description}
@@ -1139,10 +1047,7 @@ function ProtocolStudioPage() {
           <div className="panel-section">
             <div className="header-with-tooltip">
               <h4>Seeds</h4>
-              <InfoTooltip label="Seeds help" className="inline">
-                <p>Seeds are optional. If omitted, the server auto-generates baseline seeds.</p>
-                <p>One hex payload per line keeps previews deterministic.</p>
-              </InfoTooltip>
+              <Tooltip content="Seeds are optional. If omitted, the server auto-generates baseline seeds." />
             </div>
             <textarea
               value={seeds}
@@ -1155,10 +1060,7 @@ function ProtocolStudioPage() {
             <div className="section-header">
               <div className="header-with-tooltip">
                 <h4>State Model</h4>
-                <InfoTooltip label="State model help" className="inline">
-                  <p>Optional for stateless protocols.</p>
-                  <p>For stateful protocols, define states and transitions to guide walkers.</p>
-                </InfoTooltip>
+                <Tooltip content="Optional for stateless protocols. Define states and transitions to guide walkers." />
               </div>
               <button type="button" onClick={addTransition} className="secondary-button">
                 Add Transition
@@ -1168,20 +1070,14 @@ function ProtocolStudioPage() {
               <label>
                 <span className="label-with-tooltip">
                   Initial State
-                  <InfoTooltip label="Initial state help" className="inline">
-                    <p>Starting state for the state machine.</p>
-                    <p>Use a stable entry point like INIT or DISCONNECTED.</p>
-                  </InfoTooltip>
+                  <Tooltip content="Starting state for the state machine. Use INIT or DISCONNECTED." />
                 </span>
                 <input value={initialState} onChange={(e) => setInitialState(e.target.value)} />
               </label>
               <label className="span-2">
                 <span className="label-with-tooltip">
                   States (comma-separated)
-                  <InfoTooltip label="States list help" className="inline">
-                    <p>All possible states for the protocol.</p>
-                    <p>Comma-separated values map to state_model.states.</p>
-                  </InfoTooltip>
+                  <Tooltip content="All possible states for the protocol. Maps to state_model.states." />
                 </span>
                 <input
                   value={states}
@@ -1209,9 +1105,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         From
-                        <InfoTooltip label="Transition from help" className="inline">
-                          <p>State where this transition starts.</p>
-                        </InfoTooltip>
+                        <Tooltip content="State where this transition starts." />
                       </span>
                       <input
                         value={transition.from}
@@ -1222,9 +1116,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         To
-                        <InfoTooltip label="Transition to help" className="inline">
-                          <p>State where this transition ends.</p>
-                        </InfoTooltip>
+                        <Tooltip content="State where this transition ends." />
                       </span>
                       <input
                         value={transition.to}
@@ -1235,9 +1127,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Message Type
-                        <InfoTooltip label="Message type help" className="inline">
-                          <p>Optional label that ties a transition to a message type.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Optional label that ties a transition to a message type." />
                       </span>
                       <input
                         value={transition.messageType}
@@ -1248,9 +1138,7 @@ function ProtocolStudioPage() {
                     <label>
                       <span className="label-with-tooltip">
                         Trigger
-                        <InfoTooltip label="Trigger help" className="inline">
-                          <p>Optional event label for orchestration or documentation.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Optional event label for orchestration or documentation." />
                       </span>
                       <input
                         value={transition.trigger}
@@ -1261,9 +1149,7 @@ function ProtocolStudioPage() {
                     <label className="span-2">
                       <span className="label-with-tooltip">
                         Expected Response
-                        <InfoTooltip label="Expected response help" className="inline">
-                          <p>Optional response label to verify transition completion.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Optional response label to verify transition completion." />
                       </span>
                       <input
                         value={transition.expectedResponse}
@@ -1281,10 +1167,7 @@ function ProtocolStudioPage() {
             <div className="section-header">
               <div className="header-with-tooltip">
                 <h4>Response Handlers</h4>
-                <InfoTooltip label="Response handlers help" className="inline">
-                  <p>Match response fields and copy or transform values into the next request.</p>
-                  <p>Use extract bits and operations to manipulate tokens or signatures.</p>
-                </InfoTooltip>
+                <Tooltip content="Match response fields and copy or transform values into the next request." />
               </div>
               <button type="button" onClick={addResponseHandler} className="secondary-button">
                 Add Handler
@@ -1311,10 +1194,7 @@ function ProtocolStudioPage() {
                   <label>
                     <span className="label-with-tooltip">
                       Handler Name
-                      <InfoTooltip label="Handler name help" className="inline">
-                        <p>Identifier for the response handler.</p>
-                        <p>Use a descriptive name like sync_session_token.</p>
-                      </InfoTooltip>
+                      <Tooltip content="Identifier for the response handler. Use a descriptive name like sync_session_token." />
                     </span>
                     <input
                       value={handler.name}
@@ -1326,10 +1206,7 @@ function ProtocolStudioPage() {
                     <div className="section-header">
                       <div className="header-with-tooltip">
                         <h5>Match Rules</h5>
-                        <InfoTooltip label="Match rules help" className="inline">
-                          <p>All match rules must pass for the handler to fire.</p>
-                          <p>Comma-separated values become an OR list.</p>
-                        </InfoTooltip>
+                        <Tooltip content="All match rules must pass for the handler to fire. Comma-separated values become OR." />
                       </div>
                       <button type="button" onClick={() => addMatchRule(handler.id)} className="secondary-button">
                         Add Match
@@ -1341,9 +1218,7 @@ function ProtocolStudioPage() {
                         <label className="handler-field">
                           <span className="label-with-tooltip">
                             Field
-                            <InfoTooltip label="Match field help" className="inline">
-                              <p>Response field name to match against.</p>
-                            </InfoTooltip>
+                            <Tooltip content="Response field name to match against." />
                           </span>
                           <input
                             value={rule.field}
@@ -1354,9 +1229,7 @@ function ProtocolStudioPage() {
                         <label className="handler-field">
                           <span className="label-with-tooltip">
                             Values
-                            <InfoTooltip label="Match values help" className="inline">
-                              <p>Comma-separated allowed values (e.g., 0x00, 0x01).</p>
-                            </InfoTooltip>
+                            <Tooltip content="Comma-separated allowed values (e.g., 0x00, 0x01)." />
                           </span>
                           <input
                             value={rule.values}
@@ -1380,10 +1253,7 @@ function ProtocolStudioPage() {
                     <div className="section-header">
                       <div className="header-with-tooltip">
                         <h5>Set Fields</h5>
-                        <InfoTooltip label="Set fields help" className="inline">
-                          <p>Copy from a response field or set a literal value.</p>
-                          <p>Extract bits and apply operations to adjust tokens.</p>
-                        </InfoTooltip>
+                        <Tooltip content="Copy from a response field or set a literal. Extract bits and apply operations." />
                       </div>
                       <button type="button" onClick={() => addSetRule(handler.id)} className="secondary-button">
                         Add Field
@@ -1394,9 +1264,7 @@ function ProtocolStudioPage() {
                         <label className="handler-field">
                           <span className="label-with-tooltip">
                             Target Field
-                            <InfoTooltip label="Target field help" className="inline">
-                              <p>Request field to update before the next send.</p>
-                            </InfoTooltip>
+                            <Tooltip content="Request field to update before the next send." />
                           </span>
                           <input
                             value={rule.targetField}
@@ -1407,9 +1275,7 @@ function ProtocolStudioPage() {
                         <label className="handler-field">
                           <span className="label-with-tooltip">
                             Source
-                            <InfoTooltip label="Source type help" className="inline">
-                              <p>Copy a response field or set a literal value.</p>
-                            </InfoTooltip>
+                            <Tooltip content="Copy a response field or set a literal value." />
                           </span>
                           <select
                             value={rule.sourceType}
@@ -1425,9 +1291,7 @@ function ProtocolStudioPage() {
                           <label className="handler-field">
                             <span className="label-with-tooltip">
                               Literal
-                              <InfoTooltip label="Literal value help" className="inline">
-                                <p>Value to assign directly to the target field.</p>
-                              </InfoTooltip>
+                              <Tooltip content="Value to assign directly to the target field." />
                             </span>
                             <input
                               value={rule.literalValue}
@@ -1440,9 +1304,7 @@ function ProtocolStudioPage() {
                             <label className="handler-field">
                               <span className="label-with-tooltip">
                                 Response Field
-                                <InfoTooltip label="Response field help" className="inline">
-                                  <p>Response field to copy from.</p>
-                                </InfoTooltip>
+                                <Tooltip content="Response field to copy from." />
                               </span>
                               <input
                                 value={rule.responseField}
@@ -1453,9 +1315,7 @@ function ProtocolStudioPage() {
                             <label className="handler-field">
                               <span className="label-with-tooltip">
                                 Bit Start
-                                <InfoTooltip label="Extract start help" className="inline">
-                                  <p>Start bit for extract_bits (0-based).</p>
-                                </InfoTooltip>
+                                <Tooltip content="Start bit for extract_bits (0-based)." />
                               </span>
                               <input
                                 value={rule.extractStart}
@@ -1466,9 +1326,7 @@ function ProtocolStudioPage() {
                             <label className="handler-field">
                               <span className="label-with-tooltip">
                                 Bit Count
-                                <InfoTooltip label="Extract count help" className="inline">
-                                  <p>Number of bits to extract.</p>
-                                </InfoTooltip>
+                                <Tooltip content="Number of bits to extract." />
                               </span>
                               <input
                                 value={rule.extractCount}
@@ -1479,9 +1337,7 @@ function ProtocolStudioPage() {
                             <label className="handler-field">
                               <span className="label-with-tooltip">
                                 Operation
-                                <InfoTooltip label="Operation help" className="inline">
-                                  <p>Optional transformation applied after copying.</p>
-                                </InfoTooltip>
+                                <Tooltip content="Optional transformation applied after copying." />
                               </span>
                               <select
                                 value={rule.operation}
@@ -1499,9 +1355,7 @@ function ProtocolStudioPage() {
                             <label className="handler-field">
                               <span className="label-with-tooltip">
                                 Op Value
-                                <InfoTooltip label="Operation value help" className="inline">
-                                  <p>Value used by the selected operation.</p>
-                                </InfoTooltip>
+                                <Tooltip content="Value used by the selected operation." />
                               </span>
                               <input
                                 value={rule.operationValue}

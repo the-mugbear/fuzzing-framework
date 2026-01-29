@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useReducer, useState } from 'react';
 import StateMachineCard from '../components/StateMachineCard';
+import Tooltip from '../components/Tooltip';
 import ValidationPanel, { ValidationIssue } from '../components/ValidationPanel';
 import { useDebounce } from '../hooks/useDebounce';
 import { api } from '../services/api';
@@ -156,23 +157,6 @@ function reducer(state: DebuggerState, action: Action): DebuggerState {
   }
 }
 
-function InfoTooltip({
-  label,
-  children,
-  className = '',
-}: {
-  label: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <button type="button" className={`tooltip-trigger ${className}`.trim()} aria-label={label}>
-      i
-      <span className="tooltip-content">{children}</span>
-    </button>
-  );
-}
-
 function PluginDebuggerPage() {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [previewMode, setPreviewMode] = useState<'seeds' | 'mutations'>('seeds');
@@ -262,10 +246,12 @@ function PluginDebuggerPage() {
         <div className="plugin-selector">
           <div className="selector-label">
             Plugin
-            <InfoTooltip label="Plugin picker details" className="inline">
-              <p>Choose a protocol plugin to inspect its data_model, state_model, and validation checks.</p>
-              <p>Loading a plugin executes its module to read the model definitions.</p>
-            </InfoTooltip>
+            <Tooltip content={
+              <>
+                <p>Choose a protocol plugin to inspect its data_model, state_model, and validation checks.</p>
+                <p>Loading a plugin executes its module to read the model definitions.</p>
+              </>
+            } />
           </div>
           <select
             value={state.selected}
@@ -303,10 +289,12 @@ function PluginDebuggerPage() {
             <div className="block-inspector-header">
               <div className="header-with-tooltip">
                 <h3>Request Model (data_model)</h3>
-                <InfoTooltip label="Request model details" className="inline">
-                  <p>Defines the on-wire structure the fuzzer sends to the target.</p>
-                  <p>Fields appear in order, and behaviors like size_of or increment run before each send.</p>
-                </InfoTooltip>
+                <Tooltip content={
+                  <>
+                    <p>Defines the on-wire structure the fuzzer sends to the target.</p>
+                    <p>Fields appear in order, and behaviors like size_of or increment run before each send.</p>
+                  </>
+                } />
               </div>
               <p>Message structure sent to the target. Dependencies show field relationships and response-driven updates.</p>
             </div>
@@ -322,10 +310,12 @@ function PluginDebuggerPage() {
               <div className="block-inspector-header">
                 <div className="header-with-tooltip">
                   <h3>Response Model (response_model)</h3>
-                  <InfoTooltip label="Response model details" className="inline">
-                    <p>Expected format of the target response for parsing and response-aware mutations.</p>
-                    <p>Use it to drive handlers that copy values into request fields.</p>
-                  </InfoTooltip>
+                  <Tooltip content={
+                    <>
+                      <p>Expected format of the target response for parsing and response-aware mutations.</p>
+                      <p>Use it to drive handlers that copy values into request fields.</p>
+                    </>
+                  } />
                 </div>
                 <p>Expected structure of responses from the target. Used for parsing and response-driven mutations.</p>
               </div>
@@ -342,10 +332,12 @@ function PluginDebuggerPage() {
               <div className="block-inspector-header">
                 <div className="header-with-tooltip">
                   <h3>Response Handlers</h3>
-                  <InfoTooltip label="Response handler details" className="inline">
-                    <p>Handlers map parsed response fields to request fields.</p>
-                    <p>They run after a response is parsed, before the next request is built.</p>
-                  </InfoTooltip>
+                  <Tooltip content={
+                    <>
+                      <p>Handlers map parsed response fields to request fields.</p>
+                      <p>They run after a response is parsed, before the next request is built.</p>
+                    </>
+                  } />
                 </div>
                 <p>Declarative rules for updating request fields based on response values.</p>
               </div>
@@ -387,15 +379,17 @@ function PluginDebuggerPage() {
                 <p className="eyebrow">Quality Gate</p>
                 <div className="header-with-tooltip">
                   <h3>Plugin Validation</h3>
-                  <InfoTooltip label="Plugin validation details" className="inline">
-                    <p>Validate Plugin loads the module and runs static checks.</p>
-                    <ul>
-                      <li>Verify data_model structure and block types.</li>
-                      <li>Parse seeds and ensure they match the model.</li>
-                      <li>Check state transitions and unreachable states.</li>
-                      <li>Validate size_of references and mutability.</li>
-                    </ul>
-                  </InfoTooltip>
+                  <Tooltip content={
+                    <>
+                      <p>Validate Plugin loads the module and runs static checks.</p>
+                      <ul>
+                        <li>Verify data_model structure and block types.</li>
+                        <li>Parse seeds and ensure they match the model.</li>
+                        <li>Check state transitions and unreachable states.</li>
+                        <li>Validate size_of references and mutability.</li>
+                      </ul>
+                    </>
+                  } />
                 </div>
                 <p>Validate Plugin loads the module and runs structure, seed, and state checks before fuzzing.</p>
               </div>
@@ -452,10 +446,13 @@ function PluginDebuggerPage() {
           <label>
             <span className="control-label">
               Mode
-              <InfoTooltip label="Preview mode details" className="inline">
-                <p>Seeds show baseline payloads from data_model.seeds.</p>
-                <p>Mutations apply structure-aware or byte-level mutators to a seed.</p>
-              </InfoTooltip>
+              <Tooltip content={
+                <>
+                  <p>Seeds show baseline payloads from data_model.seeds.</p>
+                  <p>Mutations apply structure-aware or byte-level mutators to a seed.</p>
+                  <p>Use Seeds to validate your model and Mutations to sanity-check mutator behavior.</p>
+                </>
+              } />
             </span>
             <select value={previewMode} onChange={(e) => setPreviewMode(e.target.value as 'seeds' | 'mutations')}>
               <option value="seeds">Seeds</option>
@@ -465,9 +462,12 @@ function PluginDebuggerPage() {
           <label>
             <span className="control-label">
               Count ({previewCount})
-              <InfoTooltip label="Preview count details" className="inline">
-                <p>Controls how many frames are generated per request (1-5).</p>
-              </InfoTooltip>
+              <Tooltip content={
+                <>
+                  <p>Controls how many frames are generated per request (1-5).</p>
+                  <p>Higher counts show more variation but take longer to render.</p>
+                </>
+              } />
             </span>
             <input
               type="range"
@@ -480,9 +480,13 @@ function PluginDebuggerPage() {
           <label>
             <span className="control-label">
               Focus Field
-              <InfoTooltip label="Focus field details" className="inline">
-                <p>Optional field name to bias the preview toward changes in one block.</p>
-              </InfoTooltip>
+              <Tooltip content={
+                <>
+                  <p>Optional field name to bias the preview toward changes in one block.</p>
+                  <p>Example: type <code>qname</code> or <code>opcode</code> to concentrate mutations.</p>
+                  <p>Leave empty to distribute mutations across all mutable fields.</p>
+                </>
+              } />
             </span>
             <input
               placeholder="Optional field name"
@@ -744,14 +748,7 @@ function renderBlockInspectorTable(
               <td>
                 <div className="block-name">
                   <strong>{block.name}</strong>
-                  <button
-                    type="button"
-                    className="tooltip-trigger"
-                    aria-label={`Details for ${block.name}`}
-                  >
-                    i
-                    <span className="tooltip-content">{renderBlockTooltip(block)}</span>
-                  </button>
+                  <Tooltip content={renderBlockTooltip(block)} position="right" />
                 </div>
               </td>
               <td>{block.type}</td>

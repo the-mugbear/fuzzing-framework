@@ -179,62 +179,6 @@
   gap: 6px;
 }
 
-.tooltip-trigger {
-  position: relative;
-  border: none;
-  background: rgba(147, 197, 253, 0.15);
-  color: #bfdbfe;
-  border-radius: 999px;
-  width: 24px;
-  height: 24px;
-  font-size: 0.85rem;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.tooltip-trigger.inline {
-  width: 20px;
-  height: 20px;
-  font-size: 0.7rem;
-}
-
-.tooltip-trigger:focus {
-  outline: 2px solid #2563eb;
-  outline-offset: 2px;
-}
-
-.tooltip-content {
-  position: absolute;
-  inset: auto auto 110% 50%;
-  transform: translateX(-50%);
-  background: rgba(15, 23, 42, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 12px;
-  width: 260px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s ease;
-  z-index: 10;
-}
-
-.tooltip-content p {
-  margin-top: 0;
-}
-
-.tooltip-content ul {
-  margin: 8px 0 0;
-  padding-left: 18px;
-}
-
-.tooltip-trigger:hover .tooltip-content,
-.tooltip-trigger:focus .tooltip-content {
-  opacity: 1;
-}
-
 .error {
   color: #f87171;
 }
