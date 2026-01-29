@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added - 2026-01-28
 
+- **Field Operations Reference plugin** (`core/plugins/field_operations_reference.py`)
+  - Concise copy-paste ready examples of ALL supported field operations
+  - Organized into numbered sections with line references:
+    1. Field types: uint8/16/32/64, int8/16/32/64, bits, bytes, string
+    2. Field attributes: default, mutable, endian, values, is_size_field/size_of
+    3. Behaviors: increment (with initial/step/wrap), add_constant
+    4. Response handlers: match conditions, copy_from_response
+    5. Transform operations: all 9 operations with commented examples
+    6. State model: states and transitions
+  - Includes response_model and validate_response examples
+  - Impact: Quick reference for plugin authors; complements feature_showcase.py
+  - Testing: Load plugin, verify 15 blocks and 4 response handlers
+
 - **Bitwise transformation pipeline for response handlers** (`core/engine/response_planner.py:1-250`, `core/plugins/transform_demo.py`)
   - Extended response handlers to support chained transformation operations
   - New `transform` list syntax for applying multiple operations in sequence:
