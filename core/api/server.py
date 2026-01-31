@@ -22,6 +22,12 @@ app = FastAPI(
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup."""
+    from core.api.deps import get_orchestrator
+
+    # Start background writer for execution history persistence
+    orchestrator = get_orchestrator()
+    orchestrator.history_store.start_background_writer()
+
     logger.info("application_startup")
 
 

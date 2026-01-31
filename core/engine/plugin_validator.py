@@ -110,6 +110,18 @@ class PluginValidator:
     }
 
     VALID_ENDIAN = {"big", "little"}
+    VALID_TRANSFORM_OPS = {
+        "add_constant",
+        "subtract_constant",
+        "xor_constant",
+        "and_mask",
+        "or_mask",
+        "shift_left",
+        "shift_right",
+        "invert",
+        "modulo",
+    }
+    VALID_GENERATORS = {"unix_timestamp", "sequence"}
 
     def __init__(self):
         self.result = ValidationResult()
@@ -145,6 +157,9 @@ class PluginValidator:
 
         # Cross-validation checks
         self._validate_dependencies(data_model)
+
+        # Validate dynamic/context fields
+        self._validate_dynamic_fields(data_model)
 
         # Variable-length field positioning check
         self._validate_variable_length_positioning(data_model)
@@ -237,6 +252,79 @@ class PluginValidator:
                         f"Block '{name}' has invalid endian: '{block['endian']}'",
                         field=name,
                         suggestion="Use 'big' or 'little'",
+                    )
+
+    def _validate_dynamic_fields(self, data_model: Dict[str, Any]) -> None:
+        """Validate from_context, transform, and generate attributes."""
+        blocks = data_model.get("blocks", [])
+        if not blocks:
+            return
+
+        for block in blocks:
+            name = block.get("name", "<unnamed>")
+
+            if "from_context" in block and not isinstance(block.get("from_context"), str):
+                self.result.add_error(
+                    "data_model",
+                    f"Block '{name}' from_context must be a string",
+                    field=name,
+                    suggestion="Use from_context: 'context_key'",
+                )
+
+            if "transform" in block:
+                transform = block.get("transform")
+                if not isinstance(transform, list):
+                    self.result.add_error(
+                        "data_model",
+                        f"Block '{name}' transform must be a list of operations",
+                        field=name,
+                    )
+                else:
+                    for idx, step in enumerate(transform):
+                        if not isinstance(step, dict):
+                            self.result.add_error(
+                                "data_model",
+                                f"Block '{name}' transform step {idx} must be a dict",
+                                field=name,
+                            )
+                            continue
+                        operation = step.get("operation")
+                        if operation not in self.VALID_TRANSFORM_OPS:
+                            self.result.add_error(
+                                "data_model",
+                                f"Block '{name}' transform step {idx} has invalid operation: '{operation}'",
+                                field=name,
+                                suggestion=f"Valid ops: {', '.join(sorted(self.VALID_TRANSFORM_OPS))}",
+                            )
+
+            if "generate" in block:
+                generator = block.get("generate")
+                if not isinstance(generator, str):
+                    self.result.add_error(
+                        "data_model",
+                        f"Block '{name}' generate must be a string",
+                        field=name,
+                    )
+                    continue
+
+                if generator in self.VALID_GENERATORS:
+                    continue
+
+                if generator.startswith("random_bytes:"):
+                    parts = generator.split(":", 1)
+                    if len(parts) != 2 or not parts[1].isdigit():
+                        self.result.add_error(
+                            "data_model",
+                            f"Block '{name}' generate random_bytes must be 'random_bytes:N'",
+                            field=name,
+                            suggestion="Example: generate: 'random_bytes:16'",
+                        )
+                else:
+                    self.result.add_error(
+                        "data_model",
+                        f"Block '{name}' generate has unknown value: '{generator}'",
+                        field=name,
+                        suggestion=f"Valid: {', '.join(sorted(self.VALID_GENERATORS))} or random_bytes:N",
                     )
 
     def _validate_block_type_specific(self, block: Dict[str, Any], name: str, field_type: str):
@@ -567,6 +655,147 @@ class PluginValidator:
                     )
 
 
+    def validate_protocol_stack(self, protocol_stack: List[Dict[str, Any]]) -> None:
+        """
+        Validate protocol_stack for orchestrated sessions.
+
+        Checks:
+        - At least one fuzz_target stage
+        - Valid stage roles
+        - Stage data_models are valid
+        - Exports reference valid response_model fields
+        - from_context references in data_models
+        """
+        if not protocol_stack:
+            return
+
+        if not isinstance(protocol_stack, list):
+            self.result.add_error(
+                "protocol_stack",
+                "protocol_stack must be a list of stage definitions",
+            )
+            return
+
+        VALID_ROLES = {"bootstrap", "fuzz_target", "teardown"}
+        fuzz_target_count = 0
+        stage_names: Set[str] = set()
+
+        for idx, stage in enumerate(protocol_stack):
+            if not isinstance(stage, dict):
+                self.result.add_error(
+                    "protocol_stack",
+                    f"Stage {idx} must be a dictionary",
+                )
+                continue
+
+            # Check required fields
+            if "name" not in stage:
+                self.result.add_error(
+                    "protocol_stack",
+                    f"Stage {idx} missing 'name' field",
+                )
+                continue
+
+            stage_name = stage["name"]
+            if stage_name in stage_names:
+                self.result.add_error(
+                    "protocol_stack",
+                    f"Duplicate stage name: '{stage_name}'",
+                    field=stage_name,
+                )
+            stage_names.add(stage_name)
+
+            # Check role
+            role = stage.get("role")
+            if not role:
+                self.result.add_error(
+                    "protocol_stack",
+                    f"Stage '{stage_name}' missing 'role' field",
+                    field=stage_name,
+                    suggestion=f"Valid roles: {', '.join(sorted(VALID_ROLES))}",
+                )
+            elif role not in VALID_ROLES:
+                self.result.add_error(
+                    "protocol_stack",
+                    f"Stage '{stage_name}' has invalid role: '{role}'",
+                    field=stage_name,
+                    suggestion=f"Valid roles: {', '.join(sorted(VALID_ROLES))}",
+                )
+
+            if role == "fuzz_target":
+                fuzz_target_count += 1
+
+            # Validate data_model if present
+            if "data_model" in stage:
+                self._validate_data_model_structure(stage["data_model"])
+                if "blocks" in stage["data_model"]:
+                    self._validate_blocks(stage["data_model"]["blocks"])
+                    self._validate_dynamic_fields(stage["data_model"])
+
+            # Validate response_model if present
+            if "response_model" in stage:
+                if not isinstance(stage["response_model"], dict):
+                    self.result.add_error(
+                        "protocol_stack",
+                        f"Stage '{stage_name}' response_model must be a dictionary",
+                        field=stage_name,
+                    )
+                elif "blocks" in stage["response_model"]:
+                    self._validate_blocks(stage["response_model"]["blocks"])
+
+            # Validate exports reference valid response_model fields
+            if "exports" in stage:
+                exports = stage["exports"]
+                if not isinstance(exports, dict):
+                    self.result.add_error(
+                        "protocol_stack",
+                        f"Stage '{stage_name}' exports must be a dictionary",
+                        field=stage_name,
+                    )
+                elif "response_model" in stage:
+                    response_fields = {
+                        b.get("name")
+                        for b in stage["response_model"].get("blocks", [])
+                        if b.get("name")
+                    }
+                    for resp_field, context_key in exports.items():
+                        # Handle both simple string and dict with 'as' key
+                        if isinstance(context_key, dict):
+                            context_key = context_key.get("as", context_key)
+                        if resp_field not in response_fields:
+                            self.result.add_warning(
+                                "protocol_stack",
+                                f"Stage '{stage_name}' exports field '{resp_field}' "
+                                f"not found in response_model",
+                                field=stage_name,
+                                suggestion="Ensure export field names match response_model block names",
+                            )
+
+            # Validate expect conditions
+            if "expect" in stage:
+                expect = stage["expect"]
+                if not isinstance(expect, dict):
+                    self.result.add_error(
+                        "protocol_stack",
+                        f"Stage '{stage_name}' expect must be a dictionary",
+                        field=stage_name,
+                    )
+
+        # Must have at least one fuzz_target stage
+        if fuzz_target_count == 0:
+            self.result.add_error(
+                "protocol_stack",
+                "protocol_stack must have at least one stage with role='fuzz_target'",
+                suggestion="Mark one stage as the fuzzing target with 'role': 'fuzz_target'",
+            )
+        elif fuzz_target_count > 1:
+            self.result.add_warning(
+                "protocol_stack",
+                f"protocol_stack has {fuzz_target_count} fuzz_target stages; "
+                f"only the first will be fuzzed",
+            )
+
+
 def validate_plugin(data_model: Dict[str, Any], state_model: Dict[str, Any]) -> ValidationResult:
     """
     Convenience function to validate a plugin.
@@ -613,9 +842,10 @@ def validate_plugin_code(plugin_code: str) -> Tuple[bool, List[Dict[str, Any]], 
         })
         return False, issues, None
 
-    # Step 2: Extract data_model and state_model
+    # Step 2: Extract data_model, state_model, and protocol_stack
     data_model = None
     state_model = None
+    protocol_stack = None
 
     try:
         # Execute code in isolated namespace
@@ -630,6 +860,10 @@ def validate_plugin_code(plugin_code: str) -> Tuple[bool, List[Dict[str, Any]], 
 
         if "state_model" in namespace:
             state_model = namespace["state_model"]
+
+        # Extract optional orchestrated session attributes
+        if "protocol_stack" in namespace:
+            protocol_stack = namespace["protocol_stack"]
 
     except Exception as e:
         issues.append({
@@ -667,6 +901,10 @@ def validate_plugin_code(plugin_code: str) -> Tuple[bool, List[Dict[str, Any]], 
     # Step 4: Run comprehensive validation
     validator = PluginValidator()
     result = validator.validate_plugin(data_model, state_model)
+
+    # Step 5: Validate protocol_stack if present (orchestrated sessions)
+    if protocol_stack is not None:
+        validator.validate_protocol_stack(protocol_stack)
 
     # Convert ValidationResult to list of issue dicts
     for error in result.errors:

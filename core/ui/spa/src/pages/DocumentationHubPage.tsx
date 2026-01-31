@@ -1,5 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import Modal from '../components/Modal';
+import { api } from '../services/api';
 import './DocumentationHubPage.css';
 
 interface InternalGuide {
@@ -12,6 +15,12 @@ interface RepoDoc {
   title: string;
   description: string;
   path: string;
+}
+
+interface DocContent {
+  path: string;
+  content: string;
+  title: string | null;
 }
 
 type SectionFilter = 'all' | 'interactive' | 'repository' | 'developer';
@@ -51,11 +60,6 @@ const repositoryDocs: RepoDoc[] = [
     path: 'docs/README.md',
   },
   {
-    title: 'Project README',
-    description: 'High-level architecture, execution modes, and key repository paths.',
-    path: 'README.md',
-  },
-  {
     title: 'Quickstart',
     description: 'Run the stack via Docker or local tooling with copy/paste commands.',
     path: 'docs/QUICKSTART.md',
@@ -69,6 +73,11 @@ const repositoryDocs: RepoDoc[] = [
     title: 'Protocol Plugin Guide',
     description: 'Create, test, and validate protocol plugins with real targets.',
     path: 'docs/PROTOCOL_PLUGIN_GUIDE.md',
+  },
+  {
+    title: 'Orchestrated Sessions',
+    description: 'Multi-protocol orchestration, heartbeats, and session context.',
+    path: 'docs/ORCHESTRATED_SESSIONS_GUIDE.md',
   },
   {
     title: 'Mutation Strategies',
@@ -89,6 +98,11 @@ const repositoryDocs: RepoDoc[] = [
     title: 'Protocol Server Templates',
     description: 'Reference servers and harness patterns for quick target bring-up.',
     path: 'docs/PROTOCOL_SERVER_TEMPLATES.md',
+  },
+  {
+    title: 'Changelog',
+    description: 'Record of all changes, bug fixes, and new features.',
+    path: 'CHANGELOG.md',
   },
 ];
 
@@ -123,10 +137,19 @@ const developerReferences: RepoDoc[] = [
     description: 'Walkthrough of a debugging session with core logs and replay.',
     path: 'docs/developer/06_first_debug_session.md',
   },
+  {
+    title: 'Orchestration Architecture',
+    description: 'Deep dive into multi-protocol support and session context.',
+    path: 'docs/developer/ORCHESTRATED_SESSIONS_ARCHITECTURE.md',
+  },
 ];
 
 const DocumentationHubPage = () => {
   const [activeFilter, setActiveFilter] = useState<SectionFilter>('all');
+  const [selectedDoc, setSelectedDoc] = useState<RepoDoc | null>(null);
+  const [docContent, setDocContent] = useState<DocContent | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const filterOptions = useMemo(
     () => [
@@ -141,6 +164,55 @@ const DocumentationHubPage = () => {
   const shouldShow = (section: SectionFilter) =>
     activeFilter === 'all' || activeFilter === section;
 
+  const fetchDoc = useCallback(async (doc: RepoDoc) => {
+    setSelectedDoc(doc);
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await api<DocContent>(`/api/docs/${doc.path}`);
+      setDocContent(response);
+    } catch (err) {
+      setError((err as Error).message);
+      setDocContent(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const closeModal = useCallback(() => {
+    setSelectedDoc(null);
+    setDocContent(null);
+    setError(null);
+  }, []);
+
+  // Handle keyboard escape
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedDoc) {
+        closeModal();
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [selectedDoc, closeModal]);
+
+  const renderDocCard = (doc: RepoDoc, type: 'repo' | 'deep') => (
+    <article key={doc.title} className="docs-card">
+      <p className={`docs-card-eyebrow ${type}`}>
+        {type === 'repo' ? 'Repository' : 'Developer'}
+      </p>
+      <h3>{doc.title}</h3>
+      <p>{doc.description}</p>
+      <button
+        type="button"
+        className="docs-card-link"
+        onClick={() => fetchDoc(doc)}
+      >
+        Read documentation
+      </button>
+    </article>
+  );
+
   return (
     <div className="docs-hub">
       <header className="docs-hub-header">
@@ -148,8 +220,8 @@ const DocumentationHubPage = () => {
         <h1>Explore the Knowledge Base</h1>
         <p>
           Browse in-app guides or review the bundled references without leaving the console. Use the
-          controls to focus on the content type you need-every card stays in-place so you can scan
-          quickly without bouncing to raw Markdown.
+          controls to focus on the content type you need—every card stays in-place so you can scan
+          quickly.
         </p>
 
         <div className="docs-controls">
@@ -210,17 +282,7 @@ const DocumentationHubPage = () => {
             <p>Markdown references bundled with the source tree.</p>
           </div>
           <div className="docs-grid">
-            {repositoryDocs.map((doc) => (
-              <article key={doc.title} className="docs-card">
-                <p className="docs-card-eyebrow repo">Repository</p>
-                <h3>{doc.title}</h3>
-                <p>{doc.description}</p>
-                <div className="docs-card-path">
-                  <span>Path: </span>
-                  <code>{doc.path}</code>
-                </div>
-              </article>
-            ))}
+            {repositoryDocs.map((doc) => renderDocCard(doc, 'repo'))}
           </div>
         </section>
       )}
@@ -232,20 +294,28 @@ const DocumentationHubPage = () => {
             <p>Developer notes covering the internals of the fuzzer runtime.</p>
           </div>
           <div className="docs-grid">
-            {developerReferences.map((doc) => (
-              <article key={doc.title} className="docs-card">
-                <p className="docs-card-eyebrow deep">Developer</p>
-                <h3>{doc.title}</h3>
-                <p>{doc.description}</p>
-                <div className="docs-card-path">
-                  <span>Path: </span>
-                  <code>{doc.path}</code>
-                </div>
-              </article>
-            ))}
+            {developerReferences.map((doc) => renderDocCard(doc, 'deep'))}
           </div>
         </section>
       )}
+
+      {/* Documentation Modal */}
+      <Modal
+        open={Boolean(selectedDoc)}
+        onClose={closeModal}
+        title={docContent?.title || selectedDoc?.title || 'Documentation'}
+        className="modal-wide docs-modal"
+      >
+        <div className="docs-modal-content">
+          {loading && <p className="docs-loading">Loading documentation...</p>}
+          {error && <p className="docs-error">Failed to load: {error}</p>}
+          {docContent && !loading && (
+            <div className="markdown-body">
+              <ReactMarkdown>{docContent.content}</ReactMarkdown>
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 };

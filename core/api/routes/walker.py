@@ -29,6 +29,15 @@ from core.plugin_loader import (
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/walker", tags=["walker"])
 
+
+def _get_message_type(transition: dict) -> str:
+    """
+    Get message type from a transition, handling both 'message_type' and 'message' keys.
+
+    Some plugins use 'message_type' (standard), others use 'message' (shorthand).
+    """
+    return transition.get("message_type") or transition.get("message") or transition.get("trigger")
+
 # Configuration
 MAX_EXECUTION_HISTORY_PER_SESSION = 1000  # Limit history size per session
 SESSION_TTL_HOURS = 96  # Auto-cleanup sessions older than this
@@ -199,7 +208,7 @@ def _build_state_response(session_id: str, session: StatefulFuzzingSession) -> W
         TransitionInfo(
             from_state=trans.get("from"),
             to_state=trans.get("to"),
-            message_type=trans.get("message_type"),
+            message_type=_get_message_type(trans),
             expected_response=trans.get("expected_response"),
         )
         for trans in valid_transitions
@@ -357,7 +366,7 @@ async def execute_transition(
             )
 
         selected_transition = valid_transitions[request.transition_index]
-        message_type = selected_transition.get("message_type")
+        message_type = _get_message_type(selected_transition)
         old_state = session.current_state
 
         logger.info(

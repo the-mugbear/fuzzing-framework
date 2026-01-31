@@ -96,6 +96,7 @@ async def validate_plugin_endpoint(plugin_name: str, plugin_manager=Depends(get_
     - Syntax errors
     - Data model issues (missing fields, invalid types, broken references)
     - State model issues (unreachable states, invalid transitions)
+    - Protocol stack issues (for orchestrated plugins)
     - Best practice warnings
     """
     try:
@@ -104,9 +105,13 @@ async def validate_plugin_endpoint(plugin_name: str, plugin_manager=Depends(get_
         # Load plugin
         plugin = plugin_manager.load_plugin(plugin_name)
 
-        # Validate
+        # Validate main data_model and state_model
         validator = PluginValidator()
         result = validator.validate_plugin(plugin.data_model, plugin.state_model)
+
+        # Also validate protocol_stack if present (orchestrated plugins)
+        if plugin.protocol_stack:
+            validator.validate_protocol_stack(plugin.protocol_stack)
 
         # Transform result to UI-friendly format
         result_dict = result.to_dict()
@@ -293,11 +298,14 @@ def _build_preview(
     focus_field: Optional[str] = None,
     state_model: Optional[dict] = None,
 ) -> TestCasePreview:
+    partial_error = None
     try:
         fields_dict = parser.parse(data)
     except Exception as exc:
         logger.warning("preview_parse_failed", error=str(exc))
-        fields_dict = {}
+        fields_dict, _, partial_error, _ = _parse_partial_packet(parser, data)
+        if partial_error:
+            logger.debug("preview_partial_parse", error=partial_error)
 
     preview_fields: List[PreviewField] = []
     for block in blocks:

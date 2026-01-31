@@ -39,6 +39,31 @@ interface ResponseHandler {
   set_fields: Record<string, unknown>;
 }
 
+interface ProtocolStage {
+  name: string;
+  role: 'bootstrap' | 'fuzz_target' | 'teardown';
+  data_model?: { name?: string; blocks: DataBlock[] };
+  response_model?: { name?: string; blocks: DataBlock[] };
+  expect?: Record<string, unknown>;
+  exports?: Record<string, unknown>;
+  retry?: { max_attempts?: number; delay_ms?: number };
+}
+
+interface HeartbeatConfig {
+  enabled?: boolean;
+  interval_ms?: number | { from_context: string };
+  jitter_ms?: number;
+  message?: { data_model?: { blocks: DataBlock[] } };
+  expect_response?: boolean;
+  on_timeout?: { action?: string; max_failures?: number; rebootstrap?: boolean };
+}
+
+interface ConnectionConfig {
+  mode?: 'per_test' | 'per_stage' | 'session';
+  idle_timeout_ms?: number;
+  max_reconnects?: number;
+}
+
 interface PluginDetails {
   name: string;
   description?: string;
@@ -46,6 +71,9 @@ interface PluginDetails {
   response_model?: { blocks: DataBlock[] };
   response_handlers?: ResponseHandler[];
   state_model?: PluginStateModel;
+  protocol_stack?: ProtocolStage[];
+  heartbeat?: HeartbeatConfig;
+  connection?: ConnectionConfig;
 }
 
 interface PreviewField {
@@ -283,8 +311,124 @@ function PluginDebuggerPage() {
                 <span>States</span>
                 <strong>{state.details.state_model?.states?.length ?? 0}</strong>
               </div>
+              {state.details.protocol_stack && (
+                <div>
+                  <span>Stages</span>
+                  <strong>{state.details.protocol_stack.length}</strong>
+                </div>
+              )}
             </div>
           </div>
+
+          {/* Orchestration Section - Protocol Stack */}
+          {state.details.protocol_stack && state.details.protocol_stack.length > 0 && (
+            <div className="orchestration-section card">
+              <div className="block-inspector-header">
+                <div className="header-with-tooltip">
+                  <h3>Protocol Stack (Orchestrated Session)</h3>
+                  <Tooltip content={
+                    <>
+                      <p>This plugin uses orchestrated sessions with multiple stages.</p>
+                      <p>Stages execute in order: bootstrap → fuzz_target → teardown</p>
+                      <ul>
+                        <li><strong>Bootstrap:</strong> Initial setup (auth, handshake)</li>
+                        <li><strong>Fuzz Target:</strong> Main fuzzing stage</li>
+                        <li><strong>Teardown:</strong> Clean session closure</li>
+                      </ul>
+                    </>
+                  } />
+                </div>
+                <p>Multi-stage protocol with {state.details.protocol_stack.length} stages. Bootstrap runs before fuzzing, teardown runs on session end.</p>
+              </div>
+
+              <div className="protocol-stack-stages">
+                {state.details.protocol_stack.map((stage, idx) => (
+                  <div key={stage.name} className={`stage-card ${stage.role}`}>
+                    <div className="stage-header">
+                      <span className="stage-order">{idx + 1}</span>
+                      <div className="stage-info">
+                        <h4>{stage.name}</h4>
+                        <span className={`role-badge ${stage.role}`}>{stage.role}</span>
+                      </div>
+                    </div>
+
+                    {stage.data_model && stage.data_model.blocks && (
+                      <div className="stage-model">
+                        <span className="model-label">Request ({stage.data_model.blocks.length} fields)</span>
+                        <div className="model-fields">
+                          {stage.data_model.blocks.slice(0, 5).map((block) => (
+                            <span key={block.name} className="field-chip">{block.name}</span>
+                          ))}
+                          {stage.data_model.blocks.length > 5 && (
+                            <span className="field-chip more">+{stage.data_model.blocks.length - 5} more</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {stage.response_model && stage.response_model.blocks && (
+                      <div className="stage-model">
+                        <span className="model-label">Response ({stage.response_model.blocks.length} fields)</span>
+                        <div className="model-fields">
+                          {stage.response_model.blocks.slice(0, 5).map((block) => (
+                            <span key={block.name} className="field-chip response">{block.name}</span>
+                          ))}
+                          {stage.response_model.blocks.length > 5 && (
+                            <span className="field-chip more">+{stage.response_model.blocks.length - 5} more</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {stage.exports && Object.keys(stage.exports).length > 0 && (
+                      <div className="stage-exports">
+                        <span className="exports-label">Exports to context:</span>
+                        {Object.entries(stage.exports).map(([key, value]) => (
+                          <span key={key} className="export-chip">
+                            {key} ← {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {stage.expect && Object.keys(stage.expect).length > 0 && (
+                      <div className="stage-expect">
+                        <span className="expect-label">Expects:</span>
+                        <code>{JSON.stringify(stage.expect)}</code>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Connection and Heartbeat Configuration */}
+              <div className="orchestration-config">
+                {state.details.connection && (
+                  <div className="config-item">
+                    <span className="config-label">Connection Mode:</span>
+                    <span className="config-value">{state.details.connection.mode || 'per_test'}</span>
+                    {state.details.connection.idle_timeout_ms && (
+                      <span className="config-detail">Idle timeout: {state.details.connection.idle_timeout_ms}ms</span>
+                    )}
+                  </div>
+                )}
+                {state.details.heartbeat && state.details.heartbeat.enabled && (
+                  <div className="config-item">
+                    <span className="config-label">Heartbeat:</span>
+                    <span className="config-value">
+                      {typeof state.details.heartbeat.interval_ms === 'object'
+                        ? `from context: ${state.details.heartbeat.interval_ms.from_context}`
+                        : `${state.details.heartbeat.interval_ms}ms`}
+                    </span>
+                    {state.details.heartbeat.on_timeout?.rebootstrap && (
+                      <span className="config-detail">Re-bootstrap on timeout</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="block-inspector card">
             <div className="block-inspector-header">
               <div className="header-with-tooltip">

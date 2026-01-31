@@ -3,12 +3,36 @@ Protocol Parser - Bidirectional conversion between bytes and structured fields
 
 Parses binary protocol messages into field dictionaries based on data_model,
 and serializes them back with automatic length/checksum fixing.
+
+ORCHESTRATED SESSION SUPPORT:
+=============================
+The serialize() method accepts an optional `context` parameter for injecting
+values from a ProtocolContext. Fields with `from_context` attribute will have
+their values resolved from the context at serialization time.
+
+Field resolution priority:
+1. Explicit value in fields dict
+2. from_context (requires context parameter)
+3. generate (dynamic value generation)
+4. default value from block definition
 """
+from __future__ import annotations
+
+import os
 import struct
 import zlib
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import structlog
+
+if TYPE_CHECKING:
+    from core.engine.protocol_context import ProtocolContext
+
+
+class SerializationError(Exception):
+    """Raised when serialization fails due to missing context or invalid values."""
+    pass
 
 logger = structlog.get_logger()
 
@@ -250,7 +274,11 @@ class ProtocolParser:
 
         return bytes(result)
 
-    def serialize(self, fields: Dict[str, Any]) -> bytes:
+    def serialize(
+        self,
+        fields: Dict[str, Any],
+        context: Optional["ProtocolContext"] = None,
+    ) -> bytes:
         """
         Serialize field dictionary to binary message.
 
@@ -260,10 +288,17 @@ class ProtocolParser:
 
         Args:
             fields: Dictionary mapping field names to values
+            context: Optional ProtocolContext for from_context field injection
 
         Returns:
             Binary protocol message
+
+        Raises:
+            SerializationError: If a required context key is missing
         """
+        # Resolve context values and dynamic generators
+        resolved_fields = self._resolve_field_values(fields, context)
+
         # Check if protocol has checksum fields
         has_checksums = any(
             block.get('is_checksum') or block.get('checksum_algorithm')
@@ -272,14 +307,187 @@ class ProtocolParser:
 
         # If checksums are present, use two-pass serialization
         if has_checksums:
-            return self.serialize_with_checksums(fields)
+            return self.serialize_with_checksums(resolved_fields)
 
         # Otherwise, use simple single-pass serialization
         # First pass: auto-update dependent fields
-        fields = self._auto_fix_fields(fields)
+        resolved_fields = self._auto_fix_fields(resolved_fields)
 
         # Second pass: serialize fields to bytes using shared logic
-        return self._serialize_fields_to_bytes(fields)
+        return self._serialize_fields_to_bytes(resolved_fields)
+
+    def _resolve_field_values(
+        self,
+        fields: Dict[str, Any],
+        context: Optional["ProtocolContext"],
+    ) -> Dict[str, Any]:
+        """
+        Resolve field values including context injection and dynamic generation.
+
+        Resolution priority for each field:
+        1. Explicit value in fields dict (if not None)
+        2. from_context (requires context parameter)
+        3. generate (dynamic value generation)
+        4. default value from block definition
+
+        Args:
+            fields: Field dictionary with explicit values
+            context: Optional ProtocolContext for from_context resolution
+
+        Returns:
+            Fields with all values resolved
+
+        Raises:
+            SerializationError: If a from_context field has no context or missing key
+        """
+        resolved = fields.copy()
+
+        for block in self.blocks:
+            name = block.get('name')
+            if not name:
+                continue
+
+            # Skip if explicit value already provided
+            # This allows callers to override from_context/generate
+            if name in resolved and resolved[name] is not None:
+                continue
+
+            # Try from_context resolution
+            if 'from_context' in block:
+                context_key = block['from_context']
+
+                if context is None:
+                    raise SerializationError(
+                        f"Field '{name}' requires context (from_context='{context_key}') "
+                        f"but no context was provided"
+                    )
+
+                value = context.get(context_key)
+                if value is None:
+                    raise SerializationError(
+                        f"Context key '{context_key}' not found for field '{name}'. "
+                        f"Ensure bootstrap completed successfully. "
+                        f"Available keys: {context.keys()}"
+                    )
+
+                # Apply transforms if specified
+                if 'transform' in block:
+                    value = self._apply_transforms(value, block['transform'])
+
+                resolved[name] = value
+                continue
+
+            # Try dynamic generation
+            if 'generate' in block:
+                resolved[name] = self._generate_value(block['generate'], block)
+                continue
+
+            # Fall through to default handling in serialization
+
+        return resolved
+
+    def _apply_transforms(self, value: Any, transforms: List[Dict[str, Any]]) -> Any:
+        """
+        Apply a list of transform operations to a value.
+
+        Uses the same operations as ResponsePlanner for consistency.
+
+        Args:
+            value: Input value (typically int)
+            transforms: List of transform dicts with 'operation', 'value', 'bit_width'
+
+        Returns:
+            Transformed value
+        """
+        if not isinstance(value, int):
+            return value
+
+        for transform in transforms:
+            if not isinstance(transform, dict):
+                continue
+
+            operation = transform.get('operation')
+            op_value = transform.get('value')
+            bit_width = transform.get('bit_width')
+
+            # Parse op_value if string (allows hex like "0x1F")
+            if isinstance(op_value, str):
+                try:
+                    op_value = int(op_value, 0)
+                except ValueError:
+                    op_value = None
+
+            if operation == 'add_constant' and op_value is not None:
+                value = value + op_value
+            elif operation == 'subtract_constant' and op_value is not None:
+                value = value - op_value
+            elif operation == 'xor_constant' and op_value is not None:
+                value = value ^ op_value
+            elif operation == 'and_mask' and op_value is not None:
+                value = value & op_value
+            elif operation == 'or_mask' and op_value is not None:
+                value = value | op_value
+            elif operation == 'shift_left' and op_value is not None:
+                value = value << op_value
+            elif operation == 'shift_right' and op_value is not None:
+                value = value >> op_value
+            elif operation == 'modulo' and op_value is not None and op_value != 0:
+                value = value % op_value
+            elif operation == 'invert':
+                if bit_width is not None and bit_width > 0:
+                    mask = (1 << bit_width) - 1
+                    value = (~value) & mask
+                elif op_value is not None:
+                    value = (~value) & op_value
+                else:
+                    # Infer width from value
+                    if value <= 0xFF:
+                        inferred_width = 8
+                    elif value <= 0xFFFF:
+                        inferred_width = 16
+                    else:
+                        inferred_width = 32
+                    mask = (1 << inferred_width) - 1
+                    value = (~value) & mask
+
+        return value
+
+    def _generate_value(self, generator: str, block: Dict[str, Any]) -> Any:
+        """
+        Generate a dynamic value.
+
+        Supported generators:
+        - unix_timestamp: Current Unix timestamp as int
+        - sequence: Incrementing counter (per-parser instance)
+        - random_bytes:N: N random bytes
+
+        Args:
+            generator: Generator string (e.g., "unix_timestamp", "random_bytes:16")
+            block: Block definition for type context
+
+        Returns:
+            Generated value
+        """
+        if generator == 'unix_timestamp':
+            return int(datetime.utcnow().timestamp())
+
+        if generator == 'sequence':
+            # Use instance counter for sequence generation
+            if not hasattr(self, '_sequence_counter'):
+                self._sequence_counter = 0
+            self._sequence_counter += 1
+            return self._sequence_counter
+
+        if generator.startswith('random_bytes:'):
+            try:
+                size = int(generator.split(':', 1)[1])
+                return os.urandom(size)
+            except (ValueError, IndexError):
+                logger.warning("invalid_random_bytes_generator", generator=generator)
+                return b''
+
+        logger.warning("unknown_generator", generator=generator)
+        return block.get('default', self._get_default_value(block.get('type', '')))
 
     def _serialize_without_checksum(self, fields: Dict[str, Any]) -> bytes:
         """
@@ -834,12 +1042,24 @@ class ProtocolParser:
         return None
 
     def build_default_fields(self) -> Dict[str, Any]:
-        """Build a base field dictionary using block defaults."""
+        """
+        Build a base field dictionary using block defaults.
+
+        Fields with `from_context` or `generate` are NOT included since
+        they get their values from other sources during serialization.
+        This allows serialize() to properly resolve them.
+        """
         defaults: Dict[str, Any] = {}
         for block in self.blocks:
             field_name = block.get('name')
             if not field_name:
                 continue
+
+            # Skip fields that get values from context or generation
+            # These will be resolved in _resolve_field_values()
+            if 'from_context' in block or 'generate' in block:
+                continue
+
             default = block.get('default')
             if default is None:
                 default = self._get_default_value(block.get('type', ''))

@@ -100,6 +100,8 @@ function MutationWorkbenchPage() {
   const [showDiffView, setShowDiffView] = useState(false);
   const [diffViewEntry, setDiffViewEntry] = useState<MutationStackEntry | null>(null);
   const [selectedField, setSelectedField] = useState<string | null>(null);
+  const [lastKnownFields, setLastKnownFields] = useState<FieldValue[]>([]); // Fields before aggressive mutation
+  const [parseWarning, setParseWarning] = useState<string | null>(null);
 
   // Load available protocols
   useEffect(() => {
@@ -154,6 +156,7 @@ function MutationWorkbenchPage() {
     setMutationStack([]);
     setRedoStack([]);
     setShowDiffView(false);
+    setParseWarning(null);
 
     try {
       const previewResponse = await api<{ previews: any[] }>(
@@ -183,6 +186,7 @@ function MutationWorkbenchPage() {
 
       if (parseResponse.success) {
         setFields(parseResponse.fields);
+        setLastKnownFields(parseResponse.fields);
         setHexData(seedPreview.hex_dump);
         setBaseHexData(seedPreview.hex_dump);
         setTotalBytes(parseResponse.total_bytes);
@@ -296,8 +300,10 @@ function MutationWorkbenchPage() {
     setLoading(true);
     setError(null);
     setResponse(null);
+    setParseWarning(null);
 
     const beforeHex = hexData;
+    const beforeFields = [...fields]; // Save current fields before mutation
 
     try {
       const mutateResponse = await api<MutateResponse>(
@@ -314,7 +320,26 @@ function MutationWorkbenchPage() {
       if (mutateResponse.success) {
         setHexData(mutateResponse.mutated_hex);
         setTotalBytes(mutateResponse.mutated_bytes);
-        setFields(mutateResponse.fields);
+
+        // Check if parsing succeeded (fields returned)
+        const isAggressiveMutator = mutatorName === 'havoc' || mutatorName === 'splice';
+        if (mutateResponse.fields && mutateResponse.fields.length > 0) {
+          setFields(mutateResponse.fields);
+          setLastKnownFields(mutateResponse.fields);
+          setParseWarning(null);
+        } else if (isAggressiveMutator) {
+          // For havoc/splice, keep last known fields for reference and show warning
+          setFields([]); // Clear fields to show unparseable message
+          setLastKnownFields(beforeFields);
+          setParseWarning(
+            `The ${mutatorName} mutator significantly altered the packet structure, ` +
+            `making it unparseable. This is expected behavior for aggressive mutations. ` +
+            `The hex diff view shows the raw byte changes.`
+          );
+        } else {
+          setFields([]);
+          setLastKnownFields(beforeFields);
+        }
 
         // Calculate diff
         const changedOffsets = calculateDiff(beforeHex, mutateResponse.mutated_hex);
@@ -745,7 +770,7 @@ function MutationWorkbenchPage() {
         </div>
       </div>
 
-      {fields.length > 0 && (
+      {(fields.length > 0 || hexData) && (
         <div className="workbench-content">
           {/* Timeline Sidebar */}
           <div className="timeline-sidebar">
@@ -764,27 +789,42 @@ function MutationWorkbenchPage() {
 
           {/* Main Content */}
           <div className="main-content">
-            <div className="workbench-section card">
-              <h3>Editable Fields</h3>
-              <p className="section-hint">
-                Click a row to select a field for mutation. Click "Edit" to manually modify values. Size fields update automatically.
-              </p>
-              <EditableFieldTable
-                fields={fields}
-                onFieldChange={handleFieldChange}
-                hoveredField={hoveredField}
-                onFieldHover={setHoveredField}
-                selectedField={selectedField}
-                onFieldSelect={setSelectedField}
-              />
-            </div>
+            {parseWarning && (
+              <div className="parse-warning card">
+                <strong>Parse Warning:</strong> {parseWarning}
+              </div>
+            )}
+
+            {fields.length > 0 ? (
+              <div className="workbench-section card">
+                <h3>Editable Fields</h3>
+                <p className="section-hint">
+                  Click a row to select a field for mutation. Click "Edit" to manually modify values. Size fields update automatically.
+                </p>
+                <EditableFieldTable
+                  fields={fields}
+                  onFieldChange={handleFieldChange}
+                  hoveredField={hoveredField}
+                  onFieldHover={setHoveredField}
+                  selectedField={selectedField}
+                  onFieldSelect={setSelectedField}
+                />
+              </div>
+            ) : (
+              <div className="workbench-section card">
+                <h3>Editable Fields</h3>
+                <p className="section-hint unparseable">
+                  The mutated packet could not be parsed into fields. Use "Clear All" or "Undo" to return to a parseable state, or continue applying mutations to the raw hex data.
+                </p>
+              </div>
+            )}
 
             {showDiffView && diffViewEntry ? (
               <div className="workbench-section card">
                 <DiffHexViewer
                   originalHex={diffViewEntry.beforeHex}
                   mutatedHex={diffViewEntry.afterHex}
-                  fields={fields}
+                  fields={fields.length > 0 ? fields : lastKnownFields}
                   mutationSummary={{
                     bytesChanged: diffViewEntry.bytesChanged.length,
                     offsets: diffViewEntry.bytesChanged,
@@ -797,7 +837,7 @@ function MutationWorkbenchPage() {
               <div className="workbench-section card">
                 <LivePacketBuilder
                   hexData={hexData}
-                  fields={fields}
+                  fields={fields.length > 0 ? fields : lastKnownFields}
                   totalBytes={totalBytes}
                   onByteHover={handleByteHover}
                   building={building}
@@ -810,7 +850,7 @@ function MutationWorkbenchPage() {
               <FieldMutationPanel
                 selectedField={fields.find(f => f.name === selectedField) || null}
                 onMutate={handleFieldMutation}
-                disabled={loading}
+                disabled={loading || fields.length === 0}
               />
             </div>
 

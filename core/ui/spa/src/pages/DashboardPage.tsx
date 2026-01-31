@@ -1,5 +1,6 @@
-import { FormEvent, useEffect, useReducer, useRef, useState } from 'react';
+import React, { FormEvent, useEffect, useReducer, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import SessionDetailPanel from '../components/SessionDetailPanel';
 import StatusBadge from '../components/StatusBadge';
 import Toast, { ToastVariant } from '../components/Toast';
 import Tooltip from '../components/Tooltip';
@@ -17,13 +18,17 @@ interface FuzzSession {
   crashes: number;
   hangs: number;
   anomalies: number;
-  // NEW: Coverage and targeting
+  // Coverage and targeting
   current_state?: string;
   state_coverage?: Record<string, number>;
   transition_coverage?: Record<string, number>;
   field_mutation_counts?: Record<string, number>;
   fuzzing_mode?: string;
   target_state?: string;
+  // Orchestration fields
+  connection_mode?: string;
+  heartbeat_enabled?: boolean;
+  heartbeat_failures?: number;
 }
 
 interface ProtocolField {
@@ -104,6 +109,7 @@ function DashboardPage() {
   const [form, dispatch] = useReducer(formReducer, initialForm);
   const [protocolFields, setProtocolFields] = useState<ProtocolField[]>([]);
   const [protocolStates, setProtocolStates] = useState<string[]>([]);
+  const [expandedSession, setExpandedSession] = useState<string | null>(null);
   const refreshTimer = useRef<number>();
 
   const refreshSessions = () => {
@@ -520,6 +526,7 @@ function DashboardPage() {
           <table className="session-table">
             <thead>
               <tr>
+                <th></th>
                 <th>ID</th>
                 <th>Protocol</th>
                 <th>Status</th>
@@ -536,75 +543,112 @@ function DashboardPage() {
                   ? Object.values(session.state_coverage).filter(count => count > 0).length
                   : 0;
                 const coveragePct = totalStates > 0 ? Math.round((visitedStates / totalStates) * 100) : 0;
+                const isExpanded = expandedSession === session.id;
 
                 return (
-                  <tr key={session.id}>
-                    <td>
-                      <Link className="session-link" to={`/correlation?session=${encodeURIComponent(session.id)}`}>
-                        {session.id.slice(0, 8)}...
-                      </Link>
-                    </td>
-                    <td>{session.protocol}</td>
-                    <td>
-                      <StatusBadge value={session.status} />
-                      {session.current_state && (
-                        <div style={{ fontSize: '0.85em', color: 'var(--text-tertiary)', marginTop: '0.25rem' }}>
-                          State: {session.current_state}
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      {session.target_host}:{session.target_port}
-                      {session.target_state && (
-                        <div style={{ fontSize: '0.85em', color: 'var(--text-tertiary)', marginTop: '0.25rem' }}>
-                          Target: {session.target_state}
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      <div>{session.total_tests} tests | {session.crashes} crashes</div>
-                      {hasCoverage && (
-                        <div style={{ fontSize: '0.85em', color: 'var(--text-accent)', marginTop: '0.25rem' }}>
-                          Coverage: {visitedStates}/{totalStates} states ({coveragePct}%)
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      <div className="session-actions">
+                  <React.Fragment key={session.id}>
+                    <tr className={isExpanded ? 'expanded' : ''}>
+                      <td>
                         <button
-                          onClick={() => handleStart(session.id)}
-                          disabled={actionInProgress === session.id}
+                          className="expand-btn"
+                          onClick={() => setExpandedSession(isExpanded ? null : session.id)}
+                          title={isExpanded ? 'Collapse' : 'Expand details'}
                         >
-                          {actionInProgress === session.id ? 'Starting...' : 'Start'}
+                          {isExpanded ? '▼' : '▶'}
                         </button>
-                        <button
-                          onClick={() => handleStop(session.id)}
-                          className="ghost"
-                          disabled={actionInProgress === session.id}
-                        >
-                          {actionInProgress === session.id ? 'Stopping...' : 'Stop'}
-                        </button>
-                        <button
-                          onClick={() => handleDelete(session.id)}
-                          className="danger"
-                          disabled={actionInProgress === session.id}
-                          title="Delete session"
-                        >
-                          Delete
-                        </button>
-                        {hasCoverage && (
-                          <button
-                            type="button"
-                            className="ghost"
-                            title="View State Graph"
-                            onClick={() => handleOpenGraph(session.id)}
-                          >
-                            State Graph
-                          </button>
+                      </td>
+                      <td>
+                        <Link className="session-link" to={`/correlation?session=${encodeURIComponent(session.id)}`}>
+                          {session.id.slice(0, 8)}...
+                        </Link>
+                      </td>
+                      <td>{session.protocol}</td>
+                      <td>
+                        <StatusBadge value={session.status} />
+                        {session.current_state && (
+                          <div style={{ fontSize: '0.85em', color: 'var(--text-tertiary)', marginTop: '0.25rem' }}>
+                            State: {session.current_state}
+                          </div>
                         )}
-                      </div>
-                    </td>
-                  </tr>
+                        <div className="health-indicators">
+                          {session.connection_mode && session.connection_mode !== 'per_test' && (
+                            <span className="health-badge conn" title={`Connection: ${session.connection_mode}`}>
+                              ⚡
+                            </span>
+                          )}
+                          {session.heartbeat_enabled && (
+                            <span
+                              className={`health-badge hb ${session.heartbeat_failures && session.heartbeat_failures > 0 ? 'warn' : ''}`}
+                              title={`Heartbeat: ${session.heartbeat_failures || 0} failures`}
+                            >
+                              ❤️
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        {session.target_host}:{session.target_port}
+                        {session.target_state && (
+                          <div style={{ fontSize: '0.85em', color: 'var(--text-tertiary)', marginTop: '0.25rem' }}>
+                            Target: {session.target_state}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <div>{session.total_tests} tests | {session.crashes} crashes</div>
+                        {hasCoverage && (
+                          <div style={{ fontSize: '0.85em', color: 'var(--text-accent)', marginTop: '0.25rem' }}>
+                            Coverage: {visitedStates}/{totalStates} states ({coveragePct}%)
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <div className="session-actions">
+                          <button
+                            onClick={() => handleStart(session.id)}
+                            disabled={actionInProgress === session.id}
+                          >
+                            {actionInProgress === session.id ? 'Starting...' : 'Start'}
+                          </button>
+                          <button
+                            onClick={() => handleStop(session.id)}
+                            className="ghost"
+                            disabled={actionInProgress === session.id}
+                          >
+                            {actionInProgress === session.id ? 'Stopping...' : 'Stop'}
+                          </button>
+                          <button
+                            onClick={() => handleDelete(session.id)}
+                            className="danger"
+                            disabled={actionInProgress === session.id}
+                            title="Delete session"
+                          >
+                            Delete
+                          </button>
+                          {hasCoverage && (
+                            <button
+                              type="button"
+                              className="ghost"
+                              title="View State Graph"
+                              onClick={() => handleOpenGraph(session.id)}
+                            >
+                              State Graph
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr className="detail-row">
+                        <td colSpan={7}>
+                          <SessionDetailPanel
+                            sessionId={session.id}
+                            onClose={() => setExpandedSession(null)}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </tbody>

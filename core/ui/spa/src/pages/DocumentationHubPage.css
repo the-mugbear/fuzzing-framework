@@ -170,6 +170,13 @@
   text-decoration: none;
   font-weight: 600;
   color: #9cc5ff;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  font-size: inherit;
+  font-family: inherit;
 }
 
 .docs-card-link:hover,
@@ -212,4 +219,151 @@
     flex-direction: column;
     align-items: flex-start;
   }
+}
+
+/* Documentation Modal */
+.docs-modal.modal-dialog {
+  max-width: 900px;
+  max-height: 85vh;
+}
+
+.docs-modal-content {
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+
+.docs-loading,
+.docs-error {
+  padding: 2rem;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.docs-error {
+  color: #f87171;
+}
+
+/* Markdown Body Styles */
+.markdown-body {
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.7;
+  font-size: 0.95rem;
+}
+
+.markdown-body h1 {
+  font-size: 1.75rem;
+  margin: 1.5rem 0 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.markdown-body h2 {
+  font-size: 1.4rem;
+  margin: 1.75rem 0 0.75rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.markdown-body h3 {
+  font-size: 1.15rem;
+  margin: 1.25rem 0 0.5rem;
+}
+
+.markdown-body h4 {
+  font-size: 1rem;
+  margin: 1rem 0 0.5rem;
+}
+
+.markdown-body p {
+  margin: 0.75rem 0;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  margin: 0.75rem 0;
+  padding-left: 1.5rem;
+}
+
+.markdown-body li {
+  margin: 0.35rem 0;
+}
+
+.markdown-body code {
+  background: rgba(0, 0, 0, 0.4);
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.3rem;
+  font-size: 0.88em;
+  color: #93c5fd;
+}
+
+.markdown-body pre {
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+
+.markdown-body pre code {
+  background: transparent;
+  padding: 0;
+  color: #e2e8f0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.markdown-body blockquote {
+  border-left: 3px solid #60a5fa;
+  margin: 1rem 0;
+  padding: 0.5rem 1rem;
+  background: rgba(96, 165, 250, 0.1);
+  border-radius: 0 0.5rem 0.5rem 0;
+}
+
+.markdown-body blockquote p {
+  margin: 0;
+}
+
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 0.6rem 0.8rem;
+  text-align: left;
+}
+
+.markdown-body th {
+  background: rgba(255, 255, 255, 0.08);
+  font-weight: 600;
+}
+
+.markdown-body tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.markdown-body a {
+  color: #93c5fd;
+  text-decoration: none;
+}
+
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin: 2rem 0;
+}
+
+.markdown-body img {
+  max-width: 100%;
+  border-radius: 0.5rem;
 }

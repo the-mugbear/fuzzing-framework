@@ -1,9 +1,21 @@
 """
-Branching stateful protocol example.
+Stateful Protocol Example - Complex State Machines
 
-- Purpose: Demonstrates multi-path transitions and error flows.
-- Transport: TCP.
-- Use case: UI testing for complex state diagrams.
+This plugin demonstrates complex state machine definitions with branching
+paths, error states, and multiple valid sequences.
+
+Use this as a template when your protocol has:
+- Multiple possible state transitions from a single state
+- Error/recovery states
+- Subscribe/stream modes
+- Complex message flows
+
+Features demonstrated:
+- 8 states with 16 transitions
+- Multiple paths through the state machine
+- Error state handling
+- Streaming/subscription states
+- Self-transitions (DATA_SENDING → DATA_SENDING)
 """
 
 __version__ = "1.0.0"

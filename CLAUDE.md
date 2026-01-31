@@ -298,6 +298,20 @@ data_model = {
 - `int8`, `int16`, `int32`, `int64`: Signed integers
 - `string`: UTF-8 text (specify `encoding`)
 
+### Variable-Length Field Requirements
+
+**IMPORTANT**: Variable-length fields (`max_size` without fixed `size`) must either:
+1. Have an explicit length field linked via `is_size_field`/`size_of`, OR
+2. Be the **last field** in the message (parser reads remaining bytes)
+
+Without this, the parser consumes all remaining bytes into the variable field, breaking subsequent fields.
+
+**Protocols with implicit length encoding** (null-terminated strings, DNS labels, etc.) should either:
+- Combine variable + trailing fields into a single bytes field
+- Use explicit length tracking if the wire format supports it
+
+See `docs/PROTOCOL_PLUGIN_GUIDE.md` for detailed examples.
+
 ### Special Attributes
 
 - `mutable: False` - Prevents fuzzer from mutating (use for magic headers)

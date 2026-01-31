@@ -1,9 +1,16 @@
 """
-Simple UDP protocol plugin.
+Minimal UDP Protocol Example
 
-- Purpose: Minimal datagram protocol for UDP transport testing.
-- Transport: UDP.
-- Includes: Magic header, sequence, command, and optional payload.
+This is the simplest UDP protocol plugin. Use this as your starting
+template when building a new UDP/datagram-based protocol.
+
+Features demonstrated:
+- UDP transport (transport = "udp")
+- Sequence numbers for datagram tracking
+- Stateless message structure
+- Minimal state machine
+
+Test server: tests/udp_server.py
 """
 
 __version__ = "1.0.0"

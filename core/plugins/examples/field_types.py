@@ -1,13 +1,12 @@
 """
-Field Operations Reference - Copy-Paste Examples for Protocol Plugins
+Field Types Quick Reference - Copy-Paste Examples
 
-PURPOSE:
-========
-This plugin provides concise, copy-paste ready examples of ALL field operations
-supported by the framework. Use this as a quick reference when building plugins.
+This plugin provides concise, copy-paste ready examples of ALL field types
+and operations. Use this when you need to quickly look up the syntax for
+a specific field type or operation.
 
-For comprehensive tutorial-style documentation, see feature_showcase.py.
-For transformation pipelines specifically, see transform_demo.py.
+For comprehensive tutorial documentation, see feature_reference.py.
+For minimal starting templates, see minimal_tcp.py or minimal_udp.py.
 
 TABLE OF CONTENTS:
 ==================

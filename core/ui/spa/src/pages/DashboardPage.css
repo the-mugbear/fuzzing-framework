@@ -196,3 +196,61 @@
 .session-actions button.danger:hover {
   background: rgba(248, 113, 113, 0.3);
 }
+
+/* Expand/collapse button */
+.expand-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  transition: color var(--transition-fast);
+}
+
+.expand-btn:hover {
+  color: var(--text-accent);
+}
+
+/* Expanded row styling */
+.session-table tr.expanded {
+  background: var(--bg-tertiary);
+}
+
+.session-table tr.detail-row td {
+  padding: 0;
+  border-bottom: 2px solid var(--border-active);
+}
+
+.session-table tr.detail-row:hover {
+  background: transparent;
+}
+
+/* Health indicators */
+.health-indicators {
+  display: flex;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+}
+
+.health-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  font-size: 0.6875rem;
+  cursor: help;
+}
+
+.health-badge.conn {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.health-badge.hb {
+  background: rgba(34, 197, 94, 0.2);
+}
+
+.health-badge.hb.warn {
+  background: rgba(234, 179, 8, 0.2);
+}

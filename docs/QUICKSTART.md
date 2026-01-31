@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-**Last Updated: 2025-11-25**
+**Last Updated: 2026-01-31**
 
 Get the fuzzer running in 5 minutes.
 
@@ -18,27 +18,38 @@ The fastest way to get started:
 make docker-up
 
 # Or manually:
-docker-compose up -d
+docker-compose up -d --build
 ```
 
 This starts:
-- **Core API**: The "brain" of the fuzzer, which manages sessions, mutations, and serves the web UI. (http://localhost:8000)
-- **Test Target**: A simple server application for you to fuzz. (localhost:9999)
-- **Agent**: A "worker" process that executes test cases against the target and reports back to the Core API.
+- **Core API**: The "brain" of the fuzzer, managing sessions, mutations, and serving the web UI. (http://localhost:8000)
+- **Test Target**: The `feature_showcase_server`, a rich target for testing advanced features like orchestration. (localhost:9999)
 
 ### Access the Web UI
 
 Open http://localhost:8000 in your browser. You should see the fuzzer dashboard.
 
-### Create and Run a Fuzzing Session
+### Example 1: Fuzzing a Standard Protocol
 
-1. In the UI, select "simple_tcp" from the protocol dropdown
-2. Set target to "target" (Docker service name) or "localhost"
-3. Port: 9999
-4. Click "Create Session"
-5. Click "Start" to begin fuzzing
+1.  In the UI, select **`feature_reference`** from the protocol dropdown.
+2.  Set Target Host to **`target`** (the Docker service name).
+3.  Set Target Port to **`9999`**.
+4.  Click **Create Session**, then **Start** to begin fuzzing.
 
-You should see test cases being executed and statistics updating in real-time.
+You should see test cases being executed against the test server.
+
+### Example 2: Running an Orchestrated Fuzzing Session
+
+This fuzzer supports multi-protocol testing, called **Orchestrated Sessions**. This is for fuzzing targets that require a handshake or other setup steps before you can fuzz the actual protocol.
+
+The `orchestrated` plugin (in `core/plugins/examples/`) demonstrates this. It performs a handshake to get a session token, then uses that token to fuzz the target. It also uses a **heartbeat** to keep the connection alive.
+
+1.  In the UI, select **`orchestrated`** from the protocol dropdown.
+2.  Set Target Host to **`target`**.
+3.  Set Target Port to **`9999`**.
+4.  Click **Create Session**, then **Start**.
+
+Watch the logs (`docker-compose logs -f core`) to see the orchestration in action. You will see the `bootstrap` stage (the handshake) followed by the `fuzz_target` stage. For a deep-dive, see the **[Orchestrated Sessions Guide](ORCHESTRATED_SESSIONS_GUIDE.md)**.
 
 ### View Logs
 
@@ -49,7 +60,6 @@ docker-compose logs -f
 # Specific service
 docker-compose logs -f core
 docker-compose logs -f target
-docker-compose logs -f agent
 ```
 
 ### Stop Everything
@@ -81,34 +91,25 @@ pip install -r requirements.txt
 
 In terminal 1:
 ```bash
-make run-target
-# or
-python tests/simple_tcp_server.py
-# or
-python tests/feature_showcase_server.py --port 9001
+# This target supports both simple and orchestrated protocols
+python tests/feature_showcase_server.py --port 9999
 ```
-
-You should see: `[*] SimpleTCP Server listening on 0.0.0.0:9999` (or the Feature Showcase banner if you chose the richer protocol).
 
 ### 2b. Install & Build the Web UI
 
-This step uses Node.js and npm to build the React-based web interface. The `npm run build` command creates a production-ready version of the UI, which is then served by the Python-based Core API.
-
-First-time setup (installs JS deps and bakes the SPA assets served by FastAPI):
+This step uses Node.js and npm to build the React-based web interface.
 
 ```bash
 cd core/ui/spa
 npm install
 npm run build
-# or run `npm run dev` for Vite + hot reload at http://localhost:5173/ui
+# or run `npm run dev` for Vite + hot reload at http://localhost:5173/
 ```
 
 ### 3. Start the Core
 
 In terminal 2:
 ```bash
-make run-core
-# or
 python -m core.api.server
 ```
 
@@ -116,111 +117,30 @@ You should see: `INFO: Uvicorn running on http://0.0.0.0:8000`
 
 ### 4. Start the Agent (Optional)
 
-Running an agent locally is a good way to test the distributed fuzzing workflow without needing a separate machine. It helps you verify that the Core API can correctly queue work and receive results from an agent.
-
 In terminal 3:
 ```bash
-make run-agent
-# or
 python -m agent.main --core-url http://localhost:8000 --target-host localhost --target-port 9999
 ```
 
 ### 5. Access the Web UI
 
-Open http://localhost:8000/ui/ in your browser (the root URL redirects here).
-
-## Testing the Setup
-
-### Test the API
-
-```bash
-# Check health
-curl http://localhost:8000/api/system/health
-
-# List protocols
-curl http://localhost:8000/api/plugins
-
-# Get protocol details
-curl http://localhost:8000/api/plugins/simple_tcp
-```
-
-### Test the Target
-
-```bash
-make test-target
-# or manually:
-echo -ne 'STCP\x00\x00\x00\x05\x01HELLO' | nc localhost 9999
-```
-
-You should receive a response starting with "STCP".
-
-### Create a Session via API
-
-```bash
-curl -X POST http://localhost:8000/api/sessions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "protocol": "simple_tcp",
-    "target_host": "localhost",
-    "target_port": 9999
-  }'
-```
-
-This returns a session ID. Use it to start fuzzing:
-
-```bash
-curl -X POST http://localhost:8000/api/sessions/{SESSION_ID}/start
-```
-
-## Understanding the Results
-
-### Session Statistics
-
-Check stats:
-```bash
-curl http://localhost:8000/api/sessions/{SESSION_ID}/stats
-```
-
-Returns:
-- `total_tests`: Number of test cases executed
-- `crashes`: Detected crashes
-- `hangs`: Timeout/hang conditions
-- `anomalies`: Behavioral anomalies
-
-### Findings
-
-List all findings:
-```bash
-curl http://localhost:8000/api/corpus/findings
-```
-
-Get specific finding:
-```bash
-curl http://localhost:8000/api/corpus/findings/{FINDING_ID}
-```
-
-Findings are stored in `data/crashes/{FINDING_ID}/`:
-- `input.bin` - The input that triggered the finding
-- `report.json` - Full crash report with metadata
-- `report.msgpack` - Binary format for efficient storage
-
-## Next Steps
-
-1. **Create Custom Protocol**: See [Creating Protocol Plugins](#creating-protocol-plugins)
-2. **Upload Seeds**: Add your own seed corpus via the API or UI
-3. **Analyze Findings**: Review crash reports and reproducers
-4. **Scale Up**: Run multiple agents for distributed fuzzing
+Open http://localhost:8000 in your browser.
 
 ## Creating Protocol Plugins
 
-While you can create a new file in `core/plugins/my_protocol.py` with a basic structure, this is only for initial illustration.
+Create your plugins in `core/plugins/custom/my_protocol.py`. The plugin directory structure is:
 
-**For any real-world protocol, you must consult the full guide.**
+```
+core/plugins/
+├── custom/      # Your plugins go here (highest priority)
+├── examples/    # Reference implementations to learn from
+└── standard/    # Production protocols (DNS, MQTT, etc.)
+```
 
-The example below shows a minimal plugin. To create a powerful and effective protocol plugin—including defining state machines, response handlers, checksums, and other critical features—please see the complete **[Protocol Plugin Guide](PROTOCOL_PLUGIN_GUIDE.md)**.
+**For any real-world protocol, consult the full guide.** The example below is minimal:
 
 ```python
-"""My custom protocol"""
+"""My custom protocol - core/plugins/custom/my_protocol.py"""
 
 __version__ = "1.0.0"
 
@@ -238,104 +158,9 @@ data_model = {
 # ... plus state_model, validators, etc.
 ```
 
-Reload the Core or restart Docker to load the new plugin. After creating a plugin, refer to the "Testing Your Protocol Plugin" section below and the full guide to validate it.
+See **[Protocol Plugin Guide](PROTOCOL_PLUGIN_GUIDE.md)** for the complete reference including state machines, response handlers, and checksums. For multi-stage protocols, see **[Orchestrated Sessions Guide](ORCHESTRATED_SESSIONS_GUIDE.md)**.
 
-## Testing Your Protocol Plugin
-
-After creating a protocol plugin, verify it works correctly. The following sections provide a brief overview. For a comprehensive guide with more examples and advanced techniques, please see the [Protocol Plugin Guide](PROTOCOL_PLUGIN_GUIDE.md).
-
-### 1. Verify Plugin Loads
-
-```bash
-# List all plugins
-curl http://localhost:8000/api/plugins
-
-# Get your protocol details
-curl http://localhost:8000/api/plugins/my_protocol | jq .
-```
-
-### 2. Test Seeds Against Your Target
-
-Create a test script `test_my_protocol.py`:
-
-```python
-#!/usr/bin/env python3
-import socket
-import sys
-sys.path.insert(0, '.')
-
-from core.plugin_loader import plugin_manager
-
-TARGET_HOST = "localhost"
-TARGET_PORT = 9999
-
-protocol = plugin_manager.load_plugin("my_protocol")
-
-for i, seed in enumerate(protocol.data_model['seeds'], 1):
-    print(f"Testing seed {i}...")
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(5.0)
-
-    try:
-        sock.connect((TARGET_HOST, TARGET_PORT))
-        sock.sendall(seed)
-        response = sock.recv(4096)
-        print(f"  ✓ Received {len(response)} bytes")
-
-        # Validate if validator exists
-        if hasattr(protocol, 'validate_response'):
-            is_valid = protocol.validate_response(response)
-            print(f"  {'✓' if is_valid else '✗'} Response valid: {is_valid}")
-    except Exception as e:
-        print(f"  ✗ Error: {e}")
-    finally:
-        sock.close()
-```
-
-Run it:
-```bash
-python test_my_protocol.py
-```
-
-### 3. Run a Test Fuzzing Session
-
-```bash
-# Create session
-SESSION_ID=$(curl -s -X POST http://localhost:8000/api/sessions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "protocol": "my_protocol",
-    "target_host": "localhost",
-    "target_port": 9999
-  }' | jq -r '.id')
-
-# Start fuzzing for 10 seconds
-curl -X POST "http://localhost:8000/api/sessions/$SESSION_ID/start"
-sleep 10
-curl -X POST "http://localhost:8000/api/sessions/$SESSION_ID/stop"
-
-# Check results
-curl "http://localhost:8000/api/sessions/$SESSION_ID" | jq '{
-  status, total_tests, crashes, hangs, anomalies
-}'
-```
-
-Expected output:
-```json
-{
-  "status": "completed",
-  "total_tests": 1523,
-  "crashes": 0,
-  "hangs": 0,
-  "anomalies": 0
-}
-```
-
-### 4. Complete Testing Guide
-
-For comprehensive protocol plugin documentation, see:
-- **[PROTOCOL_PLUGIN_GUIDE.md](PROTOCOL_PLUGIN_GUIDE.md)** - Complete guide with creation, testing, debugging, and advanced techniques
-- Web UI → "Protocol Guide" tab - Interactive tutorial
+Reload the Core or restart Docker to load the new plugin.
 
 ## Troubleshooting
 
@@ -348,12 +173,7 @@ For comprehensive protocol plugin documentation, see:
 - Check network connectivity
 
 ### Target not responding
-- Verify target is running: `make test-target`
-- Check port 9999: `lsof -i :9999`
-
-### No findings being generated
-- This can be normal, especially with the simple test target. The default fuzzing strategies may not be lucky enough to hit the specific vulnerabilities in the target during a short run.
-- Try running the fuzzer for a longer period, or try creating a more complex protocol plugin with a wider variety of seeds.
+- Verify target is running and logs show it is listening on the correct port.
 
 ## Architecture Overview
 
@@ -370,8 +190,3 @@ For comprehensive protocol plugin documentation, see:
                       │   Corpus     │      │   (Fuzz Me)  │
                       └──────────────┘      └──────────────┘
 ```
-
-## Support
-
-- GitHub Issues: https://github.com/yourusername/fuzzer
-- Documentation: See `blueprint.md`, `rfc.md`, `roadmap.md`

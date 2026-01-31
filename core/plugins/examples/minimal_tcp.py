@@ -1,9 +1,18 @@
 """
-Simple TCP protocol plugin.
+Minimal TCP Protocol Example - START HERE
 
-- Purpose: Basic request/response with length-prefixed payload.
-- Transport: TCP.
-- Includes: Seeds and simple state machine (INIT -> AUTH -> READY).
+This is the simplest possible protocol plugin. Use this as your starting
+template when building a new custom protocol.
+
+Features demonstrated:
+- Magic header (immutable bytes field)
+- Length-prefixed payload (is_size_field + size_of)
+- Command codes with values enum
+- Simple state machine (INIT → AUTH → READY → CLOSED)
+- Validation oracle (validate_response function)
+- Manual seed corpus
+
+Test server: tests/simple_tcp_server.py
 """
 
 __version__ = "1.0.0"

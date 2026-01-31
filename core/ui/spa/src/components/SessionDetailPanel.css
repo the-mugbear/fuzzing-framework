@@ -1,0 +1,495 @@
+.session-detail-panel {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-top: 1rem;
+  overflow: hidden;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--surface-overlay);
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.panel-header .session-id {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}
+
+.panel-header .close-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.panel-header .close-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.panel-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.panel-tabs .tab {
+  padding: 0.75rem 1.25rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+
+.panel-tabs .tab:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.panel-tabs .tab.active {
+  color: var(--text-accent);
+  border-bottom-color: var(--accent);
+}
+
+.panel-error {
+  padding: 0.75rem 1rem;
+  background: var(--error-bg);
+  color: var(--error);
+  font-size: 0.875rem;
+}
+
+.panel-content {
+  padding: 1rem;
+  min-height: 200px;
+}
+
+.panel-content .loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100px;
+  color: var(--text-secondary);
+}
+
+.panel-content .empty-state {
+  color: var(--text-tertiary);
+  text-align: center;
+  padding: 2rem;
+}
+
+/* Section Headers */
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.status-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.status-badge.complete,
+.status-badge.enabled {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.status-badge.pending,
+.status-badge.disabled {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.key-count,
+.conn-count {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.mode-badge {
+  padding: 0.25rem 0.75rem;
+  background: var(--surface-overlay);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+}
+
+/* Context Section */
+.context-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.context-table th,
+.context-table td {
+  padding: 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.context-table th {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.context-table .key-cell {
+  font-family: var(--font-mono);
+  color: var(--text-accent);
+}
+
+.context-table .value-cell code {
+  font-family: var(--font-mono);
+  background: var(--surface-overlay);
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  font-size: 0.8125rem;
+}
+
+.context-table .actions-cell {
+  width: 80px;
+  text-align: right;
+}
+
+.icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+  font-size: 0.875rem;
+  opacity: 0.7;
+}
+
+.icon-btn:hover {
+  opacity: 1;
+}
+
+.icon-btn.danger:hover {
+  color: var(--error);
+}
+
+.add-context-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.add-context-form input {
+  flex: 1;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+.add-context-form button {
+  padding: 0.5rem 1rem;
+}
+
+/* Stages Section */
+.stages-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.stages-table th,
+.stages-table td {
+  padding: 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.stages-table th {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.role-badge {
+  padding: 0.125rem 0.5rem;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.role-badge.bootstrap {
+  background: var(--info-bg);
+  color: var(--info);
+}
+
+.role-badge.fuzz_target {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.role-badge.teardown {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.error-hint {
+  font-size: 0.75rem;
+  cursor: help;
+}
+
+.small-btn {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+/* Connection Section */
+.action-buttons {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.action-buttons button {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.connections-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.connection-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.conn-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.health-indicator {
+  font-size: 0.75rem;
+}
+
+.health-indicator.healthy {
+  color: var(--success);
+}
+
+.health-indicator.unhealthy {
+  color: var(--error);
+}
+
+.conn-id {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.conn-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.conn-stats .stat-label {
+  display: block;
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+}
+
+.conn-stats .stat-value {
+  display: block;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.conn-stats .stat-count {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.conn-times {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+/* Heartbeat Section */
+.heartbeat-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  text-align: center;
+}
+
+.stat-card .stat-label {
+  display: block;
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  margin-bottom: 0.25rem;
+}
+
+.stat-card .stat-value {
+  display: block;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.stat-card .stat-value.error {
+  color: var(--error);
+}
+
+.heartbeat-times {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+}
+
+.reset-btn {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border: 1px solid var(--warning);
+}
+
+/* Replay Section */
+.replay-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.replay-form .form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.replay-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.replay-form label span {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.replay-form select,
+.replay-form input {
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-elevated);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+.replay-btn {
+  width: 100%;
+  padding: 0.75rem;
+  font-weight: 600;
+}
+
+.replay-results {
+  margin-top: 1rem;
+}
+
+.results-summary {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0.75rem;
+  background: var(--surface);
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+}
+
+.warnings {
+  margin-bottom: 1rem;
+}
+
+.warning {
+  padding: 0.5rem 0.75rem;
+  background: var(--warning-bg);
+  color: var(--warning);
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  margin-bottom: 0.5rem;
+}
+
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.results-table th,
+.results-table td {
+  padding: 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.results-table th {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.results-table .preview-cell code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  background: var(--surface-overlay);
+  padding: 0.125rem 0.25rem;
+  border-radius: 2px;
+}

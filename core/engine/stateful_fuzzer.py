@@ -19,6 +19,15 @@ from core.engine.protocol_utils import build_message_type_mapping
 logger = structlog.get_logger()
 
 
+def _get_message_type(transition: dict) -> str:
+    """
+    Get message type from a transition, handling both 'message_type' and 'message' keys.
+
+    Some plugins use 'message_type' (standard), others use 'message' (shorthand).
+    """
+    return transition.get("message_type") or transition.get("message") or transition.get("trigger")
+
+
 class StatefulFuzzingSession:
     """
     Manages a stateful fuzzing session that follows protocol state machine.
@@ -158,19 +167,21 @@ class StatefulFuzzingSession:
 
         Example: In CONNECTED state, returns [AUTH, DISCONNECT]
 
+        Note: Handles wildcard "from" states (e.g., "*" matches any state).
+
         Returns:
             List of transition dicts that can be taken from current state
         """
         transitions = [
             t for t in self.state_model.get("transitions", [])
-            if t.get("from") == self.current_state
+            if t.get("from") == self.current_state or t.get("from") == "*"
         ]
 
         logger.debug(
             "valid_transitions",
             state=self.current_state,
             count=len(transitions),
-            types=[t.get("message_type") for t in transitions]
+            types=[_get_message_type(t) for t in transitions]
         )
 
         return transitions
@@ -235,7 +246,7 @@ class StatefulFuzzingSession:
         logger.debug(
             "termination_transitions_found",
             count=len(termination_transitions),
-            message_types=[t.get("message_type") for t in termination_transitions]
+            message_types=[_get_message_type(t) for t in termination_transitions]
         )
 
         return termination_transitions
@@ -244,9 +255,11 @@ class StatefulFuzzingSession:
         """
         Choose which valid transition to take.
 
-        Strategy:
-        - progression_weight (default 80%): Follow intended state progression
-        - 1-progression_weight (default 20%): Try other valid transitions
+        Strategy (in order of priority):
+        1. Coverage exploration (10%): Prioritize transitions to unvisited states
+        2. Terminal state exploration (5%): Ensure cleanup/teardown paths are tested
+        3. progression_weight (default 80%): Follow intended state progression
+        4. Random alternative (remaining %): Try other valid transitions
 
         Returns:
             Selected transition dict, or None if no valid transitions
@@ -265,6 +278,29 @@ class StatefulFuzzingSession:
         if len(valid_transitions) == 1:
             return valid_transitions[0]
 
+        # Coverage-guided exploration: 15% chance to prioritize unvisited states
+        if random.random() < 0.15:
+            unvisited_transition = self._find_transition_to_unvisited_state(valid_transitions)
+            if unvisited_transition:
+                logger.debug(
+                    "selected_coverage_exploration",
+                    transition=unvisited_transition,
+                    target_state=unvisited_transition.get("to")
+                )
+                return unvisited_transition
+
+        # Terminal state exploration: 10% chance to prioritize terminal transitions
+        # This ensures cleanup/teardown code paths get tested
+        if random.random() < 0.10:
+            terminal_transition = self._find_transition_to_terminal_state(valid_transitions)
+            if terminal_transition:
+                logger.debug(
+                    "selected_terminal_exploration",
+                    transition=terminal_transition,
+                    target_state=terminal_transition.get("to")
+                )
+                return terminal_transition
+
         # Multiple transitions - use weighted selection
         if random.random() < self.progression_weight:
             # Follow "happy path" - usually the first transition
@@ -278,6 +314,60 @@ class StatefulFuzzingSession:
 
         return selected
 
+    def _find_transition_to_unvisited_state(
+        self,
+        valid_transitions: List[dict]
+    ) -> Optional[dict]:
+        """
+        Find a transition that leads to an unvisited state.
+
+        Args:
+            valid_transitions: List of valid transitions from current state
+
+        Returns:
+            Transition to unvisited state, or None if all target states visited
+        """
+        state_coverage = self.get_state_coverage()
+
+        # Find transitions leading to states with zero visits
+        unvisited_transitions = [
+            t for t in valid_transitions
+            if state_coverage.get(t.get("to"), 0) == 0
+        ]
+
+        if unvisited_transitions:
+            return random.choice(unvisited_transitions)
+
+        return None
+
+    def _find_transition_to_terminal_state(
+        self,
+        valid_transitions: List[dict]
+    ) -> Optional[dict]:
+        """
+        Find a transition that leads to a terminal state.
+
+        Terminal states are important for testing cleanup/teardown code.
+
+        Args:
+            valid_transitions: List of valid transitions from current state
+
+        Returns:
+            Transition to terminal state, or None if none available
+        """
+        termination_states = set(self.get_termination_states())
+
+        # Find transitions leading to terminal states
+        terminal_transitions = [
+            t for t in valid_transitions
+            if t.get("to") in termination_states
+        ]
+
+        if terminal_transitions:
+            return random.choice(terminal_transitions)
+
+        return None
+
     def get_message_type_for_state(self) -> Optional[str]:
         """
         Get the message type to send for current state.
@@ -289,7 +379,7 @@ class StatefulFuzzingSession:
         if not transition:
             return None
 
-        return transition.get("message_type")
+        return _get_message_type(transition)
 
     def find_seed_for_message_type(
         self,
@@ -478,8 +568,11 @@ class StatefulFuzzingSession:
             Matching transition dict, or None
         """
         for transition in self.state_model.get("transitions", []):
-            if (transition.get("from") == from_state and
-                transition.get("message_type") == message_type):
+            trans_from = transition.get("from")
+            trans_msg_type = _get_message_type(transition)
+            # Handle wildcard "from" states (e.g., "*" matches any state)
+            from_matches = trans_from == from_state or trans_from == "*"
+            if from_matches and trans_msg_type == message_type:
                 return transition
 
         return None
@@ -598,10 +691,22 @@ class StatefulFuzzingSession:
         """
         # Reset periodically
         if iteration > 0 and iteration % reset_interval == 0:
+            logger.debug(
+                "reset_due_to_interval",
+                iteration=iteration,
+                reset_interval=reset_interval,
+                current_state=self.current_state
+            )
             return True
 
         # Reset if stuck in terminal state with no valid transitions
+        # Log when this happens so we can verify terminal states are being reached
         if not self.get_valid_transitions():
+            logger.info(
+                "reset_from_terminal_state",
+                terminal_state=self.current_state,
+                iteration=iteration
+            )
             return True
 
         return False

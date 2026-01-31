@@ -1,6 +1,6 @@
-# 6. A Developer's First Debug Session
+# 6. A Developer's First Debug Session (Orchestrated Focus)
 
-**Objective:** This guide will walk you through setting up a complete, end-to-end debugging environment. By the end, you will be able to create a simple protocol plugin, run the fuzzer, and step through the core fuzzing logic in `orchestrator.py` using VSCode's debugger.
+**Objective:** This guide will walk you through setting up a complete debugging environment for orchestrated fuzzing sessions. By the end, you will be able to create a minimal protocol plugin, run the fuzzer, and step through the core fuzzing logic, including `bootstrap` stages and heartbeats, using VSCode's debugger.
 
 **Prerequisites:**
 *   Docker and `docker-compose` installed.
@@ -11,86 +11,38 @@
 
 ## Step 1: Launch the Development Environment
 
-The project includes a `docker-compose.yml` file configured for local development. It defines three key services:
+The project includes a `docker-compose.yml` file configured for local development. It defines key services:
 *   `core`: The main fuzzer application (API, orchestrator, UI).
-*   `agent`: A remote worker that executes test cases.
-*   `target`: A simple TCP echo server to test against.
+*   `target`: The `feature_showcase_server`, a robust target that supports the `orchestrated_example` plugin.
 
-The `core` service is configured with `debugpy` to allow a remote Python debugger to attach to the process.
-
-To start the environment, run the following command from the project root:
+The `core` service is configured with `debugpy` to allow a remote Python debugger to attach. To start the environment, run:
 
 ```bash
 docker-compose up --build
 ```
 
-You should see logs from all three services. The `core` service will log a message indicating the debugger is listening on port 5678:
+You should see logs indicating `debugpy` is listening on port 5678:
 
 ```
 core_1    | INFO:     debugpy is listening on port 5678
 ```
 
-You can now access the web UI at [http://localhost:8000](http://localhost:8000).
+Access the web UI at [http://localhost:8000](http://localhost:8000).
 
-## Step 2: Create a "Simple Echo" Plugin
+## Step 2: Prepare the `orchestrated_example` Plugin
 
-Protocol plugins are the heart of the fuzzer. Let's create a minimal plugin to test the `target` echo server.
+We'll use the built-in `orchestrated_example` plugin to debug an orchestrated session. This plugin demonstrates:
+-   A `bootstrap` stage to perform a handshake.
+-   `exports` to capture a session ID from the handshake response.
+-   `from_context` to inject the session ID into the `fuzz_target` messages.
+-   A `heartbeat` to keep the connection alive.
 
-Create a new file named `core/plugins/simple_echo.py` with the following content:
-
-```python
-"""
-A simple echo protocol for debugging and demonstration.
-Sends a message and expects to receive the same data back.
-"""
-from typing import Optional
-
-from pydantic import BaseModel, Field
-
-# 1. Define the data model for the protocol message
-class EchoMessage(BaseModel):
-    data: bytes = Field(..., description="The data to be echoed")
-
-# 2. Define the protocol plugin object
-class ProtocolPlugin:
-    # Human-readable name and description
-    name: str = "Simple Echo"
-    description: str = "Sends data to a TCP server and expects it back."
-
-    # The data model for a single message
-    data_model: type = EchoMessage
-
-    # A simple seed to start fuzzing from
-    seeds: list[bytes] = [ b"HELLO_WORLD" ]
-
-    # The transport protocol (TCP or UDP)
-    transport: str = "tcp"
-
-    # 3. (Optional) A function to validate server responses
-    def validate_response(self, sent: bytes, received: Optional[bytes]) -> bool:
-        """
-        Validates that the server's response matches the data sent.
-        - The fuzzer calls this after every test case.
-        - Returning `True` marks the test as 'passed'.
-        - Returning `False` marks it as 'failed'.
-        """
-        if received is None:
-            return False # No response is a failure
-        return sent == received
-
-# Required: The fuzzer looks for a variable named `protocol_plugin`
-protocol_plugin = ProtocolPlugin()
-```
-
-The fuzzer's plugin loader will automatically detect and load this new file.
+You don't need to create a new file, as this plugin is already part of `core/plugins/orchestrated_example.py`.
 
 ## Step 3: Configure and Attach the VSCode Debugger
 
-Now, let's attach VSCode's debugger to the `core` service running in Docker.
-
-1.  **Open the "Run and Debug" Panel** in VSCode (usually on the left-hand side, with a play button and bug icon).
-2.  **Create a `launch.json` file** if you don't have one. Select "Python" from the dropdown, and then "Remote Attach".
-3.  **Configure `launch.json`**: Replace the contents of `.vscode/launch.json` with the following configuration:
+1.  **Open the "Run and Debug" Panel** in VSCode.
+2.  **Create/Update `launch.json`**: Ensure your `.vscode/launch.json` has the following configuration:
 
     ```json
     {
@@ -115,39 +67,47 @@ Now, let's attach VSCode's debugger to the `core` service running in Docker.
         ]
     }
     ```
-    *   `"port": 5678"` matches the port `debugpy` is listening on.
-    *   `pathMappings` is crucial: it tells the debugger how to map file paths on your local machine (`${workspaceFolder}`) to the corresponding paths inside the Docker container (`/app`).
-    *   `"justMyCode": false` ensures the debugger can step into library code if needed.
+    *   `"port": 5678"` matches the port `debugpy` is listening on in the `core` container.
+    *   `pathMappings` is crucial for mapping local files to Docker container paths.
+    *   `"justMyCode": false` allows stepping into library code.
 
-4.  **Launch the Debugger**: Press **F5** or click the green play button next to "Python: Attach to Fuzzer Core".
+3.  **Launch the Debugger**: Press **F5** or click the green play button. The VSCode status bar should turn orange upon successful connection.
 
-The VSCode status bar should turn orange, indicating a successful debugger connection.
+## Step 4: Set Breakpoints for Orchestration
 
-## Step 4: Set Breakpoints and Start a Session
+Now, set strategic breakpoints to understand the orchestrated session lifecycle.
 
-With the debugger attached, you can now set breakpoints and inspect the code live.
+1.  **Orchestrator Entry Point**: Open `core/engine/orchestrator.py` and set a breakpoint at the beginning of `_run_fuzzing_loop`.
+2.  **Stage Execution**: Open `core/engine/stage_runner.py` and set a breakpoint at the beginning of `run_bootstrap_stages`. This is where the handshake is performed.
+3.  **Context Injection**: In `core/engine/orchestrator.py`, set a breakpoint within the `_inject_context_values` method to observe how session data is injected into test cases.
+4.  **Heartbeat Logic**: Open `core/engine/heartbeat_scheduler.py` and set a breakpoint at the beginning of `_heartbeat_loop` to see the keep-alive mechanism in action.
+5.  **Plugin Logic**: Open `core/plugins/orchestrated_example.py` and set a breakpoint in its `data_model`'s `from_context` field definition or in the `exports` definition to see how values are handled.
 
-1.  **Set a Breakpoint**: Open `core/engine/orchestrator.py` and find the `_run_fuzzing_loop` method. Place a breakpoint at the very beginning of this method. This is the entry point for the main fuzzing loop.
+## Step 5: Start an Orchestrated Session
 
-2.  **Start a Fuzzing Session**:
-    *   Navigate to the web UI at [http://localhost:8000](http://localhost:8000).
-    *   Click on "New Session".
-    *   **Protocol**: Select `simple_echo` from the dropdown.
-    *   **Target Host**: Enter `target` (the name of our docker service).
-    *   **Target Port**: Enter `1337`.
-    *   Click "Start Session".
+1.  Navigate to the web UI at [http://localhost:8000](http://localhost:8000).
+2.  Click on "New Session".
+3.  **Protocol**: Select `orchestrated_example` from the dropdown.
+4.  **Target Host**: Enter `target`.
+5.  **Target Port**: Enter `9999`.
+6.  Click "Start Session".
 
-3.  **Hit the Breakpoint**: The execution in the `core` container will immediately pause at your breakpoint in `_run_fuzzing_loop`. You can now:
-    *   **Inspect variables**: Hover over variables like `session_context` to see their current values.
-    *   **Step through code**: Use the debugger controls (F10 to step over, F11 to step into) to walk through the fuzzing lifecycle.
-    *   **Examine the call stack**: See how the orchestrator was called from the API layer.
+## Step 6: Step Through and Observe
 
-## Step 5: Explore and Experiment
+Your debugger will now hit the breakpoints.
 
-Congratulations! You have a fully operational debug environment. From here, you can explore the entire fuzzing process:
+-   **Follow `_run_fuzzing_loop`**: Observe how the `FuzzOrchestrator` sets up the session.
+-   **Step into `run_bootstrap_stages`**: See the `bootstrap` process, how messages are sent, and how `exports` extract data into the `ProtocolContext`.
+-   **Observe Context Injection**: In `_inject_context_values`, you'll see the session ID (or other exported values) being dynamically placed into the fuzzing message.
+-   **Trace Heartbeats**: The `_heartbeat_loop` breakpoint will show the periodic sending of keep-alive messages.
 
-*   **Mutation**: Set a breakpoint in `core/engine/mutators.py` to see how a seed is transformed into a new test case.
-*   **Execution**: Follow the code path into `core/engine/transport.py` to see how the data is sent over the network.
-*   **Response Validation**: Place a breakpoint in our `simple_echo.py` plugin's `validate_response` function to inspect the data sent and received.
+This setup is invaluable for understanding the complex interactions within an orchestrated session and debugging issues related to handshakes, token management, or connection stability.
 
-This setup is the key to understanding the fuzzer's internal mechanics and is the recommended starting point for developing new features or fixing bugs.
+## Debugging Agent-Side Orchestration (Advanced)
+
+If you need to debug an orchestrated session running on a remote agent:
+
+1.  **Enable Debugpy in `Dockerfile.agent`**: Modify `Dockerfile.agent` to install `debugpy` and start the agent with it enabled.
+2.  **Expose Debug Port**: Add a port mapping for the agent's debug port (e.g., `5679:5679`) to the `agent` service in `docker-compose.yml`.
+3.  **Create New `launch.json` Config**: Add a new configuration in `launch.json` similar to the Core's, but pointing to the agent's debug port and mapping its local root (`/app`) accordingly.
+4.  **Attach to Agent**: Start the agent service with the debugpy port exposed, then attach the debugger using your new configuration. The agent will then execute the orchestrated session, allowing you to debug its local `StageRunner`, `ConnectionManager`, etc.

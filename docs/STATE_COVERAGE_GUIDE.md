@@ -1,330 +1,108 @@
 # State Coverage and Targeted Fuzzing Guide
 
-This guide covers the new state coverage tracking and targeted fuzzing features added to the fuzzing framework.
+**Last Updated: 2026-01-30**
 
-## Overview
+This guide covers the state coverage tracking and targeted fuzzing features. These tools give you real-time visibility into state machine exploration and allow you to focus fuzzing efforts on specific parts of a stateful protocol.
 
-The framework now provides real-time visibility into state machine coverage for stateful protocols and allows you to focus fuzzing efforts on specific states or use different exploration strategies.
+## 1. Overview of State-Aware Fuzzing
 
-## Key Features
+For any protocol with a `state_model` defined in its plugin, the fuzzer can track its progress through the state machine. This enables several key capabilities:
+-   **Coverage Tracking**: See which states and transitions have been visited.
+-   **Targeted Fuzzing**: Focus fuzzing on a specific, high-value state.
+-   **Exploration Strategies**: Choose how the fuzzer explores the state graph (e.g., broadly or deeply).
 
-### 1. Real-Time State Coverage Tracking
+## 2. State Coverage in Orchestrated Sessions
 
-Every fuzzing session now tracks:
-- **Current State**: Which protocol state the fuzzer is currently in
-- **State Coverage**: How many times each state has been visited
-- **Transition Coverage**: Which state transitions have been exercised
-- **Field Mutation Counts**: Which protocol fields have been mutated
+When using an **Orchestrated Session** with a `protocol_stack`, state coverage is tracked on a **per-stage basis**.
 
-### 2. Fuzzing Modes
+-   The active `state_model` is the one defined in the plugin for the *currently executing stage*.
+-   The `bootstrap` stage might have its own simple state model (e.g., `CONNECTING` -> `CONNECTED`).
+-   The `fuzz_target` stage will have the primary state model that you are interested in for coverage analysis.
+-   The UI and API will always show the state coverage for the currently active stage.
 
-Choose different strategies for exploring protocol state machines:
+This means you can have a simple, linear state model for your handshake, and a complex, branching state model for your main application logic, and the fuzzer will track them independently as it moves through the stages.
 
-#### **Random Mode** (Default)
-```json
-{"fuzzing_mode": "random"}
-```
-- Standard fuzzing behavior
-- Random state exploration
-- Good for general testing
-- Reset interval: 100 iterations
+## 3. Fuzzing Modes (Exploration Strategies)
 
-#### **Breadth-First Mode**
-```json
-{"fuzzing_mode": "breadth_first"}
-```
-- Ensures all states are explored evenly
-- Prioritizes least-visited states
-- Good for achieving full coverage quickly
-- Reset interval: 20 iterations (frequent resets)
-- **Use case**: Initial protocol exploration, finding all reachable states
+You can control how the fuzzer explores the state machine by setting the `fuzzing_mode` when creating a session.
 
-#### **Depth-First Mode**
-```json
-{"fuzzing_mode": "depth_first"}
-```
-- Follows deep execution paths
-- Stays in sequences longer before resetting
-- Good for finding complex bugs requiring specific state sequences
-- Reset interval: 500 iterations (rare resets)
-- **Use case**: Finding bugs in late-stage protocol logic
+#### **`random`** (Default)
+-   Standard fuzzing behavior with random state exploration.
+-   Good for general-purpose, long-running sessions.
 
-#### **Targeted Mode**
-```json
-{
-  "fuzzing_mode": "targeted",
-  "target_state": "AUTHENTICATED"
-}
-```
-- Navigates to a specific state and focuses testing there
-- Uses BFS pathfinding to reach target state
-- Concentrates mutations on messages valid in target state
-- Reset interval: 300 iterations
-- **Use case**: Deep testing of specific protocol features (auth handlers, file transfer, etc.)
+#### **`breadth_first`**
+-   Prioritizes visiting the least-explored states.
+-   **Use Case**: Excellent for initial discovery. Run for a short period to quickly map out all reachable states in the protocol.
 
-### 3. Coverage Visibility
+#### **`depth_first`**
+-   Attempts to follow long sequences of transitions before resetting.
+-   **Use Case**: Ideal for finding complex bugs that only manifest after a specific, deep sequence of operations.
 
-Coverage data is exposed through multiple channels:
+#### **`targeted`**
+-   Focuses all fuzzing effort on a single, specified state. The fuzzer will automatically navigate to the `target_state` and then spend all its iterations fuzzing messages and transitions valid in that state.
+-   **Use Case**: Deep-testing a specific, high-value feature of your target, such as an authentication process or a file transfer state.
+-   **In an Orchestrated Session**, the `target_state` must be a state within the `state_model` of your `fuzz_target` plugin.
 
-#### **API Endpoint**
-```bash
-GET /api/sessions/{session_id}
-```
+## 4. Monitoring Coverage
 
-Response includes:
+Coverage data is exposed through the API and the web UI.
+
+### API Endpoint
+
+The main session endpoint includes all coverage data:
+`GET /api/sessions/{session_id}`
+
 ```json
 {
   "current_state": "AUTHENTICATED",
   "state_coverage": {
     "INIT": 250,
     "CONNECTED": 180,
-    "AUTHENTICATED": 95,
-    "DATA_SENDING": 20,
-    "ERROR": 5
+    "AUTHENTICATED": 95
   },
   "transition_coverage": {
     "INIT->CONNECTED": 180,
-    "CONNECTED->AUTHENTICATED": 95,
-    "AUTHENTICATED->DATA_SENDING": 20
+    "CONNECTED->AUTHENTICATED": 95
   },
   "field_mutation_counts": {
     "payload": 450,
-    "command": 500,
-    "length": 320
+    "command": 500
   }
 }
 ```
 
-#### **UI Dashboard**
-The dashboard sessions table now displays:
-- Current state in Status column
-- Coverage percentage: "Coverage: 5/8 states (63%)"
-- Target state (when using targeted mode): "→ AUTHENTICATED"
+### UI Dashboard
+-   The **State Graph** visualization in the session detail view provides a live, graphical representation of the state machine, with nodes colored by visit count and the current state highlighted.
+-   In an Orchestrated Session, this graph automatically updates to show the state machine of the current stage.
 
-#### **Computed Properties**
-The `FuzzSession` model includes helper properties:
-```python
-session.coverage_percentage  # Returns 0.0-100.0
-session.unexplored_states   # List of states never visited
-```
-
-## Usage Examples
+## 5. Usage Examples
 
 ### Example 1: Explore All States Quickly
-
-```bash
-curl -X POST http://localhost:8000/api/sessions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "protocol": "my_protocol",
-    "target_host": "target",
-    "target_port": 9999,
-    "fuzzing_mode": "breadth_first",
-    "max_iterations": 1000
-  }'
-```
-
-**Result**: All reachable states will be visited within the first few hundred iterations, giving you a complete state coverage map.
+Set `"fuzzing_mode": "breadth_first"`. This will give you a complete map of all reachable states.
 
 ### Example 2: Deep Test Authentication Logic
-
-```bash
-curl -X POST http://localhost:8000/api/sessions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "protocol": "my_protocol",
-    "target_host": "target",
-    "target_port": 9999,
-    "fuzzing_mode": "targeted",
-    "target_state": "AUTHENTICATED",
-    "max_iterations": 10000
-  }'
-```
-
-**Result**: The fuzzer will navigate to the AUTHENTICATED state and spend 10,000 iterations testing messages valid in that state, maximizing the chance of finding auth-related bugs.
-
-### Example 3: Find Complex Multi-Step Bugs
-
-```bash
-curl -X POST http://localhost:8000/api/sessions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "protocol": "my_protocol",
-    "target_host": "target",
-    "target_port": 9999,
-    "fuzzing_mode": "depth_first",
-    "max_iterations": 5000
-  }'
-```
-
-**Result**: The fuzzer will follow long state sequences, good for finding bugs that only trigger after a specific sequence of operations.
-
-### Example 4: Monitor Coverage in Real-Time
-
-```bash
-# Start a session
-SESSION_ID=$(curl -s -X POST http://localhost:8000/api/sessions \
-  -H "Content-Type: application/json" \
-  -d '{"protocol":"branching_protocol","target_host":"target","target_port":9999,"fuzzing_mode":"breadth_first"}' \
-  | jq -r '.id')
-
-curl -X POST http://localhost:8000/api/sessions/$SESSION_ID/start
-
-# Monitor coverage every 5 seconds
-while true; do
-  curl -s http://localhost:8000/api/sessions/$SESSION_ID | \
-    jq '{current_state, total_tests, coverage: .state_coverage}'
-  sleep 5
-done
-```
-
-## UI Workflow
-
-### Creating a Session with Targeting
-
-1. Navigate to the Dashboard
-2. Click "▶ Advanced Targeting Options" to expand
-3. Select a fuzzing mode:
-   - **Random**: Standard fuzzing
-   - **Breadth-First**: Explore all states evenly
-   - **Depth-First**: Follow deep paths
-   - **Targeted**: Focus on specific state
-4. If using Targeted mode, enter the state name (e.g., "AUTHENTICATED")
-5. Click "Create Session"
-
-### Monitoring Coverage
-
-In the sessions table, you'll see:
-- **Status column**: Current state (e.g., "State: AUTHENTICATED")
-- **Stats column**: Coverage percentage (e.g., "Coverage: 5/8 states (63%)")
-- **Target column**: Arrow showing target state if applicable (e.g., "→ AUTHENTICATED")
-
-## Implementation Details
-
-### Architecture
-
-**State Tracking Flow**:
-```
-StatefulFuzzingSession (in-memory state machine)
-    ↓ (real-time sync)
-FuzzSession model (API-exposed data)
-    ↓ (JSON response)
-UI Dashboard (live display)
-```
-
-**Coverage Update Frequency**: Every test case execution (real-time)
-
-**Reset Logic**:
-- Breadth-first: Reset every 20 iterations to explore uniformly
-- Depth-first: Reset every 500 iterations to follow deep paths
-- Targeted: Reset every 300 iterations (or when terminal state reached)
-- Random: Reset every 100 iterations
-
-### Field Mutation Tracking
-
-When using structure-aware mutations, the fuzzer tracks which fields are being mutated:
-
-```python
-# In mutation engine
-field_mutated = structure_mutator.last_mutated_field
-session.field_mutation_counts[field_mutated] += 1
-```
-
-This helps identify:
-- Which fields are being tested
-- Mutation distribution across protocol fields
-- Untouched fields (potential blind spots)
-
-## Troubleshooting
-
-### "State coverage is empty"
-
-**Cause**: Protocol doesn't have a state_model or the state machine hasn't transitioned yet
-
-**Solution**:
-1. Verify protocol has `state_model` with transitions
-2. Let the session run for at least 50-100 iterations
-3. Check session `error_message` for connection issues
-
-### "Targeted mode not reaching target state"
-
-**Cause**: Target state may be unreachable from initial state
-
-**Solution**:
-1. Check protocol's state model to verify path exists
-2. Ensure seeds exist for required message types
-3. Check logs for "no_path_to_target_state" warnings
-4. Try breadth-first mode first to see which states are reachable
-
-### "Field mutations not tracked"
-
-**Cause**: Using byte-level mutations instead of structure-aware
-
-**Solution**:
-1. Set `mutation_mode` to "structure_aware" or "hybrid"
-2. Ensure protocol has proper `data_model` with field definitions
-3. Field tracking only works with structure-aware mutations
-
-## Best Practices
-
-### 1. Start with Breadth-First
-Always begin with breadth-first mode to understand the protocol's state space:
-```json
-{"fuzzing_mode": "breadth_first", "max_iterations": 500}
-```
-This reveals all reachable states and helps you identify interesting targets.
-
-### 2. Target High-Value States
-Once you know the state space, target states with complex logic:
-- Authentication handlers
-- File upload/download states
-- Error recovery states
-- Administrative/privileged states
-
-### 3. Combine with Max Iterations
-Use `max_iterations` with targeted mode for focused campaigns:
 ```json
 {
   "fuzzing_mode": "targeted",
-  "target_state": "FILE_TRANSFER",
-  "max_iterations": 50000
+  "target_state": "AUTHENTICATED"
 }
 ```
+The fuzzer will navigate to the `AUTHENTICATED` state and spend all its time testing messages valid in that state.
 
-### 4. Monitor Unexplored States
-Use the API to find states that are never reached:
-```bash
-curl -s http://localhost:8000/api/sessions/$SESSION_ID | \
-  jq '.state_coverage | to_entries | map(select(.value == 0)) | .[].key'
-```
+## 6. Troubleshooting
 
-These may indicate:
-- Dead code in the target
-- Missing seeds for certain message types
-- Unreachable states due to validation logic
+-   **"State coverage is empty"**: Your plugin may not have a `state_model`, or the session may not have run long enough to transition. In an orchestrated session, check that the *current stage's plugin* has a `state_model`.
+-   **"Targeted mode not reaching target state"**: The state might be unreachable. Use `breadth_first` mode first to confirm a path to the target state exists.
+-   **"Field mutations not tracked"**: Field-level tracking requires structure-aware mutation modes (`structure_aware` or `hybrid`). It does not work with `byte_level_only`.
 
-### 5. Field Coverage Analysis
-Check which fields are being mutated:
-```bash
-curl -s http://localhost:8000/api/sessions/$SESSION_ID | \
-  jq '.field_mutation_counts | to_entries | sort_by(.value) | reverse'
-```
+## 7. Best Practices
 
-Low-count fields may need more focus or specialized mutation strategies.
+1.  **Start with `breadth_first`**: Always begin a campaign with a short `breadth_first` run to map the protocol's state space and identify interesting states to target later.
+2.  **Target High-Value States**: Once you have a map, use `targeted` mode to focus on states with complex logic: authentication, file transfers, configuration changes, etc.
+3.  **Validate `bootstrap` First**: In an orchestrated session, your `fuzz_target` coverage data is only meaningful if the `bootstrap` stage is succeeding reliably. Ensure your handshake is stable before diving deep into state coverage analysis of the main application.
+4.  **Monitor Unexplored States**: Use the API or UI to see which states have a visit count of zero. These "unexplored" states may indicate dead code in the target, or a missing seed or transition in your protocol plugin.
 
-## Future Enhancements (Recommended)
-
-Based on this implementation, here are suggested improvements:
-
-1. **State Coverage Visualization**: Graph-based UI showing state machine with coverage heatmap
-2. **Path Recording**: Track and replay specific state sequences that led to crashes
-3. **Coverage-Guided Fuzzing**: Automatically adjust fuzzing mode based on coverage stagnation
-4. **Field-Level Targeting**: Allow specifying `mutable_fields: ["payload", "command"]` to focus on specific fields
-5. **Transition Triggers**: Allow triggering specific transitions for precise state navigation
-6. **Export Coverage Reports**: Generate coverage reports in standard formats (JSON, CSV, HTML)
-
+---
 ## See Also
-
-- `docs/PROTOCOL_PLUGIN_GUIDE.md` - Creating protocol plugins
-- `blueprint.md` - Overall architecture
-- API documentation at `/api/docs` (when server is running)
+-   [Protocol Plugin Guide](PROTOCOL_PLUGIN_GUIDE.md)
+-   [Orchestrated Sessions Guide](ORCHESTRATED_SESSIONS_GUIDE.md)

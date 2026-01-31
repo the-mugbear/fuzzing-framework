@@ -2,593 +2,138 @@
 
 This guide explains how to use the TCP and UDP server templates to implement custom protocol servers for fuzzing verification and validation testing.
 
-## Table of Contents
+## 1. Overview
 
-1. [Overview](#overview)
-2. [When to Use Which Template](#when-to-use-which-template)
-3. [Quick Start](#quick-start)
-4. [TCP Template Guide](#tcp-template-guide)
-5. [UDP Template Guide](#udp-template-guide)
-6. [Common Patterns](#common-patterns)
-7. [Troubleshooting](#troubleshooting)
+The protocol server templates provide fully-documented starting points for implementing servers that work correctly with the fuzzer. A well-crafted test server is essential for verifying your protocol plugin and for testing stateful logic.
 
----
+-   **TCP Template**: `tests/template_tcp_server.py`
+-   **UDP Template**: `tests/template_udp_server.py`
 
-## Overview
+## 2. When to Use Which Template
 
-The protocol server templates provide fully-documented starting points for implementing servers that work correctly with the fuzzer. They include:
-
-- **TCP Template** (`tests/template_tcp_server.py`): For connection-oriented, stream-based protocols
-- **UDP Template** (`tests/template_udp_server.py`): For connectionless, datagram-based protocols
-
-Both templates demonstrate:
-- ✅ Correct message framing (avoiding deadlocks)
-- ✅ Protocol parser integration
-- ✅ Response crafting
-- ✅ Error handling
-- ✅ Extensive inline documentation
+-   **TCP**: Use for connection-oriented, reliable protocols (HTTP, stateful binary protocols). This is the most common choice.
+-   **UDP**: Use for connectionless, low-latency protocols (DNS, NTP, game traffic).
 
 ---
 
-## When to Use Which Template
+## 3. TCP Template Guide
 
-### Use the **TCP Template** when:
-- Your protocol requires **reliable, ordered delivery**
-- You need **connection state** (sessions, handshakes)
-- Your protocol uses **streaming data** (no natural message boundaries)
-- Examples: HTTP, FTP, SSH, TLS, custom binary protocols
+The most critical part of a TCP server is **message framing**. Because TCP is a stream, you are responsible for identifying message boundaries. Failure to do this correctly is the #1 cause of fuzzing sessions hanging.
 
-### Use the **UDP Template** when:
-- Your protocol can tolerate **packet loss**
-- You need **low latency** over reliability
-- Messages are **self-contained** (no fragmentation needed)
-- You need **multicast** or **broadcast** capability
-- Examples: DNS, DHCP, NTP, SNMP, real-time gaming protocols
+### The Deadlock Problem (And How to Avoid It)
+A simple `sock.recv(4096)` will block until 4096 bytes are received or the connection is closed. The fuzzer keeps the connection open, leading to a deadlock.
 
-### Quick Comparison
+**✅ The Solution: Read Exactly What You Need**
+The template provides a `read_exactly(sock, num_bytes)` helper function. To use it, you must tell the server how to calculate the total size of an incoming message.
 
-| Feature | TCP | UDP |
-|---------|-----|-----|
-| Connection | Stateful | Stateless |
-| Reliability | Guaranteed delivery | Best effort |
-| Ordering | In-order delivery | May arrive out of order |
-| Overhead | Higher (handshake, acks) | Lower (no connection) |
-| Message Boundaries | Stream (need framing) | Datagram (natural boundaries) |
-| Complexity | More complex | Simpler |
-| Use Case | Reliability critical | Latency critical |
+#### **CUSTOMIZATION POINT: `_calculate_message_size()`**
+You **MUST** implement this method. It receives an initial buffer of data and must return the total expected size of the complete message.
+
+**Example**: Your protocol is `[Magic: 4B][Length: 4B][Payload: N B]`.
+```python
+# In your server class:
+def _calculate_message_size(self, buffer: bytes) -> int:
+    # We need at least 8 bytes to read the length field.
+    if len(buffer) < 8:
+        return -1 # Tell the template we need more data.
+
+    # The length field is at offset 4, is 4 bytes long, big-endian.
+    # It specifies the length of the PAYLOAD.
+    payload_len = struct.unpack('>I', buffer[4:8])[0]
+
+    # The total message size is the header (8 bytes) + the payload.
+    return 8 + payload_len
+```
+The template's main loop uses this logic to piece together the full message from the stream before passing it to your processing logic.
+
+### Other Customization Points
+
+-   **`__init__()`**: Import your protocol plugin and initialize the `ProtocolParser`.
+-   **`_process_message()`**: The core of your server's logic. It receives a dictionary of parsed fields from the request and must return the raw bytes of the response.
+-   **`_build_response()`**: A helper to serialize a dictionary of response fields into bytes using your response model.
 
 ---
 
-## Quick Start
+## 4. UDP Template Guide
 
-### 1. Choose Your Template
+The UDP template is simpler because datagrams are self-contained messages.
 
-```bash
-# Copy the appropriate template
-cp tests/template_tcp_server.py tests/my_protocol_server.py
-# OR
-cp tests/template_udp_server.py tests/my_protocol_server.py
-```
-
-### 2. Create Your Protocol Plugin
-
-First, create your protocol definition in `core/plugins/`:
-
-```python
-# core/plugins/my_protocol.py
-
-__version__ = "1.0.0"
-
-data_model = {
-    "name": "MyProtocol",
-    "blocks": [
-        {"name": "magic", "type": "bytes", "size": 4, "default": b"MYPK"},
-        {"name": "length", "type": "uint16", "endian": "big"},
-        {"name": "payload", "type": "bytes", "max_size": 1024}
-    ]
-}
-
-# Optional: Separate response format
-response_model = {
-    "name": "MyProtocolResponse",
-    "blocks": [
-        {"name": "magic", "type": "bytes", "size": 4, "default": b"RESP"},
-        {"name": "status", "type": "uint8"},
-        {"name": "data", "type": "bytes", "max_size": 512}
-    ]
-}
-```
-
-### 3. Customize the Template
-
-Open your copied server file and follow the `CUSTOMIZATION POINT` markers:
-
-```python
-# CUSTOMIZATION POINT 1: Import your protocol
-from core.plugins import my_protocol
-
-# CUSTOMIZATION POINT 2: Initialize parsers
-self.request_parser = ProtocolParser(my_protocol.data_model)
-self.response_parser = ProtocolParser(my_protocol.response_model)
-
-# Continue through all customization points...
-```
-
-### 4. Run Your Server
-
-```bash
-# Test locally
-python tests/my_protocol_server.py --port 9999
-
-# In Docker
-# Update docker-compose.yml CMD for the target service
-# Then: docker-compose up -d target
-```
-
-### 5. Test with the Fuzzer
-
-```bash
-# Create a fuzzing session
-curl -X POST http://localhost:8000/api/sessions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "protocol": "my_protocol",
-    "target_host": "localhost",  # or "target" in Docker
-    "target_port": 9999,
-    "timeout_per_test_ms": 2000
-  }'
-```
+-   **`MAX_DATAGRAM_SIZE`**: Set this to a reasonable value for your protocol to prevent IP fragmentation.
+-   **`_process_message()`**: Your core logic. Receives parsed fields and the client address, returns response bytes.
 
 ---
 
-## TCP Template Guide
+## 5. Implementing Servers for Orchestrated Sessions
 
-### Understanding TCP Message Framing
+When fuzzing a protocol with an **Orchestrated Session**, your test server must act as a realistic counterpart, correctly handling each stage of the interaction.
 
-The **critical** part of TCP server implementation is message framing. TCP is a **stream protocol** with no natural message boundaries, so you must implement framing logic to know where messages start and end.
+### Server Logic for Orchestration
+Your server's `_process_message` function needs to behave like a state machine, responding differently based on the message it receives.
 
-#### The Deadlock Problem
+-   **Handle `bootstrap` messages**: It must recognize the handshake message from the `bootstrap` stage plugin.
+-   **Return `export` data**: If the `bootstrap` stage `exports` a value (like a session token), the server's response *must* contain that value in the expected format.
+-   **Handle `fuzz_target` messages**: After the handshake, the server must correctly validate and process the fuzzed messages, which will contain data injected via `from_context`.
+-   **Handle `heartbeat` messages**: The server should respond correctly to PINGs to keep the connection alive.
 
-**❌ DO NOT DO THIS:**
-```python
-# WRONG - Creates deadlock with fuzzer!
-while True:
-    chunk = sock.recv(4096)
-    if not chunk:  # Waits for client to close
-        break
-    buffer += chunk
-```
+### Example Orchestrated Server Logic
 
-**Why this fails:**
-1. Fuzzer sends data and **keeps connection open** waiting for response
-2. Server waits for connection close before processing
-3. Both sides wait forever (until timeout)
-
-#### The Correct Approach
-
-**✅ DO THIS:**
-```python
-# CORRECT - Read based on protocol structure
-# Step 1: Read fixed header with length field
-header = read_exactly(sock, HEADER_SIZE)
-
-# Step 2: Parse length from header
-msg_length = struct.unpack('>I', header[OFFSET:OFFSET+4])[0]
-
-# Step 3: Read exact message bytes
-remaining = read_exactly(sock, msg_length)
-
-# Step 4: Process and respond immediately
-response = process_message(header + remaining)
-sock.sendall(response)
-```
-
-### TCP Template Customization Points
-
-#### 1. **Message Size Calculation** (Most Important!)
-
-The template provides `_calculate_message_size()` which you **must customize** for your protocol's framing:
-
-**For simple length-prefixed protocols:**
-```python
-def _calculate_message_size(self, initial_buffer: bytes, client_sock: socket.socket) -> int:
-    # If your protocol has a simple length field:
-    # Offset 4-7: uint32 big-endian total message length
-    total_length = struct.unpack('>I', initial_buffer[4:8])[0]
-    return total_length
-```
-
-**For protocols with multiple variable sections:**
-```python
-def _calculate_message_size(self, initial_buffer: bytes, client_sock: socket.socket) -> int:
-    # Header: 20 bytes (includes header_len and payload_len)
-    header_len = struct.unpack('>H', initial_buffer[10:12])[0]
-    payload_len = struct.unpack('>I', initial_buffer[16:20])[0]
-
-    # Total: fixed_prefix + header + payload + fixed_suffix
-    return 20 + header_len + payload_len + 8
-```
-
-**For delimiter-based protocols (like HTTP):**
-```python
-def _receive_complete_message(self, client_sock: socket.socket, addr: tuple) -> bytes:
-    # Read until delimiter
-    buffer = b""
-    delimiter = b"\r\n\r\n"  # HTTP header end
-
-    while delimiter not in buffer:
-        chunk = client_sock.recv(4096)
-        if not chunk:
-            return buffer
-        buffer += chunk
-
-    return buffer
-```
-
-#### 2. **Message Processing Logic**
-
-Implement your protocol's state machine and business logic:
+Let's imagine a protocol that requires a `HELLO` handshake to get a token, which is then used in subsequent `FUZZ` commands.
 
 ```python
-def _process_message(self, fields: Dict[str, any], addr: tuple) -> bytes:
-    # Extract fields
-    cmd = fields.get("command")
-    payload = fields.get("payload", b"")
+# In your server's _process_message method:
 
-    # Dispatch to handlers
-    if cmd == 0x01:  # CONNECT
-        return self._handle_connect(fields)
-    elif cmd == 0x02:  # DATA
-        return self._handle_data(fields)
-    elif cmd == 0x03:  # DISCONNECT
-        return self._handle_disconnect(fields)
-    else:
-        return self._build_error_response(b"Unknown command")
-```
+def _process_message(self, fields: dict, addr: tuple) -> bytes:
+    command = fields.get("command_name") # Assuming a field named 'command_name'
 
-#### 3. **Response Crafting**
+    # Stage 1: Bootstrap / Handshake
+    if command == "HELLO":
+        self._log("info", f"Received HELLO from {addr}. Starting session.")
+        session_token = self._generate_new_token()
+        self.sessions[addr] = session_token # Store the token server-side
 
-Use the response parser to build valid responses:
+        # Return a response that the bootstrap plugin can parse and export from.
+        # The bootstrap plugin will have an `exports` rule to get "token_value".
+        return self._build_response({
+            "status": "OK",
+            "token_value": session_token
+        })
 
-```python
-def _build_response(self, fields: Dict[str, any]) -> bytes:
-    # The response parser handles serialization
-    return self.response_parser.serialize(fields)
-```
+    # Stage 2: Fuzz Target
+    elif command == "FUZZ":
+        client_token = fields.get("session_token") # This field was injected by the fuzzer via from_context
 
-### TCP Timeout Configuration
+        # Validate the token from the fuzzer against our stored token
+        if self.sessions.get(addr) != client_token:
+            self._log("warn", f"Bad token from {addr}. Got {client_token}, expected {self.sessions.get(addr)}")
+            return self._build_response({"status": "ERROR", "message": "Invalid Session Token"})
 
-Set timeouts appropriately for your testing needs:
+        # If token is valid, process the fuzzed data
+        fuzzed_data = fields.get("fuzzed_payload")
+        self._log("info", f"Processing fuzzed data from {addr}: {fuzzed_data!r}")
+        # ... your logic here ...
+        return self._build_response({"status": "OK"})
 
-```python
-client_sock.settimeout(1.0)  # Server-side timeout per recv()
-```
-
-**Recommendations:**
-- **Verification/Validation Testing:** 0.5-1.0 seconds
-- **Network Testing:** 2-5 seconds
-- **Production:** 10-30 seconds
-
-**Pair with fuzzer timeout:**
-- Fuzzer timeout should be **2x server timeout** (e.g., 2s fuzzer, 1s server)
-
----
-
-## UDP Template Guide
-
-### Understanding UDP Datagram Handling
-
-UDP is much simpler than TCP because:
-- ✅ No connections to manage
-- ✅ No deadlock issues
-- ✅ Each `recvfrom()` gets exactly one complete message
-- ✅ No framing complexity
-
-However, UDP has limitations:
-- ❌ No delivery guarantee (packets can be lost)
-- ❌ No ordering guarantee (may arrive out of order)
-- ❌ No automatic retransmission
-- ❌ Datagrams can be duplicated
-
-### UDP Template Customization Points
-
-#### 1. **Maximum Datagram Size**
-
-Set `MAX_DATAGRAM_SIZE` based on your network and protocol:
-
-```python
-# Conservative (safe for internet)
-MAX_DATAGRAM_SIZE = 1472  # Ethernet MTU - headers
-
-# Local network (typical)
-MAX_DATAGRAM_SIZE = 8192
-
-# Maximum possible (risky - causes fragmentation)
-MAX_DATAGRAM_SIZE = 65507
-```
-
-**Fragmentation warning:** UDP datagrams larger than the network MTU will be fragmented by IP layer, which:
-- Reduces reliability (one lost fragment = entire datagram lost)
-- Increases latency
-- May be blocked by firewalls
-
-#### 2. **Message Processing**
-
-Much simpler than TCP since you get complete datagrams:
-
-```python
-def _process_message(self, fields: Dict[str, any], addr: Tuple[str, int]) -> bytes:
-    # Each datagram is independent
-    cmd = fields.get("command")
-
-    # Process based on command
-    if cmd == "PING":
-        return self._build_response({"response": "PONG"})
-    elif cmd == "QUERY":
-        return self._handle_query(fields)
-    else:
-        return self._build_error_response(b"Unknown command")
-```
-
-#### 3. **Session State (Optional)**
-
-UDP is stateless, but you can track state per client if needed:
-
-```python
-# Track sessions by (ip, port) tuple
-session_key = (client_ip, client_port)
-
-if session_key not in self.sessions:
-    self.sessions[session_key] = {
-        "created": datetime.now(),
-        "message_count": 0,
-        "sequence_number": 0
-    }
-
-session = self.sessions[session_key]
-session["message_count"] += 1
-```
-
-### UDP Idempotency Considerations
-
-Since UDP can duplicate datagrams, make handlers idempotent when possible:
-
-```python
-def _handle_request(self, fields: Dict[str, any]) -> bytes:
-    request_id = fields.get("request_id")
-
-    # Check if we've already processed this request
-    if request_id in self.processed_requests:
-        # Return cached response
-        return self.processed_requests[request_id]
-
-    # Process new request
-    response = self._process_new_request(fields)
-
-    # Cache response for duplicates
-    self.processed_requests[request_id] = response
-
-    return response
-```
-
----
-
-## Common Patterns
-
-### Pattern 1: Request-Response Protocol
-
-**TCP Example:**
-```python
-def _process_message(self, fields: Dict[str, any], addr: tuple) -> bytes:
-    request_id = fields.get("request_id")
-    command = fields.get("command")
-
-    # Process command
-    result = self._execute_command(command)
-
-    # Build response
-    return self._build_response({
-        "request_id": request_id,
-        "status": "OK",
-        "result": result
-    })
-```
-
-**UDP Example:** Same logic, but simpler receive/send
-
-### Pattern 2: Session-Based Protocol
-
-**TCP Example:**
-```python
-def _handle_handshake(self, fields: Dict[str, any]) -> bytes:
-    # Create session
-    session_token = secrets.randbits(64)
-    self.sessions[session_token] = {
-        "state": "AUTHENTICATED",
-        "created": datetime.now()
-    }
-
-    return self._build_response({
-        "session_token": session_token,
-        "status": "OK"
-    })
-
-def _handle_data(self, fields: Dict[str, any]) -> bytes:
-    session_token = fields.get("session_token")
-
-    # Validate session
-    if session_token not in self.sessions:
-        return self._build_error_response(b"Invalid session")
-
-    # Process with session context
-    return self._process_with_session(fields, self.sessions[session_token])
-```
-
-### Pattern 3: Multi-Message Protocol
-
-For protocols that require multiple messages to complete a transaction:
-
-```python
-def _process_message(self, fields: Dict[str, any], addr: tuple) -> bytes:
-    session_id = fields.get("session_id")
-    msg_type = fields.get("message_type")
-
-    # Get or create session state
-    if session_id not in self.sessions:
-        self.sessions[session_id] = {"state": "INIT", "data": {}}
-
-    session = self.sessions[session_id]
-
-    # State machine
-    if session["state"] == "INIT" and msg_type == "START":
-        session["state"] = "READY"
-        return self._build_response({"status": "READY"})
-
-    elif session["state"] == "READY" and msg_type == "DATA":
-        session["data"][fields["key"]] = fields["value"]
-        return self._build_response({"status": "ACCEPTED"})
-
-    elif session["state"] == "READY" and msg_type == "COMMIT":
-        self._commit_session(session["data"])
-        session["state"] = "COMPLETE"
-        return self._build_response({"status": "COMMITTED"})
+    # Stage 3: Heartbeat
+    elif command == "PING":
+        return self._build_response({"status": "PONG"})
 
     else:
-        return self._build_error_response(
-            f"Invalid msg_type {msg_type} in state {session['state']}".encode()
-        )
+        self._log("warn", f"Unknown command: {command}")
+        return self._build_response({"status": "ERROR", "message": "Unknown Command"})
+
 ```
+This example demonstrates how the server maintains state (`self.sessions`) and responds differently depending on the stage of the orchestrated session.
 
 ---
 
-## Troubleshooting
+## 6. Troubleshooting
 
-### TCP Issues
-
-#### Problem: All tests timeout/hang
-**Symptoms:**
-- Fuzzer shows all tests as "hangs"
-- Server logs show connections but no message processing
-
-**Solution:**
-- Check `_calculate_message_size()` - it might be incorrect
-- Verify length field offsets match your protocol
-- Add debug logging to see how much data is being read
-
-```python
-# Add debug logging
-self._log("debug", f"Buffer size: {len(buffer)}, expected: {total_size}")
-```
-
-#### Problem: Parse errors
-**Symptoms:**
-- Server logs show "Parse error: ..."
-- Fuzzer receives error responses
-
-**Solution:**
-- Verify `data_model` matches what fuzzer is sending
-- Check endianness (big vs little endian)
-- Validate field sizes and offsets
-
-```python
-# Debug: print raw bytes
-self._log("debug", f"Raw bytes: {buffer.hex()}")
-```
-
-#### Problem: Slow test execution
-**Symptoms:**
-- Each test takes 3+ seconds
-- Timeout warnings in logs
-
-**Solution:**
-- Reduce server timeout: `client_sock.settimeout(0.5)`
-- Reduce fuzzer timeout: `"timeout_per_test_ms": 1500`
-- Ensure you're not waiting for connection close
-
-### UDP Issues
-
-#### Problem: No responses received
-**Symptoms:**
-- Fuzzer shows 0 response bytes
-- Server shows datagrams received but no sends
-
-**Solution:**
-- Check response size doesn't exceed `MAX_DATAGRAM_SIZE`
-- Verify `sendto()` is being called
-- Check for exceptions in `_send_response()`
-
-```python
-# Add logging
-def _send_response(self, response: bytes, addr: Tuple[str, int]) -> None:
-    self._log("debug", f"Sending {len(response)} bytes to {addr}")
-    bytes_sent = self.server_socket.sendto(response, addr)
-    self._log("debug", f"Actually sent: {bytes_sent} bytes")
-```
-
-#### Problem: Responses truncated
-**Symptoms:**
-- Response size is exactly `MAX_DATAGRAM_SIZE`
-- Fuzzer shows incomplete responses
-
-**Solution:**
-- Increase `MAX_DATAGRAM_SIZE`
-- Or reduce response size
-- Or use TCP instead if messages are large
-
-### General Debugging Tips
-
-1. **Enable verbose logging:**
-   ```python
-   def _log(self, level: str, message: str) -> None:
-       # Show debug logs
-       if level == "debug":
-           print(f"[DEBUG] {message}")  # Don't skip
-   ```
-
-2. **Inspect raw bytes:**
-   ```python
-   self._log("debug", f"Received hex: {data.hex()}")
-   self._log("debug", f"Received repr: {data!r}")
-   ```
-
-3. **Test manually with netcat:**
-   ```bash
-   # TCP
-   echo -ne '\x00\x00\x00\x0FHELLO' | nc localhost 9999 | xxd
-
-   # UDP
-   echo -ne '\x00\x00\x00\x0FHELLO' | nc -u localhost 9999 | xxd
-   ```
-
-4. **Check Docker networking:**
-   ```bash
-   # From container
-   docker exec fuzzer-core nc -zv target 9999
-
-   # From host to container
-   nc -zv localhost 9999
-   ```
-
-5. **Monitor with tcpdump:**
-   ```bash
-   # Capture traffic on port 9999
-   sudo tcpdump -i any -X port 9999
-   ```
+-   **All tests hang (TCP)**: Your `_calculate_message_size()` is almost certainly wrong. It's either returning `-1` forever or an incorrect size, causing a deadlock. Add verbose logging to see what it's calculating.
+-   **Parse errors**: The `data_model` in your protocol plugin doesn't match the bytes the server is receiving. Check field orders, sizes, and endianness.
+-   **Orchestration fails at bootstrap**: Your server is not returning the response that the `bootstrap` plugin expects. Manually send the handshake message (`HELLO` in our example) and verify the server's response contains the data needed for `exports`.
 
 ---
-
-## Next Steps
-
-1. ✅ Copy the appropriate template
-2. ✅ Create your protocol plugin in `core/plugins/`
-3. ✅ Customize the template following the `CUSTOMIZATION POINT` markers
-4. ✅ Test manually with netcat
-5. ✅ Run a fuzzing session
-6. ✅ Verify responses are received correctly
-7. ✅ Adjust timeouts for optimal performance
-
-For more examples, see:
-- `tests/feature_showcase_server.py` - Complex TCP protocol with state machine
-- `tests/simple_tcp_server.py` - Simple TCP echo server
-
-Happy fuzzing! 🐛
+## See Also
+-   **Quick Reference**: `docs/TEMPLATE_QUICK_REFERENCE.md`
+-   **Complex Example**: `tests/feature_showcase_server.py` (handles orchestration).
+-   **Simple Example**: `tests/simple_tcp_server.py`.

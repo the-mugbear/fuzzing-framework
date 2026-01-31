@@ -1,69 +1,76 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
 :root {
   color-scheme: dark;
 
   /* Typography */
-  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'Courier New', Consolas, monospace;
+  --font-sans: 'Space Grotesk', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
 
-  /* Background Colors */
-  --bg-body: #050505;
-  --bg-gradient-start: #111827;
-  --bg-gradient-end: #020617;
-  --bg-primary: rgba(2, 6, 23, 0.8);
-  --bg-secondary: rgba(15, 23, 42, 0.7);
-  --bg-tertiary: rgba(15, 23, 42, 0.5);
-  --bg-elevated: rgba(15, 23, 42, 0.95);
+  /* Background + surfaces */
+  --bg-body: #07070a;
+  --bg-void: #0a0d12;
+  --bg-surface: #0f131a;
+  --bg-surface-2: #151b24;
+  --bg-glass: rgba(20, 25, 34, 0.8);
+  --bg-grid: rgba(182, 242, 42, 0.06);
+  --bg-grid-strong: rgba(182, 242, 42, 0.12);
 
-  /* Card backgrounds (aliases for semantic use) */
-  --card-bg: var(--bg-secondary);
-  --card-bg-elevated: var(--bg-elevated);
-  --input-bg: var(--bg-primary);
+  /* Text */
+  --text-primary: #f2f5f7;
+  --text-secondary: #b9c1cc;
+  --text-tertiary: #7f8a99;
+  --text-muted: rgba(242, 245, 247, 0.6);
+  --text-accent: #b6f22a;
 
-  /* Text Colors */
-  --text-primary: #f5f5f5;
-  --text-secondary: #cbd5e1;
-  --text-tertiary: #94a3b8;
-  --text-muted: rgba(255, 255, 255, 0.6);
-  --text-accent: #93c5fd;
+  /* Borders + strokes */
+  --border-color: rgba(182, 242, 42, 0.18);
+  --border-strong: rgba(182, 242, 42, 0.45);
+  --border-subtle: rgba(255, 255, 255, 0.06);
 
-  /* Border Colors */
-  --border-color: rgba(255, 255, 255, 0.08);
-  --border-active: rgba(255, 255, 255, 0.2);
-  --border-subtle: rgba(255, 255, 255, 0.05);
+  /* Accent */
+  --accent-color: #b6f22a;
+  --accent-secondary: #39d0ff;
+  --accent-gradient: linear-gradient(120deg, #b6f22a 0%, #39d0ff 100%);
 
-  /* Accent Colors */
-  --accent-color: #3b82f6;
-  --accent-secondary: #8b5cf6;
-  --accent-gradient: linear-gradient(120deg, #2563eb, #7c3aed);
+  /* Legacy token aliases to keep shared usage consistent */
+  --bg-primary: var(--bg-surface);
+  --bg-secondary: var(--bg-surface-2);
+  --bg-tertiary: rgba(21, 27, 36, 0.7);
+  --bg-elevated: var(--bg-glass);
+  --card-bg: var(--bg-surface);
+  --card-bg-elevated: var(--bg-glass);
+  --input-bg: var(--bg-surface-2);
+  --border-active: var(--border-strong);
 
-  /* Status Colors */
-  --color-success: #22c55e;
-  --color-success-text: #4ade80;
-  --color-success-bg: rgba(34, 197, 94, 0.15);
-  --color-success-border: rgba(34, 197, 94, 0.4);
+  /* Status */
+  --color-success: #2ce36b;
+  --color-success-text: #a6ffbf;
+  --color-success-bg: rgba(44, 227, 107, 0.15);
+  --color-success-border: rgba(44, 227, 107, 0.5);
 
-  --color-error: #ef4444;
-  --color-error-text: #f87171;
-  --color-error-bg: rgba(248, 113, 113, 0.15);
-  --color-error-border: rgba(248, 113, 113, 0.4);
+  --color-error: #ff5c5c;
+  --color-error-text: #ff9b9b;
+  --color-error-bg: rgba(255, 92, 92, 0.15);
+  --color-error-border: rgba(255, 92, 92, 0.55);
 
-  --color-warning: #f59e0b;
-  --color-warning-text: #fbbf24;
-  --color-warning-bg: rgba(245, 158, 11, 0.15);
-  --color-warning-border: rgba(245, 158, 11, 0.4);
+  --color-warning: #f7b500;
+  --color-warning-text: #ffd36e;
+  --color-warning-bg: rgba(247, 181, 0, 0.15);
+  --color-warning-border: rgba(247, 181, 0, 0.45);
 
-  --color-info: #3b82f6;
-  --color-info-text: #60a5fa;
-  --color-info-bg: rgba(59, 130, 246, 0.15);
-  --color-info-border: rgba(59, 130, 246, 0.4);
+  --color-info: #39d0ff;
+  --color-info-text: #9fe9ff;
+  --color-info-bg: rgba(57, 208, 255, 0.14);
+  --color-info-border: rgba(57, 208, 255, 0.45);
 
   /* Status Badge Colors */
-  --status-running-bg: rgba(16, 185, 129, 0.2);
-  --status-running-text: #4ade80;
-  --status-idle-bg: rgba(250, 204, 21, 0.2);
-  --status-idle-text: #facc15;
-  --status-failed-bg: rgba(248, 113, 113, 0.2);
-  --status-failed-text: #f87171;
+  --status-running-bg: rgba(44, 227, 107, 0.2);
+  --status-running-text: #a6ffbf;
+  --status-idle-bg: rgba(247, 181, 0, 0.2);
+  --status-idle-text: #ffd36e;
+  --status-failed-bg: rgba(255, 92, 92, 0.2);
+  --status-failed-text: #ff9b9b;
 
   /* Spacing */
   --space-xs: 4px;
@@ -73,26 +80,25 @@
   --space-xl: 20px;
   --space-2xl: 24px;
   --space-3xl: 32px;
+  --space-4xl: 40px;
 
-  /* Border Radius */
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
-  --radius-2xl: 20px;
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-2xl: 24px;
   --radius-full: 999px;
 
   /* Shadows */
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.35);
-  --shadow-xl: 0 25px 80px rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 8px 24px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 20px 50px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 30px 80px rgba(0, 0, 0, 0.55);
 
   /* Transitions */
   --transition-fast: 0.15s ease;
-  --transition-normal: 0.2s ease;
+  --transition-normal: 0.22s ease;
 
-  /* Set base font */
   font-family: var(--font-sans);
   background-color: var(--bg-body);
   color: var(--text-primary);
@@ -105,7 +111,24 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: radial-gradient(circle at top, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 70%);
+  background:
+    radial-gradient(1200px 900px at 20% -20%, rgba(57, 208, 255, 0.12), transparent 60%),
+    radial-gradient(900px 700px at 80% 0%, rgba(182, 242, 42, 0.1), transparent 55%),
+    linear-gradient(180deg, var(--bg-body) 0%, var(--bg-void) 100%);
+  background-attachment: fixed;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(transparent 0 95%, var(--bg-grid) 100%),
+    linear-gradient(90deg, transparent 0 95%, var(--bg-grid) 100%);
+  background-size: 24px 24px;
+  opacity: 0.55;
+  z-index: -1;
 }
 
 a {
@@ -113,11 +136,11 @@ a {
 }
 
 .card {
-  background: var(--card-bg);
+  background: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-2xl);
   padding: var(--space-2xl);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-md);
   margin-bottom: var(--space-2xl);
 }
 
@@ -127,8 +150,83 @@ a {
 
 .eyebrow {
   text-transform: uppercase;
-  letter-spacing: 2px;
-  font-size: 0.75rem;
-  color: var(--text-accent);
+  letter-spacing: 2.4px;
+  font-size: 0.72rem;
+  color: var(--accent-color);
   margin: 0;
+}
+
+.surface {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+}
+
+.surface--glass {
+  background: var(--bg-glass);
+  border-color: var(--border-color);
+  backdrop-filter: blur(10px);
+}
+
+button,
+.btn {
+  font: inherit;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  padding: 10px 18px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-primary);
+  transition: transform var(--transition-fast), border-color var(--transition-fast);
+}
+
+button:hover,
+.btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
+}
+
+button:disabled,
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+textarea {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 1px rgba(182, 242, 42, 0.08);
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--border-strong);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px rgba(57, 208, 255, 0.18);
+}
+
+code,
+pre,
+.mono {
+  font-family: var(--font-mono);
 }

@@ -6,7 +6,654 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added - 2026-01-31
+
+- **In-app documentation viewer** (`core/api/routes/docs.py`, `core/ui/spa/src/pages/DocumentationHubPage.tsx`)
+  - New `/api/docs` endpoint serves markdown documentation files
+  - Documentation Hub now renders markdown content in a modal instead of showing file paths
+  - Added syntax highlighting for code blocks and proper table formatting
+  - Security: Whitelisted paths prevent directory traversal
+  - Updated Dockerfile to include `docs/` directory in container image
+  - Impact: All documentation is now readable directly in the web UI
+  - Testing: Open Documentation Hub, click any "Read documentation" button
+
+### Fixed - 2026-01-31
+
+- **Correlation page "Older" pagination not working** (`core/engine/history_store.py:601-641`, `core/ui/spa/src/pages/CorrelationPage.tsx:701-723`)
+  - Fixed `total_count()` to use sequence counter (accurate for active sessions) instead of max(db_count, cache_count) which underreported when writes were pending
+  - Fixed pagination button offsets to use actual returned count instead of fixed historyLimit, preventing skipping over records when cache returns fewer than limit
+  - Changed `list()` to always query SQLite and merge unflushed cache records, ensuring consistent page sizes regardless of cache state
+  - Impact: Users can now paginate through all execution history, not just the last 100 cached records
+  - Testing: Run a session with >500 tests, stop it, then use the "Older" button to view earlier executions
+
+- **Execution history batch write failing with bytes serialization error** (`core/engine/history_store.py:17-28`, `core/engine/history_store.py:265-267`)
+  - Added `_json_safe()` helper to recursively convert bytes to base64 strings before JSON serialization
+  - Applied to `context_snapshot` and `parsed_fields` which may contain bytes values from protocol parsing
+  - Impact: All execution records now persist correctly to SQLite; previously 14k+ records were lost on flush
+  - Testing: Run a session, stop it, verify execution history displays correctly in Correlation page
+
+- **Correlation filter buttons inconsistent sizes** (`core/ui/spa/src/pages/CorrelationPage.css:338-355`)
+  - Added `min-width: 64px` and `max-width: 140px` for consistent button sizing
+  - Added text truncation with ellipsis for long state names (e.g., "AUTHENTICATED...")
+  - Centered text with `justify-content: center`
+  - Impact: Filter buttons now have uniform appearance regardless of state name length
+  - Testing: Open Correlation page with protocol that has varied state name lengths
+
+- **Correlation state filter missing rare states** (`core/ui/spa/src/pages/CorrelationPage.tsx:211-227`)
+  - State filter options were derived from current page only, missing states that appear rarely
+  - Now uses session's `state_coverage` which tracks all visited states across the entire session
+  - Example: ESTABLISHED (49 visits in 16k tests) now appears even if not in current page
+  - Impact: All visited states are available as filter options regardless of pagination
+  - Testing: Run stateful session, verify all states from state_coverage appear in filters
+
+### Changed - 2026-01-31
+
+- **Documentation updates for plugin reorganization**
+  - Updated `docs/PROTOCOL_PLUGIN_GUIDE.md` with new three-tier plugin directory structure
+  - Updated `docs/QUICKSTART.md` with correct plugin paths and example names
+  - Updated `docs/developer/04_data_management.md` with execution history architecture details
+  - Added example plugins reference table to Protocol Plugin Guide
+  - All docs now accessible via Documentation Hub in the web UI
+
+- **Enforced termination-state traversal before session resets** (`core/engine/orchestrator.py:762-850`, `core/models.py:199-214`)
+  - Added a termination reset pending flag to ensure termination fuzzing drives the state machine into a closed/terminal state before any periodic reset fires
+  - Deferred interval-based resets while a termination reset is pending and reset immediately upon reaching a termination state
+  - Ensured termination tests keep injecting while a termination reset is pending to avoid skipping teardown coverage
+  - Impact: Session reset intervals now respect termination fuzzing by forcing a closed state before restarting traversal
+  - Testing: Run a stateful session with termination fuzzing enabled and a short reset interval; confirm logs show termination_state_reached before periodic_state_reset
+
+- **Preserved stateful message types during mutation** (`core/engine/orchestrator.py:621-700`)
+  - Enforced the selected seed's message_type after mutation to prevent byte-level fuzzing from breaking state transitions
+  - Re-serialized mutated fields with the fixed message_type for consistent state tracking
+  - Impact: Stateful sessions can now reliably reach termination states even with aggressive mutations
+  - Testing: Run the feature_reference plugin with termination fuzzing enabled; verify coverage reaches CLOSED
+
+- **Termination fuzzing now overrides response followups when needed** (`core/engine/orchestrator.py:990-1034`)
+  - Skips response-handler followups when a termination test should be injected, ensuring cleanup transitions aren't starved by continuous followups
+  - Impact: Sessions using response handlers can still force CLOSED/termination states before reset
+  - Testing: Run feature_reference with termination fuzzing enabled and confirm termination transitions occur despite followup traffic
+
+- **Session reset/termination config now applied at creation** (`core/engine/orchestrator.py:240-278`)
+  - Propagated session_reset_interval and enable_termination_fuzzing from FuzzConfig into new sessions
+  - Impact: UI toggles now take effect for newly created sessions
+  - Testing: Create a session with reset interval + termination fuzzing enabled; verify the session payload reflects those values
+
+- **Correlation filter buttons no longer distort cards** (`core/ui/spa/src/pages/CorrelationPage.css:338-365`)
+  - Normalized filter tag layout with inline-flex alignment, fixed line-height, and consistent height
+  - Disabled hover transform for filter tags to prevent visual shifting
+  - Impact: Filter buttons render as consistent pills without warping the filter card
+  - Testing: Open Correlation page and toggle filters; verify buttons remain uniform and card layout stays stable
+
+- **Correlation pagination allows older pages even with cache-only counts** (`core/ui/spa/src/pages/CorrelationPage.tsx:306-313`)
+  - Enabled the "Older" button when the current page fills the limit, not only when total_count reports more rows
+  - Impact: Users can page older history even if total_count is limited by cache state
+  - Testing: Run a session with >500 executions, click Older and confirm older rows load
+
+### Changed - 2026-01-30
+
+- **Plugin directory reorganization** (`core/plugins/`)
+  - Created three-tier directory structure:
+    - `standard/`: Production-ready protocol implementations (DNS, MQTT, Modbus, TFTP, NTP, CoAP, IPv4)
+    - `examples/`: Learning-focused plugins for bootstrapping custom development
+    - `custom/`: User-created protocol plugins (auto-discovered)
+  - Example plugins consolidated and renamed:
+    - `minimal_tcp.py` - Bare minimum TCP protocol (start here)
+    - `minimal_udp.py` - Bare minimum UDP protocol
+    - `feature_reference.py` - Comprehensive feature showcase (all capabilities)
+    - `orchestrated.py` - Multi-stage protocols with authentication
+    - `stateful.py` - Complex state machines with branching
+    - `field_types.py` - Quick copy-paste field reference
+  - Removed obsolete plugins: auto_test.py, functionality_test.py, transform_demo.py
+  - Updated `PluginManager` to scan subdirectories with priority (custom > examples > standard)
+  - Test servers updated: removed functionality_server.py
+  - All example plugins include clear docstrings pointing to their test servers
+
+### Added - 2026-01-30
+
+- **Orchestration integration into main fuzzing loop** (`core/engine/orchestrator.py`)
+  - **Session initialization** (`create_session`):
+    - Extracts `protocol_stack` from plugin configuration
+    - Creates `ProtocolContext` for orchestrated sessions
+    - Sets `connection_mode` and `heartbeat_enabled` from plugin config
+  - **Bootstrap stage execution** (`start_session`, `_run_bootstrap_stages`):
+    - Runs bootstrap stages via StageRunner before fuzzing starts
+    - Extracts context values (auth tokens, etc.) for use in fuzzing
+    - Sets `current_stage` to "fuzz_target" after bootstrap completes
+    - Fails session gracefully if bootstrap fails
+  - **Heartbeat integration** (`_start_heartbeat`):
+    - Starts HeartbeatScheduler after bootstrap for orchestrated protocols
+    - Stops heartbeat on session stop
+    - Passes context for interval negotiation (from_context support)
+  - **Persistent connection support** (`_execute_test_case`):
+    - Uses ConnectionManager.get_transport() when connection_mode != "per_test"
+    - Maintains persistent connections across test cases
+    - Tracks connection health and marks unhealthy on errors
+  - **Teardown stage execution** (`stop_session`, `_run_teardown_stages`):
+    - Runs teardown stages when session stops
+    - Gracefully handles teardown failures (logs warning, doesn't fail)
+  - **Context injection** (`_inject_context_values`):
+    - Injects context values into test case data for from_context fields
+    - Re-serializes messages with context after mutation
+  - **Execution recording** (`_record_execution`):
+    - Records `stage_name`, `context_snapshot`, `parsed_fields`, `connection_sequence`
+    - Captures protocol context at each execution for replay
+  - **Resource cleanup**:
+    - Cleans up `_session_contexts`, `_stage_runners`, connection manager on stop
+  - Impact: Orchestrated protocols now fully functional in main fuzzing loop
+  - Testing: 29 replay tests pass
+
+### Fixed - 2026-01-30
+
+- **Terminal states not reached during stateful fuzzing** (`core/engine/stateful_fuzzer.py`, `core/engine/orchestrator.py`)
+  - Issue: With feature_reference plugin, CLOSED state never reached even with termination fuzzing enabled
+  - Root cause 1: `select_transition()` 80% progression_weight always favored DATA_STREAM over TERMINATE
+  - Root cause 2: Termination test interval (50) was larger than reset interval (20), so resets happened first
+  - Root cause 3: Termination tests only fired every 50 iterations, missing the window before reset
+  - Fixes to `select_transition()`:
+    - Increased coverage exploration from 10% to 15%
+    - Increased terminal state exploration from 5% to 10%
+    - Added logging for reset reasons (interval vs terminal state)
+  - Fixes to `_should_inject_termination_test()`:
+    - Inject in last 3 tests before reset (ensures we try to reach terminal before resetting)
+    - Scale termination interval to half of reset interval (if reset=20, termination=10)
+    - Always check for termination transitions before deciding
+  - Impact: Terminal states now reliably reached with termination fuzzing enabled
+  - Probability analysis: ~20% combined chance per iteration to prioritize terminal/unvisited states
+
+- **Execution history not showing records in Correlation page** (`core/engine/history_store.py`, `core/api/server.py`)
+  - Issue: No executions visible - records queued but never written to SQLite
+  - Root cause: Background writer lazy initialization silently failed when no event loop available
+  - Architectural fix with multiple improvements:
+  - **Robust writer initialization**: `start_background_writer()` now returns bool; `record()` falls back to synchronous writes if writer can't start
+  - **Eager startup**: Background writer now starts in `server.py` startup_event() when event loop is guaranteed
+  - **Cache-first queries**: `list()` returns from memory cache for first page (real-time data), SQLite for pagination
+  - **Consistent counts**: `total_count()` returns max(sqlite_count, cache_count) to match list() behavior
+  - **Session flush**: `flush()` drains queue and writes synchronously when session stops
+  - Impact: Records visible immediately during fuzzing, reliably persisted to SQLite
+
+- **Correlation page cleanup and consolidation** (`core/ui/spa/src/pages/CorrelationPage.tsx`, `CorrelationPage.css`)
+  - Issue: Page had overlap with State Graph page (duplicated state coverage, mutation insights)
+  - Issue: No executions appearing due to stale closure in fetchHistory useEffect
+  - Removed: Session config card (available in session details), State Coverage insight card, Mutation Insights card
+  - Added: Link to State Graph page in KPIs section for coverage details
+  - Added: Empty state with contextual messaging based on session status
+  - Fixed: `fetchHistory` wrapped in `useCallback` with proper dependencies
+  - Fixed: useEffect dependency arrays now include stable function references
+  - Simplified: Filter section with cleaner header showing count and clear button
+  - Added CSS: `.empty-state` component, `.timeline-range-text`, `.timeline-dot-notable`, `.timeline-dot-filtered`
+  - Impact: Focused correlation page on execution history and replay; coverage analysis on State Graph page
+
+- **Mutation workbench visuals disappearing for havoc/splice mutations** (`core/ui/spa/src/pages/MutationWorkbenchPage.tsx`)
+  - Issue: When havoc or splice mutators produced unparseable packets, the UI hid the entire workbench content
+  - Root cause: Render condition `fields.length > 0` failed when parser couldn't parse aggressive mutations
+  - Fix: Changed condition to `fields.length > 0 || hexData` so content shows with hex data even without parsed fields
+  - Added `lastKnownFields` state to preserve field info from before aggressive mutations
+  - Added `parseWarning` state to explain when mutations produce unparseable packets (expected for havoc/splice)
+  - DiffHexViewer and LivePacketBuilder now fallback to `lastKnownFields` for byte highlighting
+  - FieldMutationPanel disabled when fields are unparseable (must use Clear All or Undo first)
+  - Added CSS styling for `.parse-warning` and `.section-hint.unparseable` messages
+  - Impact: Users can now see hex diff visualization for all mutation types including havoc and splice
+
+- **Plugin Debugger validation failing for orchestrated plugins** (`core/api/routes/plugins.py`, `core/ui/spa/src/pages/PluginDebuggerPage.tsx`)
+  - Issue: Plugin Debugger page failed to validate plugins with `protocol_stack` (multi-stage orchestration)
+  - Root cause: API `/validate` endpoint only called `validate_plugin()` for main data_model, not `validate_protocol_stack()`
+  - API fix: Added call to `validator.validate_protocol_stack(plugin.protocol_stack)` when protocol_stack is present
+  - UI fix: Added new interfaces for `ProtocolStage`, `HeartbeatConfig`, `ConnectionConfig` in PluginDetails
+  - UI fix: Added orchestration section displaying protocol_stack stages with visual cards
+  - Each stage card shows: name, role badge (bootstrap/fuzz_target/teardown), request/response fields, exports, expect conditions
+  - Added connection mode and heartbeat configuration display
+  - Added CSS for `.orchestration-section`, `.stage-card`, `.role-badge`, `.field-chip`, `.export-chip`
+  - Impact: Orchestrated plugins like `examples/orchestrated.py` now validate and display correctly
+
+- **State Walker failing with "No seed found for message type 'None'"** (`core/api/routes/walker.py`, `core/engine/stateful_fuzzer.py`)
+  - Issue: State Walker page failed on orchestrated plugin because state_model uses `message` key instead of `message_type`
+  - Root cause: Walker and stateful fuzzer only checked `transition.get("message_type")`, missing plugins using `message` key
+  - Fix: Added `_get_message_type()` helper function in both files that checks `message_type`, `message`, and `trigger` keys
+  - Updated all transition message type lookups to use the helper function
+  - Also fixed: `get_valid_transitions()` and `_find_transition()` now handle wildcard "from" states (`"*"`) used in orchestrated plugins
+  - Impact: State Walker now works with orchestrated plugins and other plugins using alternate transition key names
+
+- **Request payload parsing during fuzz loop** (`core/engine/orchestrator.py`)
+  - Added `_parse_request_payload()` helper method to parse test case data into field dictionary
+  - Updated `_execute_and_record_test_case()` to parse request payloads before execution
+  - Updated `handle_agent_result()` to parse request payloads for agent-mode execution
+  - Both paths now pass `parsed_fields` to `_record_execution()` for storage
+  - Impact: Enables FRESH mode replay to re-serialize messages with current context values
+  - Previously, `parsed_fields` was only populated during replay (line 1909), not normal fuzzing
+  - Now all execution records include parsed field values for reliable context-aware replay
+
+- **Terminal states not reached during stateful fuzzing** (`core/engine/stateful_fuzzer.py:254-330`)
+  - Issue: CLOSED state never reached after 88 tests with reset_interval=20 using feature_reference plugin
+  - Root cause: `select_transition()` used 80% `progression_weight` to always pick the first transition
+  - For ESTABLISHED state, self-loop transitions (DATA_STREAM, HEARTBEAT) were listed first
+  - TERMINATE transition to CLOSED had only ~6.7% selection probability (80% first + 20%/3 random)
+  - Fix: Added coverage-guided exploration to `select_transition()`:
+    - 10% chance: Prioritize transitions to unvisited states (`_find_transition_to_unvisited_state()`)
+    - 5% chance: Prioritize transitions to terminal states (`_find_transition_to_terminal_state()`)
+    - Remaining: Original progression_weight + random selection
+  - New helper methods:
+    - `_find_transition_to_unvisited_state()`: Returns transition to state with zero visits
+    - `_find_transition_to_terminal_state()`: Returns transition to states identified as terminal
+  - Impact: Terminal states (CLOSED, DISCONNECTED, etc.) now get explored within reasonable test counts
+  - Note: `enable_termination_fuzzing` session option still available for more aggressive termination testing
+
+- **Code review remediation - Phase 3: Critical/High severity fixes**
+  - **CRITICAL: Bootstrap now uses persistent connection** (`core/engine/stage_runner.py`)
+    - Added `connection_manager` parameter to StageRunner constructor
+    - `_execute_bootstrap_attempt()` uses ConnectionManager when connection_mode is session/per_stage
+    - Bootstrap and fuzzing now share the same TCP connection for protocols requiring it
+    - Fixes: Auth tokens tied to connection, TLS session continuity, stateful handshakes
+  - **CRITICAL: Stage name mismatch in replay fixed** (`core/engine/orchestrator.py`, `core/engine/replay_executor.py`)
+    - `_run_bootstrap_stages()` now uses actual stage name (e.g., "application") not role ("fuzz_target")
+    - Replay filtering properly matches fuzz executions by stage name
+    - Fixes: All fuzz executions being skipped during replay
+  - **HIGH: Bootstrap sequence numbers now unique** (`core/engine/stage_runner.py`)
+    - Bootstrap stages use negative sequence numbers (-1, -2, -3, ...)
+    - Prevents primary key collision in history store (session_id, sequence_number)
+    - Fixes: Only last bootstrap stage being stored
+  - **HIGH: Connection config now applied** (`core/engine/orchestrator.py`)
+    - Calls `set_connection_config()` when creating persistent connections
+    - demux, on_drop, reconnect options from plugin now take effect
+  - **HIGH: Heartbeat reconnect callback for re-bootstrap** (`core/engine/orchestrator.py`, `core/engine/heartbeat_scheduler.py`)
+    - HeartbeatScheduler now supports async callbacks (awaits coroutines)
+    - Orchestrator passes reconnect_callback that re-runs bootstrap stages
+    - Fixes: Session continuing without bootstrap after connection loss
+  - **MEDIUM: send_with_lock transport leak fixed** (`core/engine/connection_manager.py`)
+    - Closes transport after use in per_test mode
+    - Prevents socket leaks from repeated heartbeats
+  - **MEDIUM: Session context now persisted** (`core/engine/orchestrator.py`)
+    - `_checkpoint_session()` syncs `_session_contexts` to `session.context`
+    - `_load_sessions_from_disk()` restores context from persisted `session.context`
+    - Fixes: Context lost on session resume after restart
+
+- **Additional code quality improvements** (`core/engine/`)
+  - **CRITICAL: asyncio Future creation fixed** (`core/engine/connection_manager.py`)
+    - PendingRequest.future now created lazily via property, not in default_factory
+    - Prevents RuntimeError when instantiated outside event loop
+  - **Orchestrator initialization cleanup** (`core/engine/orchestrator.py`)
+    - All private attributes (`_session_contexts`, `_stage_runners`, `_connection_manager`, `_heartbeat_scheduler`) now initialized in `__init__`
+    - Replaced `hasattr()` checks with direct attribute access
+    - Prevents race conditions in multi-session scenarios
+  - **Extracted cleanup logic** (`core/engine/orchestrator.py`)
+    - New `_cleanup_session_resources()` method consolidates cleanup code
+    - Used by both `stop_session()` and `delete_session()`
+    - Reduces code duplication and ensures consistent cleanup
+
+- **Code review remediation - Phase 4: Connection mode and rebootstrap fixes**
+  - **HIGH: per_stage connection mode now works during bootstrap/teardown** (`core/engine/stage_runner.py:320,716`)
+    - `_execute_bootstrap_attempt()` and `_run_teardown_stage()` now set `session.current_stage` before calling `get_transport()`
+    - ConnectionManager's `_get_connection_id()` uses `session.current_stage` for per_stage mode
+    - Previously, all stages shared one connection because current_stage wasn't set
+  - **HIGH: Teardown now uses ConnectionManager for persistent modes** (`core/engine/stage_runner.py:710-733`)
+    - `_run_teardown_stage()` checks for persistent connection mode (session/per_stage)
+    - Uses existing managed transport instead of creating ephemeral connections
+    - Teardown messages now sent on the same connection used for fuzzing
+  - **HIGH: Bootstrap sequence collision on rebootstrap fixed** (`core/engine/orchestrator.py:1214-1226`)
+    - `_run_bootstrap_stages()` now reuses existing StageRunner instead of creating new one
+    - Preserves `_bootstrap_sequence` counter across rebootstraps
+    - Calls `reset_for_reconnect()` to clear context but keep sequence counter
+    - Fixes: Sequence numbers -1, -2, -3 reused after heartbeat-triggered rebootstrap
+  - **MEDIUM: Connection config applied early in session lifecycle** (`core/engine/orchestrator.py:354-367`)
+    - `start_session()` now applies connection config before bootstrap stages
+    - Sessions without bootstrap stages now get their connection config applied
+    - Removed duplicate config application from `_run_bootstrap_stages()`
+  - **MEDIUM: reset_for_reconnect() now called during rebootstrap** (`core/engine/orchestrator.py:1219`)
+    - Context is cleared before re-running bootstrap stages
+    - Prevents stale context values from affecting new authentication
+    - connection_manager reference updated on reused StageRunner
+
+- **Code review remediation - Phase 5: Transport and replay fixes**
+  - **CRITICAL: UDP sessions now use UDP transport** (`core/engine/transport.py:271-288`, `core/engine/orchestrator.py:1409-1414`)
+    - `TransportFactory.create_transport()` now accepts `transport_type` parameter
+    - `_execute_test_case()` passes `session.transport.value` to factory
+    - Previously, all protocols silently used TCP regardless of session transport setting
+  - **HIGH: Receive timeouts now classified as HANG, not CRASH** (`core/engine/orchestrator.py:1468-1478`)
+    - Added explicit `except ReceiveTimeoutError` handler before `TransportError`
+    - ReceiveTimeoutError indicates target not responding (potential hang)
+    - Previously caught by TransportError handler which set CRASH, inflating crash stats
+  - **HIGH: FRESH replay bootstrap and replay now share same connection** (`core/engine/replay_executor.py:185-227`, `core/engine/connection_manager.py:527-548,736-778`)
+    - Added `register_replay_transport()` / `unregister_replay_transport()` methods
+    - Added `use_replay_transport` parameter to `get_transport()` for explicit opt-in
+    - StageRunner accepts `use_replay_transport` flag, passes to ConnectionManager
+    - Bootstrap and replay now use same TCP connection for connection-bound tokens
+    - Previously, bootstrap used ephemeral connection while replay used isolated transport
+  - **MEDIUM: Replay transport registration no longer hijacks active sessions** (`core/engine/connection_manager.py:799-804`, `core/engine/stage_runner.py:84,325,722`)
+    - Removed implicit replay transport lookup from `_get_connection_id()`
+    - Replay transport only used when `use_replay_transport=True` is explicitly passed
+    - Prevents concurrent replay from routing active session's fuzz traffic to replay transport
+  - **HIGH: replay_single no longer closes active session transport** (`core/engine/replay_executor.py:352`)
+    - Changed from `get_transport()` to `create_replay_transport()`
+    - Prevents replay operations from tearing down active session connections
+  - **MEDIUM: Removed unused global heartbeat_scheduler** (`core/engine/heartbeat_scheduler.py:544-556`)
+    - Deleted global `heartbeat_scheduler` instance and `init_heartbeat_scheduler()` function
+    - FuzzOrchestrator uses instance variable `_heartbeat_scheduler` instead
+    - Dead code from incomplete global pattern
+
+- **Code review remediation - Phase 2** (`core/engine/`, `core/api/`, `core/ui/spa/`)
+  - `core/engine/replay_executor.py`:
+    - Creates StageRunner on-demand for FRESH mode when not provided (fixes bootstrap skipping)
+    - Denormalizes data_model before creating ProtocolParser (fixes base64 serialization issue)
+    - Uses `create_replay_transport()` for isolated replay connections (prevents transport reuse)
+  - `core/engine/connection_manager.py`:
+    - UDP persistent connections now raise TransportError with helpful message
+    - Added `create_replay_transport()` method for isolated replay connections
+  - `core/ui/spa/src/pages/CorrelationPage.tsx`:
+    - Removed legacy range replay controls (handleRangeReplay, handleSequenceRangeReplay)
+    - Removed associated state variables (rangeStart, rangeEnd, rangeDelay, sequenceRangeStart, sequenceRangeEnd)
+    - Added hint directing users to SessionDetailPanel for context-aware replay
+  - `core/ui/spa/src/components/SessionDetailPanel.tsx`:
+    - Added aria-label attributes to reveal/delete/close buttons for accessibility
+  - Impact: 29 replay tests pass, UI now has proper accessibility labels
+  - Testing: Rebuild SPA, verify in browser
+
+- **Critical review fixes for orchestrated sessions**
+  - `core/engine/history_store.py`: Added `record_direct()` method for pre-built records
+    - Fixes signature mismatch: StageRunner was passing TestCaseExecutionRecord to record()
+  - `core/engine/stage_runner.py`: Updated to use `record_direct()` instead of `record()`
+    - Added `rerun_stage()` method for re-running bootstrap stages via API
+    - Added `_protocol_stages` and `_last_session` for rerun support
+    - Stores stage definitions during bootstrap for later reference
+  - `core/engine/replay_executor.py`: Fixed `_context` → `context` attribute access
+    - StageRunner exposes `context` not `_context`
+  - `core/engine/heartbeat_scheduler.py`: Added `interval_ms` to HeartbeatState and get_status()
+    - API now returns correct interval_ms value
+  - `core/api/routes/orchestration.py`: Fixed stage status API calls
+    - Uses `get_stage_statuses()` (returns list) instead of `get_stage_status()` (needs name)
+  - `tests/test_replay.py`: Fixed MockStageRunner to use `context` not `_context`
+  - Removed `core/engine/session_context.py` (dead code, unused)
+  - Impact: All 114 orchestration tests now pass
+  - **Known Limitations** (documented, not implemented in this phase):
+    - Demultiplexing code paths in connection_manager.py are scaffolded but not active
+    - UDP handling logs warning and falls back to TCP
+    - Main fuzzing loop does not yet use orchestrated components
+    - Connection manager not wired into StageRunner (uses per-test TransportFactory)
+
+### Added - 2026-01-30
+
+- **Phase 8: Documentation & Polish** - Production readiness
+  - `core/plugins/orchestrated_example.py`: New example multi-stage protocol plugin
+    - Demonstrates protocol_stack with bootstrap/fuzz_target/teardown stages
+    - Shows context-based value injection (from_context)
+    - Shows response value extraction (exports)
+    - Shows heartbeat configuration with context-based interval
+    - Shows connection lifecycle management
+    - Includes validate_response specification oracle
+  - `docs/ORCHESTRATED_SESSIONS_GUIDE.md`: New comprehensive guide
+    - Quick start with protocol stack and context
+    - Protocol stack stages (bootstrap, fuzz_target, teardown)
+    - Context system (setting, using, viewing)
+    - Connection management (modes, reconnection)
+    - Heartbeat configuration (interval, jitter, actions)
+    - Replay (modes, UI, API)
+    - API reference for all orchestration endpoints
+    - Troubleshooting section with common issues and solutions
+  - Impact: Complete documentation for orchestrated sessions feature
+  - Testing: Example plugin syntax verified
+
+- **Phase 7: UI Overhaul** - Session detail panel with orchestration visibility
+  - `core/ui/spa/src/components/SessionDetailPanel.tsx`: New expandable session detail panel
+    - **Context tab**: View/add/delete context values with masked values (click to reveal)
+    - **Stages tab**: View protocol stages, status, attempts, and re-run bootstrap stages
+    - **Connection tab**: View connection stats, health, and trigger reconnect/rebootstrap
+    - **Heartbeat tab**: View heartbeat status, interval, failures, and reset failure count
+    - **Replay tab**: Execute orchestrated replay with mode selection (fresh/stored/skip)
+  - `core/ui/spa/src/components/SessionDetailPanel.css`: Styles for session detail panel
+    - Tabbed interface with context/stages/connection/heartbeat/replay tabs
+    - Status badges, health indicators, stat cards
+    - Context value masking with reveal toggle
+    - Replay form with mode, sequence, and delay controls
+  - `core/ui/spa/src/pages/DashboardPage.tsx`: Updated with expandable session rows
+    - Added expand/collapse button to session table
+    - Shows SessionDetailPanel when row is expanded
+    - React.Fragment with proper keys for table rows
+    - Added health indicators (⚡ for persistent connection, ❤️ for heartbeat)
+    - FuzzSession interface extended with orchestration fields
+  - `core/ui/spa/src/pages/DashboardPage.css`: Added expand button, detail row, and health indicator styles
+  - Impact: Full orchestration visibility from the dashboard
+  - Testing: UI builds successfully, accessible at http://localhost:8000/ui/
+
+- **Phase 6: API & Storage** - New orchestration API endpoints
+  - `core/api/routes/orchestration.py`: New route file for orchestration endpoints
+    - **Context endpoints**:
+      - `GET /api/sessions/{id}/context` - Get full context snapshot
+      - `GET /api/sessions/{id}/context/{key}` - Get single context value
+      - `POST /api/sessions/{id}/context` - Set context value (supports hex bytes with 0x prefix)
+      - `DELETE /api/sessions/{id}/context/{key}` - Delete context value
+    - **Stage endpoints**:
+      - `GET /api/sessions/{id}/stages` - List protocol stages and status
+      - `POST /api/sessions/{id}/stages/{name}/rerun` - Re-run bootstrap stage
+    - **Connection endpoints**:
+      - `GET /api/sessions/{id}/connection` - Get connection status and stats
+      - `POST /api/sessions/{id}/connection/reconnect` - Trigger reconnection
+    - **Heartbeat endpoints**:
+      - `GET /api/sessions/{id}/heartbeat` - Get heartbeat status
+      - `POST /api/sessions/{id}/heartbeat/reset` - Reset failure count
+    - **Replay endpoint**:
+      - `POST /api/sessions/{id}/replay` - Orchestrated replay with mode support
+  - `core/models.py`: Added orchestration API models
+    - `ContextValueResponse`, `ContextSnapshotResponse`, `ContextSetRequest`
+    - `StageInfo`, `StageListResponse`
+    - `ConnectionInfo`, `ConnectionStatusResponse`
+    - `HeartbeatStatusResponse`
+    - `OrchestratedReplayRequest`, `OrchestratedReplayResult`, `OrchestratedReplayResponse`
+  - `core/api/routes/__init__.py`: Registered orchestration router
+  - Impact: Full API surface for managing orchestrated sessions
+  - Testing: All endpoints verified via curl (context, stages, connection, heartbeat)
+
+- **Phase 5: Replay** - Execution replay with context reconstruction
+  - `core/engine/replay_executor.py`: New `ReplayExecutor` class for replaying executions
+    - `replay_up_to()`: Replay all executions from start up to target sequence number
+    - `replay_single()`: Replay a single execution by sequence number
+    - `_replay_single()`: Internal method for single execution replay
+    - `_get_fuzz_target_stage()`: Get the fuzz_target stage from protocol stack
+    - `ReplayMode` enum: FRESH (re-bootstrap), STORED (exact bytes), SKIP (no bootstrap)
+    - `ReplayResult` dataclass: Result for single execution replay
+      - `original_sequence`: Original sequence number from history
+      - `status`: "success", "timeout", or "error"
+      - `response_preview`: First 100 bytes of response as hex
+      - `matched_original`: Whether response matches original
+      - `duration_ms`: Execution duration
+    - `ReplayResponse` dataclass: Response from replay operation
+      - `replayed_count`: Number of executions replayed
+      - `skipped_count`: Bootstrap stages skipped
+      - `results`: List of individual ReplayResult
+      - `context_after`: Final context snapshot
+      - `warnings`: List of warnings (incomplete history, etc.)
+    - `ReplayError` exception for replay failures
+  - `core/engine/history_store.py`: Updated for replay support
+    - Added columns: `stage_name`, `context_snapshot`, `parsed_fields`, `connection_sequence`
+    - `list_for_replay()`: Query executions in ascending order for replay
+    - `_row_to_record()`: DRY helper for row-to-record conversion
+    - Fixed syntax error on line 563 (stray parenthesis)
+  - `tests/test_replay.py`: Test suite for replay executor (29 tests)
+    - Replay modes: stored, fresh, skip
+    - Single execution replay: success, not found, with context
+    - Multi-execution replay: basic, partial, delay, stop_on_error
+    - Response matching: matched_original true/false
+    - Error handling: timeout, send error, plugin not found
+    - Duration tracking, dataclass defaults
+  - Features:
+    - FRESH mode: Re-run bootstrap, re-serialize with current context
+    - STORED mode: Replay exact historical bytes, restore context from snapshot
+    - SKIP mode: No bootstrap, use stored bytes, empty context
+    - Warning detection: History gaps, incomplete range
+    - Inter-message delay support for rate limiting
+    - Transport cleanup on success and error
+  - Impact: Enables reliable reproduction of issues via replay
+  - Testing: `pytest tests/test_replay.py` (all 29 tests pass)
+
+### Added - 2026-01-29
+
+- **Phase 4: Heartbeat** - Scheduled keepalive messages
+  - `core/engine/heartbeat_scheduler.py`: New `HeartbeatScheduler` class for periodic keepalives
+    - `start()`: Start heartbeat task for a session
+    - `stop()`: Stop heartbeat task for a session
+    - `stop_all()`: Stop all heartbeat tasks
+    - `get_status()`: Get heartbeat status (healthy/warning/failed/disabled)
+    - `is_running()`: Check if heartbeat is running for a session
+    - `reset_failures()`: Reset failure count after reconnection
+    - `_heartbeat_loop()`: Main async loop that sends periodic heartbeats
+    - `_handle_failure()`: Handle heartbeat failures with configurable actions
+    - `_get_interval()`: Get interval from config or context (from_context support)
+    - `_build_heartbeat()`: Build heartbeat message from data_model or raw bytes
+    - `_is_valid_response()`: Validate heartbeat response
+    - `HeartbeatStatus` enum: HEALTHY, WARNING, FAILED, DISABLED, STOPPED
+    - `HeartbeatAbortError`: Exception for max failures with abort action
+    - `HeartbeatState` dataclass: Runtime state for heartbeat task
+  - Features:
+    - Runs concurrently with fuzz loop as async task
+    - Coordinates sends via ConnectionManager.send_with_lock() mutex
+    - Supports jitter to avoid predictable patterns
+    - Supports context-based interval (`interval_ms: {from_context: "hb_interval"}`)
+    - Configurable failure handling: warn, reconnect, or abort
+    - Reconnect callback for triggering re-bootstrap
+    - Message building via ProtocolParser with context injection
+  - `tests/test_heartbeat.py`: Test suite for heartbeat scheduler (27 tests)
+    - Start/stop lifecycle, interval handling, failure detection
+    - Reconnect triggering, callback invocation
+    - Message building, response validation
+  - Impact: Enables protocols requiring periodic keepalive messages
+  - Testing: `pytest tests/test_heartbeat.py` (all 27 tests pass)
+
+- **Phase 3: Connection Management** - Persistent connections with reconnect
+  - `core/engine/connection_manager.py`: New module for managed transport lifecycle
+    - `PendingRequest`: Tracks requests awaiting response for demux routing
+      - `wait()`: Async wait with timeout support
+      - `resolve()`: Set result on the future
+      - `fail()`: Set exception on the future
+    - `PersistentTCPTransport`: Low-level persistent TCP transport with separate connect/send/recv
+      - `connect()`: Establish TCP connection with configurable timeout
+      - `send()`: Send data on established connection
+      - `recv()`: Receive data with timeout
+      - `cleanup()`: Close socket and cleanup resources
+    - `ManagedTransport`: High-level wrapper with health tracking and statistics
+      - Health tracking: `connected`, `healthy` flags with automatic degradation
+      - Statistics: `bytes_sent`, `bytes_received`, `send_count`, `recv_count`
+      - Timestamps: `created_at`, `last_send`, `last_recv`
+      - `send_and_receive()`: Coordinated send/recv with mutex for concurrent safety
+      - `get_stats()`: Return connection statistics dictionary
+    - `ConnectionManager`: Session-scoped transport management
+      - `get_transport()`: Get or create transport with health check and replacement
+      - `send_with_lock()`: Send data with mutex coordination for heartbeat safety
+      - `reconnect()`: Handle reconnection with backoff and rebootstrap signaling
+      - `close_session()`: Clean up all transports for a session
+      - `close_all()`: Clean up all managed transports
+      - Connection modes: `per_test`, `per_stage`, `session`
+      - `_get_connection_id()`: Generate unique IDs based on connection mode
+    - `ConnectionAbortError`: Exception for max reconnects exceeded
+  - `tests/test_connection_manager.py`: Test suite for connection management (21 tests)
+    - PendingRequest: resolve, timeout, fail behavior
+    - ManagedTransport: connect, send, receive, close, statistics
+    - ConnectionManager: transport creation, reuse, reconnect, modes
+  - Impact: Foundation for persistent connections in orchestrated sessions
+  - Testing: `pytest tests/test_connection_manager.py` (all 21 tests pass)
+
+- **Phase 2: Stage Execution** - Bootstrap and teardown stage execution
+  - `core/engine/stage_runner.py`: New `StageRunner` class for orchestrated session stages
+    - `run_bootstrap_stages()`: Execute all bootstrap stages with retry logic
+    - `run_teardown_stages()`: Execute teardown stages (failures logged, don't halt session)
+    - `_run_bootstrap_stage()`: Single stage execution with retry, validation, exports
+    - `_validate_response()`: Validate parsed response against `expect` conditions
+    - `_extract_value()`: Extract values with dotted path support (e.g., "header.token")
+    - `_apply_export_transforms()`: Apply transforms to exported values
+    - `_record_bootstrap_execution()`: Record bootstrap in history for replay
+    - `reset_for_reconnect()`: Reset state for reconnection with optional context clear
+    - `BootstrapError`, `BootstrapValidationError` exception classes
+  - `tests/test_stage_runner.py`: Test suite for stage runner (12 tests)
+    - Bootstrap execution, validation, retry logic, export transforms
+    - Stage status tracking, helper methods
+  - Impact: Foundation for executing multi-stage protocols with context extraction
+  - Testing: `pytest tests/test_stage_runner.py` (all 12 tests pass)
+
+- **Phase 1: Orchestrated Sessions Foundation** - Core context and serialization support
+  - `core/engine/protocol_context.py`: New `ProtocolContext` class for key-value store
+    - Basic operations: `get()`, `set()`, `has()`, `delete()`, `keys()`, `clear()`
+    - Snapshot/restore for persistence and replay with bytes/datetime serialization
+    - `copy()` for deep cloning, `merge()` for combining contexts
+    - `ContextKeyNotFoundError` for helpful error messages with available keys
+  - `core/engine/protocol_parser.py:276-475`: Updated `serialize()` with context support
+    - New optional `context` parameter for `from_context` field injection
+    - `_resolve_field_values()` method for context resolution with transform pipeline
+    - `_apply_transforms()` for bitwise operations (and_mask, or_mask, shift, invert, etc.)
+    - `_generate_value()` for dynamic values: `unix_timestamp`, `sequence`, `random_bytes:N`
+    - `SerializationError` exception for clear error messages
+  - `core/plugin_loader.py:200-260`: Parse `protocol_stack`, `connection`, `heartbeat` attributes
+    - `get_protocol_stack()`, `get_connection_config()`, `get_heartbeat_config()` helpers
+    - `is_orchestrated()` method to check if plugin uses protocol stack
+    - `_normalize_protocol_stack()` to convert bytes to base64 in stage data_models
+  - `core/engine/plugin_validator.py:658-780`: Validate protocol_stack configuration
+    - Check for required `fuzz_target` stage
+    - Validate stage roles, data_models, response_models
+    - Validate exports reference valid response_model fields
+  - `core/models.py:39-55,188-227,500-513`: Model updates for orchestration
+    - `ConnectionMode` enum: `per_test`, `per_stage`, `session`
+    - `ProtocolPlugin`: Added `protocol_stack`, `connection`, `heartbeat` fields
+    - `FuzzSession`: Added context, connection_mode, heartbeat state fields
+    - `TestCaseExecutionRecord`: Added `stage_name`, `context_snapshot`, `parsed_fields`
+    - `ProtocolStageStatus`: New model for tracking stage execution state
+  - `tests/test_protocol_context.py`: Comprehensive test suite (25 tests)
+    - Tests for ProtocolContext operations, snapshot/restore, bytes serialization
+    - Tests for serialize with context, transform pipelines, dynamic generation
+  - Impact: Foundation for multi-protocol fuzzing with shared context
+  - Testing: `pytest tests/test_protocol_context.py` (all 25 tests pass)
+
+- **Orchestrated Sessions Architecture Document** (`docs/developer/ORCHESTRATED_SESSIONS_ARCHITECTURE.md`)
+  - Comprehensive architecture design for multi-protocol fuzzing with shared context
+  - Defines plugin schema for `protocol_stack` with bootstrap and fuzz target stages
+  - Session context for dynamic value extraction and injection (`from_context` field attribute)
+  - Connection manager using existing `Transport` abstraction (not raw sockets)
+  - Heartbeat scheduler with send coordination to prevent message interleaving
+  - Response demultiplexing strategy for shared connections (sequential, tagged, type-based)
+  - Context snapshot policy with size limits and key filtering
+  - Replay architecture with modes: fresh, stored, skip (ascending order requirement)
+  - State machine integration with existing `StatefulFuzzingSession`
+  - Bootstrap stage policies: not fuzzed, recorded in history, no seeds
+  - API additions: context, stages, connection, heartbeat endpoints
+  - UI consolidation plan: Sessions, Analysis, Protocols, Settings pages
+  - 8-phase implementation plan with deliverables and testing strategy
+  - Backward compatible: existing single-protocol plugins continue to work unchanged
+  - Amended based on code review feedback to align with existing codebase patterns
+
+### Fixed - 2026-01-29
+
+- **Fixed `from_context` and `generate` fields not resolving with `build_default_fields()`** (`core/engine/protocol_parser.py:1043-1065`)
+  - `build_default_fields()` was including default values (0 for uint32) for fields with `from_context` or `generate`
+  - This caused `_resolve_field_values()` to skip context/generation since a non-None value existed
+  - Fix: `build_default_fields()` now skips fields that have `from_context` or `generate` attributes
+  - These fields get their values from context injection or dynamic generation during serialization
+  - Impact: Heartbeat messages and other context-dependent messages now serialize correctly
+  - Testing: Verified with `parser.serialize(parser.build_default_fields(), context=ctx)` pattern
+
+### Changed - 2026-01-29
+
+- **Refined orchestrated sessions plan for transport reuse, demux, replay ordering, and validation** (`docs/developer/ORCHESTRATED_SESSIONS_ARCHITECTURE.md:60-1450`)
+  - Replaced raw-socket assumptions with a persistent-transport extension of the existing Transport abstraction
+  - Added single-reader demux requirements with FIFO pending queue and correlation strategies
+  - Clarified per-stage vs session connection handoff rules and replay ascending-order requirement
+  - Added context snapshot policy, masking requirements, and parsed_fields replay requirements
+  - Added validator updates for from_context/transform/generate and phase deliverables alignment
+  - Impact: Lowers implementation risk and keeps orchestration aligned with current async architecture
+  - Testing: Review doc sections; no runtime changes yet
+
+- **Validated dynamic field attributes in plugin validator** (`core/engine/plugin_validator.py:112-330`)
+  - Added checks for `from_context`, `transform`, and `generate` to prevent runtime failures
+  - Validates transform operation names and generator syntax (`random_bytes:N`, `unix_timestamp`, `sequence`)
+  - Impact: Early detection of invalid orchestrated-session fields during plugin validation
+  - Testing: Run plugin validation on a plugin using invalid `generate` or `transform` values
+
 ### Added - 2026-01-28
+
+- **Variable-length field positioning warning in Plugin Validator** (`core/engine/plugin_validator.py:508-555`)
+  - Added `_validate_variable_length_positioning()` method to detect problematic field configurations
+  - Warns when a variable-length field (`max_size` without linked length field) is not the last field
+  - The parser consumes all remaining bytes for such fields, breaking subsequent field parsing
+  - Warning message explains the issue and provides three fix options:
+    1. Add a length field with `is_size_field`/`size_of` linkage
+    2. Move the variable-length field to the end of the message
+    3. Use fixed `size` instead of `max_size`
+  - Impact: Helps plugin authors avoid a common pitfall; affected plugins: DNS, CoAP, TFTP
+  - This is a fundamental limitation of the parsing model, not a framework bug
+  - Testing: Validate dns.py, coap.py, or tftp.py plugins to see the warning
 
 - **Field Operations Reference plugin** (`core/plugins/field_operations_reference.py`)
   - Concise copy-paste ready examples of ALL supported field operations
@@ -134,6 +781,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Align the header row and meta cards to the top so their borders wrap only the content
   - Impact: "Blocks" and "States" counters no longer show tall borders in the Plugin Debugger header
   - Testing: Open Plugin Debugger and confirm the meta cards fit their content height
+- **Clarified Plugin Debugger preview tooltips** (`core/ui/spa/src/pages/PluginDebuggerPage.tsx:355-398`)
+  - Expanded tooltip copy for Mode, Count, and Focus Field controls
+  - Added concrete examples for Focus Field to make intent clear
+  - Impact: Preview controls are easier to understand without guessing behavior
+  - Testing: Hover preview control tooltips and confirm the new guidance appears
+- **Showed partial parse values in preview cards when full parsing fails** (`core/api/routes/plugins.py:286-324`)
+  - Fall back to partial parsing instead of defaulting every field to its default value
+  - Keeps the parsed fields view aligned with the actual seed bytes even when parsing fails
+  - Impact: Preview cards no longer show identical parsed values for different seeds
+  - Testing: Open Plugin Debugger seed previews for DNS and confirm parsed fields differ across seeds
 - **Fixed invert operation defaulting to 32-bit mask** (`core/engine/response_planner.py:353-380`)
   - Previously, `invert` without `bit_width` used a 32-bit mask (0xFFFFFFFF), producing incorrect results for smaller fields
   - Example bug: inverting 0x05 for an 8-bit field returned 0xFFFFFFFA instead of 0xFA

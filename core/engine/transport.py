@@ -269,24 +269,26 @@ class TransportFactory:
     """
 
     @staticmethod
-    def create_transport(protocol: str, host: str, port: int, timeout_ms: int) -> Transport:
+    def create_transport(
+        host: str,
+        port: int,
+        timeout_ms: int,
+        transport_type: str = "tcp",
+    ) -> Transport:
         """
-        Create appropriate transport for the given protocol.
+        Create appropriate transport for the given transport type.
 
         Args:
-            protocol: Protocol name (determines transport type)
             host: Target host
             port: Target port
             timeout_ms: Timeout in milliseconds
+            transport_type: Transport protocol ("tcp" or "udp")
 
         Returns:
             Transport instance (TCP or UDP)
-
-        Note: Currently defaults to TCP. Protocol-specific transport
-        selection can be added in the future.
         """
-        # TODO: Add protocol metadata for transport selection
-        # For now, default to TCP (most protocols use TCP)
+        if transport_type == "udp":
+            return UDPTransport(host, port, timeout_ms)
         return TCPTransport(host, port, timeout_ms)
 
     @staticmethod

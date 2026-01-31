@@ -36,6 +36,14 @@ class TransportProtocol(str, Enum):
     UDP = "udp"
 
 
+class ConnectionMode(str, Enum):
+    """Connection lifecycle mode for orchestrated sessions"""
+
+    PER_TEST = "per_test"
+    PER_STAGE = "per_stage"
+    SESSION = "session"
+
+
 class ProtocolPlugin(BaseModel):
     """Protocol plugin definition"""
 
@@ -50,6 +58,20 @@ class ProtocolPlugin(BaseModel):
     transport: TransportProtocol = Field(
         default=TransportProtocol.TCP,
         description="Default transport to use when executing this protocol",
+    )
+
+    # Orchestrated session configuration (optional)
+    protocol_stack: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="Protocol stack for orchestrated sessions (bootstrap, fuzz_target, teardown stages)",
+    )
+    connection: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Connection lifecycle configuration",
+    )
+    heartbeat: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Heartbeat/keepalive configuration",
     )
 
 
@@ -186,6 +208,56 @@ class FuzzSession(BaseModel):
     session_resets: int = Field(default=0, description="Number of state machine resets")
     termination_tests: int = Field(default=0, description="Number of termination tests injected")
     tests_since_last_reset: int = Field(default=0, description="Tests executed since last reset")
+    termination_reset_pending: bool = Field(
+        default=False,
+        description="Whether the session is waiting to reach a termination state before resetting",
+    )
+
+    # Orchestrated session fields
+    protocol_stack_config: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="Protocol stack configuration from plugin",
+    )
+    current_stage: str = Field(
+        default="default",
+        description="Current protocol stage name",
+    )
+    context: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Persisted ProtocolContext snapshot for session resume",
+    )
+
+    # Connection state
+    connection_mode: str = Field(
+        default="per_test",
+        description="Connection lifecycle: per_test, per_stage, or session",
+    )
+    connection_id: Optional[str] = Field(
+        default=None,
+        description="Active connection identifier",
+    )
+    reconnect_count: int = Field(
+        default=0,
+        description="Number of reconnections during this session",
+    )
+
+    # Heartbeat state
+    heartbeat_enabled: bool = Field(
+        default=False,
+        description="Whether heartbeat is active",
+    )
+    heartbeat_last_sent: Optional[datetime] = Field(
+        default=None,
+        description="Timestamp of last heartbeat sent",
+    )
+    heartbeat_last_ack: Optional[datetime] = Field(
+        default=None,
+        description="Timestamp of last heartbeat acknowledgment",
+    )
+    heartbeat_failures: int = Field(
+        default=0,
+        description="Consecutive heartbeat failures",
+    )
 
     # Field mutation tracking
     field_mutation_counts: Dict[str, int] = Field(
@@ -426,6 +498,39 @@ class TestCaseExecutionRecord(BaseModel):
     mutation_strategy: Optional[str] = None
     mutators_applied: List[str] = Field(default_factory=list)
 
+    # Orchestrated session fields for replay
+    stage_name: Optional[str] = Field(
+        default=None,
+        description="Protocol stage name (bootstrap, application, etc.)",
+    )
+    context_snapshot: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="ProtocolContext snapshot at execution time for replay",
+    )
+    connection_sequence: int = Field(
+        default=0,
+        description="Position within current connection (for connection-aware replay)",
+    )
+    parsed_fields: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Parsed field values for re-serialization during replay",
+    )
+
+
+class ProtocolStageStatus(BaseModel):
+    """Runtime status for a protocol stage in orchestrated sessions"""
+
+    name: str
+    role: str  # "bootstrap", "fuzz_target", or "teardown"
+    status: str = "pending"  # "pending", "active", "complete", "failed"
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    exports_captured: Dict[str, bool] = Field(
+        default_factory=dict,
+        description="Which exports succeeded: {context_key: True/False}",
+    )
+    error_message: Optional[str] = None
+
 
 class ExecutionHistoryResponse(BaseModel):
     """Response containing execution history"""
@@ -587,3 +692,106 @@ class WalkerExecuteResponse(BaseModel):
     validation_passed: Optional[bool] = None
     validation_error: Optional[str] = None
     current_state: WalkerStateResponse
+
+
+# Orchestration API Models
+
+
+class ContextValueResponse(BaseModel):
+    """Response containing a single context value."""
+    key: str
+    value: Any
+    value_type: str
+
+
+class ContextSnapshotResponse(BaseModel):
+    """Response containing full context snapshot."""
+    session_id: str
+    values: Dict[str, Any]
+    bootstrap_complete: bool
+    key_count: int
+
+
+class ContextSetRequest(BaseModel):
+    """Request to set a context value."""
+    key: str
+    value: Any = Field(description="Value to set (string, number, or hex-encoded bytes)")
+
+
+class StageInfo(BaseModel):
+    """Information about a protocol stage."""
+    name: str
+    role: str  # bootstrap, fuzz_target, teardown
+    status: str  # pending, completed, failed, skipped
+    attempts: int = 0
+    last_error: Optional[str] = None
+
+
+class StageListResponse(BaseModel):
+    """Response listing protocol stages."""
+    session_id: str
+    stages: List[StageInfo]
+    bootstrap_complete: bool
+
+
+class ConnectionInfo(BaseModel):
+    """Information about a managed connection."""
+    connection_id: str
+    connected: bool
+    healthy: bool
+    bytes_sent: int
+    bytes_received: int
+    send_count: int
+    recv_count: int
+    reconnect_count: int
+    created_at: Optional[datetime] = None
+    last_send: Optional[datetime] = None
+    last_recv: Optional[datetime] = None
+
+
+class ConnectionStatusResponse(BaseModel):
+    """Response with connection status."""
+    session_id: str
+    connection_mode: str  # per_test, per_stage, session
+    active_connections: List[ConnectionInfo]
+
+
+class HeartbeatStatusResponse(BaseModel):
+    """Response with heartbeat status."""
+    session_id: str
+    enabled: bool
+    status: Optional[str] = None  # healthy, warning, failed, disabled, stopped
+    interval_ms: Optional[int] = None
+    total_sent: int = 0
+    failures: int = 0
+    last_sent: Optional[datetime] = None
+    last_ack: Optional[datetime] = None
+
+
+class OrchestratedReplayRequest(BaseModel):
+    """Request for orchestrated replay with context reconstruction."""
+    target_sequence: int = Field(description="Replay executions 1 through this sequence number")
+    mode: str = Field(default="stored", description="Replay mode: fresh, stored, or skip")
+    delay_ms: int = Field(default=0, description="Delay between replayed messages in ms")
+    stop_on_error: bool = Field(default=False, description="Stop replay on first error")
+
+
+class OrchestratedReplayResult(BaseModel):
+    """Result of replaying a single execution."""
+    original_sequence: int
+    status: str  # success, timeout, error
+    response_preview: Optional[str] = None  # First 100 bytes as hex
+    error: Optional[str] = None
+    duration_ms: float = 0.0
+    matched_original: bool = False
+
+
+class OrchestratedReplayResponse(BaseModel):
+    """Response from orchestrated replay operation."""
+    session_id: str
+    replayed_count: int
+    skipped_count: int = 0
+    results: List[OrchestratedReplayResult]
+    context_after: Dict[str, Any]
+    warnings: List[str]
+    duration_ms: float

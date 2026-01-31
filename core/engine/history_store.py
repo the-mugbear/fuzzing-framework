@@ -16,6 +16,19 @@ from core.models import FuzzSession, TestCase, TestCaseExecutionRecord, TestCase
 logger = structlog.get_logger()
 
 
+def _json_safe(obj):
+    """Convert an object to JSON-safe format, encoding bytes as base64."""
+    if obj is None:
+        return None
+    if isinstance(obj, bytes):
+        return base64.b64encode(obj).decode("utf-8")
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    return obj
+
+
 class ExecutionHistoryStore:
     """SQLite-backed storage for execution records with async batched writes."""
 
@@ -89,10 +102,17 @@ class ExecutionHistoryStore:
                 ON executions(test_case_id)
             """)
 
-            for column, ddl in [
+            # Add new columns for schema migrations
+            new_columns = [
                 ("mutation_strategy", "ALTER TABLE executions ADD COLUMN mutation_strategy TEXT"),
                 ("mutators_applied", "ALTER TABLE executions ADD COLUMN mutators_applied TEXT"),
-            ]:
+                # Orchestrated session columns
+                ("stage_name", "ALTER TABLE executions ADD COLUMN stage_name TEXT"),
+                ("context_snapshot", "ALTER TABLE executions ADD COLUMN context_snapshot TEXT"),
+                ("parsed_fields", "ALTER TABLE executions ADD COLUMN parsed_fields TEXT"),
+                ("connection_sequence", "ALTER TABLE executions ADD COLUMN connection_sequence INTEGER DEFAULT 0"),
+            ]
+            for column, ddl in new_columns:
                 try:
                     conn.execute(ddl)
                 except sqlite3.OperationalError:
@@ -103,17 +123,25 @@ class ExecutionHistoryStore:
         finally:
             conn.close()
 
-    def start_background_writer(self):
-        """Start the background writer task (must be called from async context)."""
-        if self._writer_task is None or self._writer_task.done():
-            try:
-                loop = asyncio.get_running_loop()
-                self._writer_task = loop.create_task(self._background_writer())
-                logger.info("background_writer_started")
-            except RuntimeError:
-                # No event loop running yet - writer will start lazily on first record
-                logger.debug("background_writer_deferred_no_event_loop")
-                pass
+    def start_background_writer(self) -> bool:
+        """
+        Start the background writer task.
+
+        Returns:
+            True if writer started or already running, False if no event loop available
+        """
+        if self._writer_task is not None and not self._writer_task.done():
+            return True  # Already running
+
+        try:
+            loop = asyncio.get_running_loop()
+            self._writer_task = loop.create_task(self._background_writer())
+            logger.info("background_writer_started")
+            return True
+        except RuntimeError:
+            # No event loop - caller should use synchronous write
+            logger.warning("background_writer_failed_no_event_loop")
+            return False
 
     async def shutdown(self):
         """Gracefully shutdown the background writer."""
@@ -128,6 +156,42 @@ class ExecutionHistoryStore:
             except asyncio.CancelledError:
                 pass
         logger.info("history_store_shutdown_complete")
+
+    async def flush(self, timeout: float = 5.0) -> bool:
+        """
+        Flush all pending records to SQLite synchronously.
+
+        Called when stopping a session to ensure records are persisted
+        before the session is marked complete.
+
+        Args:
+            timeout: Maximum seconds to wait for flush
+
+        Returns:
+            True if flush completed, False if timed out
+        """
+        # Collect all pending records from the queue
+        pending = []
+        while not self._write_queue.empty():
+            try:
+                pending.append(self._write_queue.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+
+        if not pending:
+            logger.debug("flush_no_pending_records")
+            return True
+
+        logger.info("flushing_history_store", pending_records=len(pending))
+
+        # Write directly to SQLite (bypasses background writer race condition)
+        try:
+            await asyncio.to_thread(self._write_batch, pending)
+            logger.info("history_flush_complete", flushed_records=len(pending))
+            return True
+        except Exception as exc:
+            logger.error("history_flush_failed", error=str(exc), lost_records=len(pending))
+            return False
 
     async def _background_writer(self):
         """Background task that batches and writes records to SQLite."""
@@ -173,8 +237,9 @@ class ExecutionHistoryStore:
                     payload_size, payload_hash, payload_preview, raw_payload,
                     protocol, message_type, state_at_send,
                     mutation_strategy, mutators_applied,
-                    result, response_size, response_preview, response_data
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    result, response_size, response_preview, response_data,
+                    stage_name, context_snapshot, parsed_fields, connection_sequence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -187,20 +252,24 @@ class ExecutionHistoryStore:
                         rec.payload_size,
                         rec.payload_hash,
                         rec.payload_preview,
-                    base64.b64decode(rec.raw_payload_b64),  # Store raw bytes
-                    rec.protocol,
-                    rec.message_type,
-                    rec.state_at_send,
-                    rec.mutation_strategy,
-                    json.dumps(rec.mutators_applied or []),
-                    rec.result.value,
-                    rec.response_size,
-                    rec.response_preview,
-                    base64.b64decode(rec.raw_response_b64) if rec.raw_response_b64 else None,
-                )
-                for rec in records
-            ],
-        )
+                        base64.b64decode(rec.raw_payload_b64),  # Store raw bytes
+                        rec.protocol,
+                        rec.message_type,
+                        rec.state_at_send,
+                        rec.mutation_strategy,
+                        json.dumps(rec.mutators_applied or []),
+                        rec.result.value,
+                        rec.response_size,
+                        rec.response_preview,
+                        base64.b64decode(rec.raw_response_b64) if rec.raw_response_b64 else None,
+                        rec.stage_name,
+                        json.dumps(_json_safe(rec.context_snapshot)) if rec.context_snapshot else None,
+                        json.dumps(_json_safe(rec.parsed_fields)) if rec.parsed_fields else None,
+                        rec.connection_sequence,
+                    )
+                    for rec in records
+                ],
+            )
             conn.commit()
         except Exception as exc:
             logger.error("batch_write_failed", error=str(exc), batch_size=len(records))
@@ -254,12 +323,30 @@ class ExecutionHistoryStore:
         response: Optional[bytes],
         message_type: Optional[str] = None,
         state_at_send: Optional[str] = None,
+        stage_name: Optional[str] = None,
+        context_snapshot: Optional[Dict] = None,
+        parsed_fields: Optional[Dict] = None,
+        connection_sequence: int = 0,
     ) -> TestCaseExecutionRecord:
         """
         Record a test case execution synchronously.
 
         Creates the record and queues it for async batch writing to SQLite.
         Also updates the memory cache for fast recent-test queries.
+
+        Args:
+            session: The fuzzing session
+            test_case: The test case that was executed
+            timestamp_sent: When the request was sent
+            timestamp_response: When the response was received
+            result: The execution result
+            response: Response bytes (if any)
+            message_type: Protocol message type
+            state_at_send: State machine state when sent
+            stage_name: Protocol stage (for orchestrated sessions)
+            context_snapshot: ProtocolContext snapshot for replay
+            parsed_fields: Parsed field values for re-serialization
+            connection_sequence: Position within current connection
         """
         sequence_num = self._next_sequence_number(session.id)
         duration_ms = (timestamp_response - timestamp_sent).total_seconds() * 1000
@@ -284,21 +371,67 @@ class ExecutionHistoryStore:
             raw_response_b64=base64.b64encode(response).decode("utf-8") if response else None,
             mutation_strategy=test_case.mutation_strategy,
             mutators_applied=list(test_case.mutators_applied or []),
+            stage_name=stage_name,
+            context_snapshot=context_snapshot,
+            parsed_fields=parsed_fields,
+            connection_sequence=connection_sequence,
         )
 
-        # Update memory cache
+        # Update memory cache (always available for real-time queries)
         cache = self._recent_cache.setdefault(session.id, deque(maxlen=self.memory_cache_size))
         cache.append(record)
 
-        # Start background writer if not running (lazy initialization)
-        if self._writer_task is None or self._writer_task.done():
-            self.start_background_writer()
+        # Try to start background writer if not running
+        writer_running = self._writer_task is not None and not self._writer_task.done()
+        if not writer_running:
+            writer_running = self.start_background_writer()
 
-        # Queue for async batch write (non-blocking)
-        try:
-            self._write_queue.put_nowait(record)
-        except asyncio.QueueFull:
-            logger.warning("write_queue_full", dropping_record=True)
+        if writer_running:
+            # Queue for async batch write (non-blocking)
+            try:
+                self._write_queue.put_nowait(record)
+            except asyncio.QueueFull:
+                logger.warning("write_queue_full", writing_sync=True)
+                # Fallback to synchronous write
+                self._write_batch([record])
+        else:
+            # No event loop available - write synchronously
+            self._write_batch([record])
+
+        return record
+
+    def record_direct(self, record: TestCaseExecutionRecord) -> TestCaseExecutionRecord:
+        """
+        Record a pre-built TestCaseExecutionRecord.
+
+        Used by StageRunner for bootstrap executions where the record
+        is constructed with custom sequence numbers and fields.
+
+        Args:
+            record: Pre-built execution record
+
+        Returns:
+            The same record after caching and queueing
+        """
+        # Update memory cache
+        cache = self._recent_cache.setdefault(record.session_id, deque(maxlen=self.memory_cache_size))
+        cache.append(record)
+
+        # Try to start background writer if not running
+        writer_running = self._writer_task is not None and not self._writer_task.done()
+        if not writer_running:
+            writer_running = self.start_background_writer()
+
+        if writer_running:
+            # Queue for async batch write
+            try:
+                self._write_queue.put_nowait(record)
+            except asyncio.QueueFull:
+                logger.warning("write_queue_full", writing_sync=True)
+                self._write_batch([record])
+        else:
+            # No event loop - write synchronously
+            self._write_batch([record])
 
         return record
 
@@ -311,19 +444,142 @@ class ExecutionHistoryStore:
         until: Optional[datetime] = None,
     ) -> List[TestCaseExecutionRecord]:
         """
-        List execution records from SQLite.
+        List execution records, merging SQLite and cache for consistency.
 
-        For recent queries (no filters), uses memory cache for speed.
-        For filtered queries, queries SQLite directly.
+        Strategy:
+        - Always query SQLite for the requested page
+        - For first page (offset=0), merge in cache records that may not
+          have been written to SQLite yet (handles async write lag)
+        - For paginated queries (offset > 0): SQLite only, as cache
+          only holds the most recent records
+
+        Returns records in descending order (most recent first).
         """
-        # Fast path: recent tests with no filters
-        if offset == 0 and not since and not until and limit <= self.memory_cache_size:
-            cache = list(self._recent_cache.get(session_id, []))
-            # Return in reverse order (most recent first)
-            return list(reversed(cache))[:limit]
+        # Query from SQLite
+        db_records = self._query_from_db(session_id, limit, offset, since, until)
 
-        # Slow path: query SQLite
-        return self._query_from_db(session_id, limit, offset, since, until)
+        # For first page without filters, merge in unflushed cache records
+        if offset == 0 and not since and not until:
+            cache = self._recent_cache.get(session_id)
+            if cache:
+                # Find cache records not yet in SQLite results
+                db_sequences = {r.sequence_number for r in db_records}
+                unflushed = [r for r in cache if r.sequence_number not in db_sequences]
+                if unflushed:
+                    # Merge and re-sort by sequence descending, then limit
+                    merged = sorted(
+                        db_records + unflushed,
+                        key=lambda r: r.sequence_number,
+                        reverse=True,
+                    )[:limit]
+                    logger.debug(
+                        "list_merged_cache",
+                        session_id=session_id,
+                        db_count=len(db_records),
+                        unflushed_count=len(unflushed),
+                        merged_count=len(merged),
+                    )
+                    return merged
+
+        return db_records
+
+    def list_for_replay(
+        self,
+        session_id: str,
+        up_to_sequence: int,
+    ) -> List[TestCaseExecutionRecord]:
+        """
+        Get execution records for replay in ASCENDING order.
+
+        Replay requires processing records in order (1, 2, 3, ..., N) to
+        correctly rebuild protocol state. Unlike list() which returns
+        descending order, this returns ascending order.
+
+        Args:
+            session_id: Session to query
+            up_to_sequence: Get records 1 through this sequence number
+
+        Returns:
+            List of records in ascending order
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+
+        try:
+            cursor = conn.execute(
+                """
+                SELECT * FROM executions
+                WHERE session_id = ?
+                  AND sequence_number <= ?
+                ORDER BY sequence_number ASC
+                """,
+                (session_id, up_to_sequence),
+            )
+            rows = cursor.fetchall()
+            return [self._row_to_record(row) for row in rows]
+        finally:
+            conn.close()
+
+    def get_first_sequence(self, session_id: str) -> int:
+        """Get the first available sequence number for a session."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.execute(
+                "SELECT MIN(sequence_number) FROM executions WHERE session_id = ?",
+                (session_id,),
+            )
+            result = cursor.fetchone()
+            return result[0] or 0
+        finally:
+            conn.close()
+
+    def _row_to_record(self, row: sqlite3.Row) -> TestCaseExecutionRecord:
+        """Convert a SQLite row to a TestCaseExecutionRecord."""
+        # Handle new columns that may not exist in older databases
+        stage_name = row["stage_name"] if "stage_name" in row.keys() else None
+        context_snapshot = None
+        if "context_snapshot" in row.keys() and row["context_snapshot"]:
+            try:
+                context_snapshot = json.loads(row["context_snapshot"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+        parsed_fields = None
+        if "parsed_fields" in row.keys() and row["parsed_fields"]:
+            try:
+                parsed_fields = json.loads(row["parsed_fields"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+        connection_sequence = row["connection_sequence"] if "connection_sequence" in row.keys() else 0
+
+        return TestCaseExecutionRecord(
+            test_case_id=row["test_case_id"],
+            session_id=row["session_id"],
+            sequence_number=row["sequence_number"],
+            timestamp_sent=datetime.fromtimestamp(row["timestamp_sent"]),
+            timestamp_response=datetime.fromtimestamp(row["timestamp_response"])
+            if row["timestamp_response"]
+            else None,
+            duration_ms=row["duration_ms"],
+            payload_size=row["payload_size"],
+            payload_hash=row["payload_hash"],
+            payload_preview=row["payload_preview"],
+            protocol=row["protocol"],
+            message_type=row["message_type"],
+            state_at_send=row["state_at_send"],
+            mutation_strategy=row["mutation_strategy"],
+            mutators_applied=json.loads(row["mutators_applied"] or "[]"),
+            result=TestCaseResult(row["result"]),
+            response_size=row["response_size"],
+            response_preview=row["response_preview"],
+            raw_payload_b64=base64.b64encode(row["raw_payload"]).decode("utf-8"),
+            raw_response_b64=base64.b64encode(row["response_data"]).decode("utf-8")
+            if row["response_data"]
+            else None,
+            stage_name=stage_name,
+            context_snapshot=context_snapshot,
+            parsed_fields=parsed_fields,
+            connection_sequence=connection_sequence,
+        )
 
     def _query_from_db(
         self,
@@ -358,50 +614,44 @@ class ExecutionHistoryStore:
             cursor = conn.execute(query, params)
             rows = cursor.fetchall()
 
-            records = []
-            for row in rows:
-                records.append(
-                    TestCaseExecutionRecord(
-                        test_case_id=row["test_case_id"],
-                        session_id=row["session_id"],
-                        sequence_number=row["sequence_number"],
-                        timestamp_sent=datetime.fromtimestamp(row["timestamp_sent"]),
-                        timestamp_response=datetime.fromtimestamp(row["timestamp_response"])
-                        if row["timestamp_response"]
-                        else None,
-                        duration_ms=row["duration_ms"],
-                        payload_size=row["payload_size"],
-                        payload_hash=row["payload_hash"],
-                        payload_preview=row["payload_preview"],
-                        protocol=row["protocol"],
-                        message_type=row["message_type"],
-                        state_at_send=row["state_at_send"],
-                        mutation_strategy=row["mutation_strategy"],
-                        mutators_applied=json.loads(row["mutators_applied"] or "[]"),
-                        result=TestCaseResult(row["result"]),
-                        response_size=row["response_size"],
-                        response_preview=row["response_preview"],
-                        raw_payload_b64=base64.b64encode(row["raw_payload"]).decode("utf-8"),
-                        raw_response_b64=base64.b64encode(row["response_data"]).decode("utf-8")
-                        if row["response_data"]
-                        else None,
-                    )
-                )
-
+            records = [self._row_to_record(row) for row in rows]
             return records
         finally:
             conn.close()
 
     def total_count(self, session_id: str) -> int:
-        """Get total count of executions for a session from SQLite."""
+        """
+        Get total count of executions for a session.
+
+        Uses sequence counter when available (most accurate for active
+        sessions), falls back to max sequence from DB/cache for inactive
+        sessions.
+        """
+        # For active sessions, sequence counter is authoritative
+        sequence = self._sequence_counters.get(session_id)
+        if sequence is not None:
+            return sequence
+
+        # For inactive sessions, get max sequence from cache or DB
+        cache_max = 0
+        cache = self._recent_cache.get(session_id)
+        if cache:
+            try:
+                cache_max = cache[-1].sequence_number
+            except (IndexError, AttributeError):
+                pass
+
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.execute(
-                "SELECT COUNT(*) FROM executions WHERE session_id = ?", (session_id,)
+                "SELECT MAX(sequence_number) FROM executions WHERE session_id = ?",
+                (session_id,),
             )
-            return cursor.fetchone()[0]
+            db_max = cursor.fetchone()[0] or 0
         finally:
             conn.close()
+
+        return max(db_max, cache_max)
 
     def find_by_sequence(
         self, session_id: str, sequence_number: int
@@ -427,31 +677,7 @@ class ExecutionHistoryStore:
             if not row:
                 return None
 
-            return TestCaseExecutionRecord(
-                test_case_id=row["test_case_id"],
-                session_id=row["session_id"],
-                sequence_number=row["sequence_number"],
-                timestamp_sent=datetime.fromtimestamp(row["timestamp_sent"]),
-                timestamp_response=datetime.fromtimestamp(row["timestamp_response"])
-                if row["timestamp_response"]
-                else None,
-                duration_ms=row["duration_ms"],
-                payload_size=row["payload_size"],
-                payload_hash=row["payload_hash"],
-                payload_preview=row["payload_preview"],
-                protocol=row["protocol"],
-                message_type=row["message_type"],
-                state_at_send=row["state_at_send"],
-                mutation_strategy=row["mutation_strategy"],
-                mutators_applied=json.loads(row["mutators_applied"] or "[]"),
-                result=TestCaseResult(row["result"]),
-                response_size=row["response_size"],
-                response_preview=row["response_preview"],
-                raw_payload_b64=base64.b64encode(row["raw_payload"]).decode("utf-8"),
-                raw_response_b64=base64.b64encode(row["response_data"]).decode("utf-8")
-                if row["response_data"]
-                else None,
-            )
+            return self._row_to_record(row)
         finally:
             conn.close()
 
@@ -480,30 +706,6 @@ class ExecutionHistoryStore:
             if not row:
                 return None
 
-            return TestCaseExecutionRecord(
-                test_case_id=row["test_case_id"],
-                session_id=row["session_id"],
-                sequence_number=row["sequence_number"],
-                timestamp_sent=datetime.fromtimestamp(row["timestamp_sent"]),
-                timestamp_response=datetime.fromtimestamp(row["timestamp_response"])
-                if row["timestamp_response"]
-                else None,
-                duration_ms=row["duration_ms"],
-                payload_size=row["payload_size"],
-                payload_hash=row["payload_hash"],
-                payload_preview=row["payload_preview"],
-                protocol=row["protocol"],
-                message_type=row["message_type"],
-                state_at_send=row["state_at_send"],
-                mutation_strategy=row["mutation_strategy"],
-                mutators_applied=json.loads(row["mutators_applied"] or "[]"),
-                result=TestCaseResult(row["result"]),
-                response_size=row["response_size"],
-                response_preview=row["response_preview"],
-                raw_payload_b64=base64.b64encode(row["raw_payload"]).decode("utf-8"),
-                raw_response_b64=base64.b64encode(row["response_data"]).decode("utf-8")
-                if row["response_data"]
-                else None,
-            )
+            return self._row_to_record(row)
         finally:
             conn.close()

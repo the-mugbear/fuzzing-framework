@@ -70,6 +70,12 @@ class FuzzOrchestrator:
         self.history_store = ExecutionHistoryStore()
         self.crash_reporter = CrashReporter(self.corpus_store)
 
+        # Orchestrated session resources (initialized here to prevent race conditions)
+        self._session_contexts: Dict[str, Any] = {}  # ProtocolContext per session
+        self._stage_runners: Dict[str, Any] = {}  # StageRunner per session
+        self._connection_manager: Optional[Any] = None  # Shared ConnectionManager
+        self._heartbeat_scheduler: Optional[Any] = None  # Shared HeartbeatScheduler
+
         # Session persistence
         from core.engine.session_store import SessionStore
         self.session_store = SessionStore()
@@ -131,6 +137,18 @@ class FuzzOrchestrator:
                                 session_id=session.id,
                                 protocol=session.protocol
                             )
+
+                        # Restore protocol context if session has persisted context
+                        if session.context:
+                            from core.engine.protocol_context import ProtocolContext
+                            context = ProtocolContext()
+                            context.restore(session.context)
+                            self._session_contexts[session.id] = context
+                            logger.debug(
+                                "protocol_context_restored",
+                                session_id=session.id,
+                                context_keys=list(session.context.get("values", {}).keys()),
+                            )
                 except Exception as e:
                     logger.error(
                         "runtime_helper_rebuild_failed",
@@ -156,8 +174,13 @@ class FuzzOrchestrator:
         Save session state to disk.
 
         Called periodically during fuzzing and on status changes.
+        Syncs protocol context to session for persistence.
         """
         try:
+            # Sync protocol context to session before saving
+            if session.id in self._session_contexts:
+                session.context = self._session_contexts[session.id].snapshot()
+
             self.session_store.save_session(session)
         except Exception as e:
             logger.error("session_checkpoint_failed", session_id=session.id, error=str(e))
@@ -207,6 +230,17 @@ class FuzzOrchestrator:
         enabled_mutators = self._resolve_mutators(config)
         behavior_processor = build_behavior_processor(resolved_data_model)
 
+        # Extract orchestration configuration from plugin
+        protocol_stack = plugin_manager.get_protocol_stack(config.protocol)
+        connection_config = protocol.get("connection", {}) if hasattr(protocol, "get") else {}
+        heartbeat_config = protocol.get("heartbeat", {}) if hasattr(protocol, "get") else {}
+
+        # Determine connection mode (from config or plugin)
+        connection_mode = "per_test"  # default
+        if protocol_stack:
+            # Orchestrated protocols default to session-level connections
+            connection_mode = connection_config.get("mode", "session")
+
         session = FuzzSession(
             id=session_id,
             protocol=config.protocol,
@@ -223,16 +257,34 @@ class FuzzOrchestrator:
             execution_mode=config.execution_mode,
             status=FuzzSessionStatus.IDLE,
             behavior_state=behavior_processor.initialize_state() if behavior_processor.has_behaviors() else {},
-            # NEW: Targeting configuration
+            # Targeting configuration
             target_state=config.target_state,
             fuzzing_mode=config.fuzzing_mode,
             mutable_fields=config.mutable_fields,
             field_mutation_config=config.field_mutation_config,
+            # Session lifecycle configuration
+            session_reset_interval=config.session_reset_interval,
+            enable_termination_fuzzing=config.enable_termination_fuzzing,
+            # Orchestration configuration
+            protocol_stack_config=protocol_stack,
+            connection_mode=connection_mode,
+            heartbeat_enabled=heartbeat_config.get("enabled", False) if heartbeat_config else False,
         )
 
         self.sessions[session_id] = session
         if behavior_processor.has_behaviors():
             self.behavior_processors[session_id] = behavior_processor
+
+        # Initialize ProtocolContext for orchestrated sessions
+        if protocol_stack:
+            from core.engine.protocol_context import ProtocolContext
+            self._session_contexts[session_id] = ProtocolContext()
+            logger.debug(
+                "orchestration_context_created",
+                session_id=session_id,
+                protocol_stack_stages=len(protocol_stack),
+                connection_mode=connection_mode,
+            )
 
         if protocol.response_handlers:
             planner = ResponsePlanner(
@@ -302,9 +354,54 @@ class FuzzOrchestrator:
             logger.error("no_agents_for_session", session_id=session_id)
             return False
 
+        # Apply connection configuration early (for all sessions, not just those with bootstrap)
+        if session.connection_mode in ("session", "per_stage"):
+            if self._connection_manager is None:
+                from core.engine.connection_manager import ConnectionManager
+                self._connection_manager = ConnectionManager()
+
+            protocol = plugin_manager.load_plugin(session.protocol)
+            connection_config = protocol.get("connection", {}) if hasattr(protocol, "get") else {}
+            if connection_config:
+                self._connection_manager.set_connection_config(session.id, connection_config)
+                logger.debug(
+                    "connection_config_applied",
+                    session_id=session.id,
+                    config_keys=list(connection_config.keys()),
+                )
+
+        # Run bootstrap stages for orchestrated protocols
+        if session.protocol_stack_config:
+            bootstrap_stages = [
+                s for s in session.protocol_stack_config
+                if s.get("role") == "bootstrap"
+            ]
+            if bootstrap_stages:
+                try:
+                    await self._run_bootstrap_stages(session, bootstrap_stages)
+                    logger.info(
+                        "bootstrap_complete",
+                        session_id=session_id,
+                        stages_run=len(bootstrap_stages),
+                    )
+                except Exception as e:
+                    session.error_message = f"Bootstrap failed: {e}"
+                    session.status = FuzzSessionStatus.FAILED
+                    await self._checkpoint_session(session)
+                    logger.error(
+                        "bootstrap_failed",
+                        session_id=session_id,
+                        error=str(e),
+                    )
+                    return False
+
         session.status = FuzzSessionStatus.RUNNING
         session.started_at = datetime.utcnow()
         await self._checkpoint_session(session)
+
+        # Start heartbeat scheduler for orchestrated protocols
+        if session.heartbeat_enabled and session.protocol_stack_config:
+            await self._start_heartbeat(session)
 
         # Start fuzzing task
         task = asyncio.create_task(self._run_fuzzing_loop(session_id))
@@ -313,11 +410,56 @@ class FuzzOrchestrator:
         logger.info("session_started", session_id=session_id)
         return True
 
+    async def _cleanup_session_resources(
+        self,
+        session_id: str,
+        session: Optional[FuzzSession] = None,
+    ) -> None:
+        """
+        Clean up all resources associated with a session.
+
+        Called by both stop_session and delete_session to ensure consistent
+        cleanup of runtime helpers, orchestration state, and agent resources.
+
+        Args:
+            session_id: The session ID to clean up
+            session: Optional session object (for coverage snapshot capture)
+        """
+        await agent_manager.clear_session(session_id)
+        self._discard_pending_tests(session_id)
+        self.behavior_processors.pop(session_id, None)
+
+        # Capture coverage snapshot if stateful session exists
+        stateful_session = self.stateful_sessions.get(session_id)
+        if session and stateful_session:
+            session.coverage_snapshot = stateful_session.get_coverage_stats()
+        self.stateful_sessions.pop(session_id, None)
+
+        self.response_planners.pop(session_id, None)
+        self.followup_queues.pop(session_id, None)
+        self.session_data_models.pop(session_id, None)
+        self.session_response_models.pop(session_id, None)
+        self.history_store.reset_session(session_id)
+
+        # Clean up orchestration resources
+        self._session_contexts.pop(session_id, None)
+        self._stage_runners.pop(session_id, None)
+        if self._connection_manager:
+            await self._connection_manager.close_session(session_id)
+
     async def stop_session(self, session_id: str) -> bool:
         """Stop a fuzzing session"""
         session = self.sessions.get(session_id)
         if not session:
             return False
+
+        # Stop heartbeat if running
+        if self._heartbeat_scheduler:
+            self._heartbeat_scheduler.stop(session_id)
+
+        # Run teardown stages for orchestrated protocols
+        if session.protocol_stack_config:
+            await self._run_teardown_stages(session)
 
         session.status = FuzzSessionStatus.COMPLETED
         session.completed_at = datetime.utcnow()
@@ -333,18 +475,10 @@ class FuzzOrchestrator:
                 pass
             del self.active_tasks[session_id]
 
-        await agent_manager.clear_session(session_id)
-        self._discard_pending_tests(session_id)
-        self.behavior_processors.pop(session_id, None)
-        stateful_session = self.stateful_sessions.get(session_id)
-        if session and stateful_session:
-            session.coverage_snapshot = stateful_session.get_coverage_stats()
-        self.stateful_sessions.pop(session_id, None)  # Clean up stateful session
-        self.response_planners.pop(session_id, None)
-        self.followup_queues.pop(session_id, None)
-        self.session_data_models.pop(session_id, None)
-        self.session_response_models.pop(session_id, None)
-        self.history_store.reset_session(session_id)
+        await self._cleanup_session_resources(session_id, session)
+
+        # Flush pending execution records to SQLite
+        await self.history_store.flush()
 
         logger.info("session_stopped", session_id=session_id)
         return True
@@ -493,7 +627,8 @@ class FuzzOrchestrator:
         session_id: str,
         seed: bytes,
         mutation_engine: MutationEngine,
-        iteration: int
+        iteration: int,
+        stateful_session: Optional[StatefulFuzzingSession] = None
     ) -> tuple[TestCase, dict]:
         """
         Generate a mutated test case from a seed.
@@ -505,12 +640,19 @@ class FuzzOrchestrator:
         test_case_data = mutation_engine.generate_test_case(seed)
         mutation_meta = mutation_engine.get_last_metadata()
 
+        # Enforce message type for stateful sessions to keep state tracking consistent
+        if stateful_session:
+            test_case_data = self._enforce_message_type(stateful_session, seed, test_case_data)
+
         # Track field mutations
         if mutation_meta.get("field"):
             field_name = mutation_meta["field"]
             session.field_mutation_counts[field_name] = (
                 session.field_mutation_counts.get(field_name, 0) + 1
             )
+
+        # Inject context values for orchestrated protocols (from_context fields)
+        test_case_data = self._inject_context_values(session, test_case_data)
 
         # Apply behavior processors
         final_data = self._apply_behaviors(session, test_case_data)
@@ -532,6 +674,33 @@ class FuzzOrchestrator:
         )
 
         return test_case, mutation_meta
+
+    def _enforce_message_type(
+        self,
+        stateful_session: StatefulFuzzingSession,
+        base_seed: bytes,
+        mutated_data: bytes
+    ) -> bytes:
+        """
+        Ensure message_type remains consistent with the selected stateful seed.
+
+        This prevents mutations from breaking state transitions.
+        """
+        if not stateful_session.message_type_field:
+            return mutated_data
+
+        try:
+            base_fields = stateful_session.parser.parse(base_seed)
+            desired_value = base_fields.get(stateful_session.message_type_field)
+            if desired_value is None:
+                return mutated_data
+
+            mutated_fields = stateful_session.parser.parse(mutated_data)
+            mutated_fields[stateful_session.message_type_field] = desired_value
+            return stateful_session.parser.serialize(mutated_fields)
+        except Exception as e:
+            logger.debug("message_type_enforcement_failed", error=str(e))
+            return mutated_data
 
     async def _execute_and_record_test_case(
         self,
@@ -558,6 +727,9 @@ class FuzzOrchestrator:
             message_type_for_record = stateful_session.identify_message_type(test_case.data)
             state_at_send_for_record = stateful_session.current_state
 
+        # Parse request payload for replay support (FRESH mode re-serialization)
+        parsed_fields = self._parse_request_payload(session, test_case.data)
+
         # Execute with timing
         timestamp_sent = datetime.utcnow()
         result, response = await self._execute_test_case(session, test_case)
@@ -565,6 +737,11 @@ class FuzzOrchestrator:
 
         # Finalize and record
         await self._finalize_test_case(session, test_case, result, response)
+
+        # Get context snapshot if orchestrated session
+        context_snapshot = None
+        if session.id in self._session_contexts:
+            context_snapshot = self._session_contexts[session.id].snapshot()
 
         self._record_execution(
             session,
@@ -575,8 +752,9 @@ class FuzzOrchestrator:
             response,
             message_type=message_type_for_record,
             state_at_send=state_at_send_for_record,
-            mutation_strategy=test_case.mutation_strategy,
-            mutators_applied=test_case.mutators_applied,
+            stage_name=session.current_stage if session.current_stage != "default" else None,
+            context_snapshot=context_snapshot,
+            parsed_fields=parsed_fields,
         )
 
         # Handle response followups
@@ -613,9 +791,35 @@ class FuzzOrchestrator:
         # Track tests since last reset
         session.tests_since_last_reset += 1
 
+        # Clear pending termination reset once we reach a termination state
+        if session.termination_reset_pending:
+            termination_states = set(stateful_session.get_termination_states())
+            if stateful_session.current_state in termination_states:
+                logger.info(
+                    "termination_state_reached",
+                    session_id=session.id,
+                    state=stateful_session.current_state,
+                    iteration=iteration
+                )
+                session.termination_reset_pending = False
+                # Reset immediately after reaching termination to enforce closed state
+                stateful_session.reset_to_initial_state()
+                session.session_resets += 1
+                session.tests_since_last_reset = 0
+                return
+
         # Periodic reset
         reset_interval = self._get_reset_interval(session)
         if stateful_session.should_reset(iteration, reset_interval=reset_interval):
+            if session.termination_reset_pending:
+                logger.debug(
+                    "reset_deferred_for_termination",
+                    session_id=session.id,
+                    iteration=iteration,
+                    current_state=stateful_session.current_state,
+                    reset_interval=reset_interval
+                )
+                return
             logger.debug("periodic_state_reset", iteration=iteration)
             stateful_session.reset_to_initial_state()
             session.session_resets += 1
@@ -644,13 +848,32 @@ class FuzzOrchestrator:
         if not session.enable_termination_fuzzing:
             return False
 
-        # Inject termination tests periodically (every ~50 tests by default)
-        termination_interval = getattr(settings, 'termination_test_interval', 50)
+        if session.termination_reset_pending:
+            return True
+
+        # Check if there are termination transitions available
+        termination_transitions = stateful_session.get_transitions_to_termination()
+        if not termination_transitions:
+            return False
+
+        # Get reset interval for this session
+        reset_interval = self._get_reset_interval(session)
+
+        # Inject termination test when we're about to reset (last few tests before reset)
+        # and mark that we should force a termination state before resetting.
+        tests_until_reset = reset_interval - (iteration % reset_interval) if reset_interval > 0 else 999
+        if tests_until_reset <= 3:  # Last 3 tests before reset
+            session.termination_reset_pending = True
+            return True
+
+        # Also inject periodically (every ~50 tests by default, but scaled to reset interval)
+        termination_interval = min(
+            getattr(settings, 'termination_test_interval', 50),
+            max(reset_interval // 2, 10) if reset_interval else 50
+        )
         if iteration > 0 and iteration % termination_interval == 0:
-            # Check if there are termination transitions available
-            termination_transitions = stateful_session.get_transitions_to_termination()
-            if termination_transitions:
-                return True
+            session.termination_reset_pending = True
+            return True
 
         return False
 
@@ -774,10 +997,17 @@ class FuzzOrchestrator:
                 followup_item = None
                 queue = self.followup_queues.get(session_id)
                 if queue:
-                    try:
-                        followup_item = queue.popleft()
-                    except IndexError:
-                        followup_item = None
+                    should_use_followup = True
+                    if stateful_session and self._should_inject_termination_test(
+                        session, stateful_session, iteration
+                    ):
+                        should_use_followup = False
+
+                    if should_use_followup:
+                        try:
+                            followup_item = queue.popleft()
+                        except IndexError:
+                            followup_item = None
 
                 mutation_meta = {"strategy": None, "mutators": []}
 
@@ -803,7 +1033,7 @@ class FuzzOrchestrator:
                         session, seeds, stateful_session, iteration
                     )
                     test_case, mutation_meta = self._generate_mutated_test_case(
-                        session, session_id, base_seed, mutation_engine, iteration
+                        session, session_id, base_seed, mutation_engine, iteration, stateful_session
                     )
 
                 # Execute and record test case
@@ -959,6 +1189,14 @@ class FuzzOrchestrator:
         duration_ms = payload.execution_time_ms or 0.0
         timestamp_sent = timestamp_response - timedelta(milliseconds=duration_ms)
 
+        # Parse request payload for replay support
+        parsed_fields = self._parse_request_payload(session, test_case.data)
+
+        # Get context snapshot if orchestrated session
+        context_snapshot = None
+        if session.id in self._session_contexts:
+            context_snapshot = self._session_contexts[session.id].snapshot()
+
         self._record_execution(
             session,
             test_case,
@@ -966,8 +1204,9 @@ class FuzzOrchestrator:
             timestamp_response,
             payload.result,
             response_bytes,
-            mutation_strategy=test_case.mutation_strategy,
-            mutators_applied=test_case.mutators_applied,
+            stage_name=session.current_stage if session.current_stage != "default" else None,
+            context_snapshot=context_snapshot,
+            parsed_fields=parsed_fields,
         )
 
         self._evaluate_response_followups(payload.session_id, response_bytes)
@@ -1016,31 +1255,265 @@ class FuzzOrchestrator:
             metadata={"session_id": session_stub.id},
         )
 
+    async def _run_bootstrap_stages(
+        self,
+        session: FuzzSession,
+        bootstrap_stages: List[Dict[str, Any]],
+    ) -> None:
+        """
+        Run bootstrap stages for orchestrated protocols.
+
+        Creates a StageRunner and executes bootstrap stages in order.
+        Extracts context values for use in subsequent fuzzing.
+
+        Args:
+            session: The fuzzing session
+            bootstrap_stages: List of bootstrap stage configurations
+
+        Raises:
+            Exception: If bootstrap fails
+        """
+        from core.engine.stage_runner import StageRunner
+
+        # Get or create context for this session
+        if session.id not in self._session_contexts:
+            from core.engine.protocol_context import ProtocolContext
+            self._session_contexts[session.id] = ProtocolContext()
+
+        context = self._session_contexts[session.id]
+
+        # Get ConnectionManager for persistent connections (already created in start_session)
+        connection_manager = None
+        if session.connection_mode in ("session", "per_stage"):
+            connection_manager = self._connection_manager
+            # Note: connection config was already applied in start_session()
+
+        # Reuse existing StageRunner if present (for rebootstrap after heartbeat failure)
+        # This preserves the bootstrap sequence counter to avoid collisions
+        stage_runner = self._stage_runners.get(session.id)
+        if stage_runner is not None:
+            # Reset for reconnect: clear context but preserve sequence counter
+            stage_runner.reset_for_reconnect(clear_context=True)
+            # Update connection_manager reference in case it was created after initial bootstrap
+            stage_runner.connection_manager = connection_manager
+            logger.debug(
+                "reusing_stage_runner_for_rebootstrap",
+                session_id=session.id,
+            )
+        else:
+            # Create new StageRunner
+            stage_runner = StageRunner(
+                plugin_manager=plugin_manager,
+                context=context,
+                history_store=self.history_store,
+                connection_manager=connection_manager,
+            )
+            self._stage_runners[session.id] = stage_runner
+
+        # Run bootstrap stages
+        await stage_runner.run_bootstrap_stages(session, bootstrap_stages)
+
+        # Copy context from stage runner to session context
+        if stage_runner.context:
+            for key, value in stage_runner.context.snapshot().get("values", {}).items():
+                context.set(key, value)
+
+        # Mark bootstrap as complete
+        context.mark_bootstrap_complete()
+
+        # Find and set the actual fuzz_target stage name (not just the role)
+        fuzz_stage_name = "fuzz_target"  # fallback
+        if session.protocol_stack_config:
+            for stage in session.protocol_stack_config:
+                if stage.get("role") == "fuzz_target":
+                    fuzz_stage_name = stage.get("name", "fuzz_target")
+                    break
+        session.current_stage = fuzz_stage_name
+
+        logger.info(
+            "bootstrap_stages_complete",
+            session_id=session.id,
+            fuzz_stage=fuzz_stage_name,
+            context_keys=list(context.snapshot().get("values", {}).keys()),
+        )
+
+    async def _start_heartbeat(self, session: FuzzSession) -> None:
+        """
+        Start heartbeat scheduler for orchestrated protocols.
+
+        Args:
+            session: The fuzzing session with heartbeat config
+        """
+        from core.engine.heartbeat_scheduler import HeartbeatScheduler
+
+        # Get heartbeat config from plugin
+        protocol = plugin_manager.load_plugin(session.protocol)
+        heartbeat_config = protocol.get("heartbeat", {}) if hasattr(protocol, "get") else {}
+
+        if not heartbeat_config or not heartbeat_config.get("enabled"):
+            return
+
+        # Create connection manager if needed (heartbeat uses it for send coordination)
+        if self._connection_manager is None:
+            from core.engine.connection_manager import ConnectionManager
+            self._connection_manager = ConnectionManager()
+
+        # Create heartbeat scheduler if needed
+        if self._heartbeat_scheduler is None:
+            # Reconnect callback to re-run bootstrap stages after connection loss
+            async def reconnect_callback(sess: FuzzSession, rebootstrap: bool):
+                if rebootstrap and sess.protocol_stack_config:
+                    bootstrap_stages = [
+                        s for s in sess.protocol_stack_config
+                        if s.get("role") == "bootstrap"
+                    ]
+                    if bootstrap_stages:
+                        try:
+                            await self._run_bootstrap_stages(sess, bootstrap_stages)
+                            logger.info(
+                                "heartbeat_rebootstrap_complete",
+                                session_id=sess.id,
+                                stages_run=len(bootstrap_stages),
+                            )
+                        except Exception as e:
+                            logger.error(
+                                "heartbeat_rebootstrap_failed",
+                                session_id=sess.id,
+                                error=str(e),
+                            )
+                            raise
+
+            self._heartbeat_scheduler = HeartbeatScheduler(
+                self._connection_manager,
+                reconnect_callback=reconnect_callback,
+            )
+
+        # Get context for this session
+        context = None
+        if session.id in self._session_contexts:
+            context = self._session_contexts[session.id]
+        else:
+            from core.engine.protocol_context import ProtocolContext
+            context = ProtocolContext()
+
+        # Start heartbeat
+        self._heartbeat_scheduler.start(session, heartbeat_config, context)
+
+        logger.info(
+            "heartbeat_started",
+            session_id=session.id,
+            interval_ms=heartbeat_config.get("interval_ms"),
+        )
+
+    async def _run_teardown_stages(self, session: FuzzSession) -> None:
+        """
+        Run teardown stages for orchestrated protocols.
+
+        Called when session stops to gracefully close protocol connection.
+
+        Args:
+            session: The fuzzing session
+        """
+        if not session.protocol_stack_config:
+            return
+
+        teardown_stages = [
+            s for s in session.protocol_stack_config
+            if s.get("role") == "teardown"
+        ]
+
+        if not teardown_stages:
+            return
+
+        try:
+            # Get stage runner for this session
+            stage_runner = None
+            if session.id in self._stage_runners:
+                stage_runner = self._stage_runners[session.id]
+            else:
+                # Create minimal stage runner for teardown
+                from core.engine.stage_runner import StageRunner
+                from core.engine.protocol_context import ProtocolContext
+
+                # Get or create context for teardown
+                context = ProtocolContext()
+                if session.id in self._session_contexts:
+                    context = self._session_contexts[session.id]
+
+                # Use ConnectionManager if available for persistent connections
+                connection_manager = None
+                if self._connection_manager:
+                    connection_manager = self._connection_manager
+
+                stage_runner = StageRunner(
+                    plugin_manager=plugin_manager,
+                    context=context,
+                    history_store=self.history_store,
+                    connection_manager=connection_manager,
+                )
+
+            # Run teardown stages
+            await stage_runner.run_teardown_stages(session, teardown_stages)
+            session.current_stage = "teardown_complete"
+
+            logger.info(
+                "teardown_stages_complete",
+                session_id=session.id,
+                stages_run=len(teardown_stages),
+            )
+
+        except Exception as e:
+            # Log but don't fail - session is stopping anyway
+            logger.warning(
+                "teardown_failed",
+                session_id=session.id,
+                error=str(e),
+            )
+
     async def _execute_test_case(
         self, session: FuzzSession, test_case: TestCase
     ) -> tuple[TestCaseResult, Optional[bytes]]:
         """
         Execute a test case against the target using the transport abstraction.
 
-        Uses TransportFactory to create the appropriate transport (TCP/UDP/etc),
-        sends the test case, receives response, and applies protocol validation.
+        For per_test mode: Uses TransportFactory to create ephemeral transport
+        For session/per_stage mode: Uses ConnectionManager for persistent connections
         """
         start_time = time.time()
         response: Optional[bytes] = None
         result: TestCaseResult = TestCaseResult.CRASH
+        managed_transport = None  # Track if we're using managed transport
 
         try:
-            # Create transport using the abstraction layer
-            transport = TransportFactory.create_transport(
-                protocol=session.protocol,
-                host=session.target_host,
-                port=session.target_port,
-                timeout_ms=session.timeout_per_test_ms
-            )
+            # Choose transport based on connection mode
+            if session.connection_mode != "per_test" and session.protocol_stack_config:
+                # Use ConnectionManager for persistent connections
+                if self._connection_manager is None:
+                    from core.engine.connection_manager import ConnectionManager
+                    self._connection_manager = ConnectionManager()
+
+                managed_transport = await self._connection_manager.get_transport(session)
+                transport = managed_transport
+            else:
+                # Use TransportFactory for ephemeral connections
+                transport = TransportFactory.create_transport(
+                    host=session.target_host,
+                    port=session.target_port,
+                    timeout_ms=session.timeout_per_test_ms,
+                    transport_type=session.transport.value if session.transport else "tcp",
+                )
 
             # Execute test case via transport
             try:
-                result, response = await transport.send_and_receive(test_case.data)
+                if managed_transport:
+                    # ManagedTransport has different interface
+                    response = await managed_transport.send_and_receive(
+                        test_case.data,
+                        timeout_ms=session.timeout_per_test_ms,
+                    )
+                    result = TestCaseResult.PASS
+                else:
+                    result, response = await transport.send_and_receive(test_case.data)
 
                 # Apply protocol-specific validation if response received
                 if result == TestCaseResult.PASS and response:
@@ -1082,6 +1555,18 @@ class FuzzOrchestrator:
                 result = TestCaseResult.HANG
                 response = None
 
+            except ReceiveTimeoutError as exc:
+                # Receive timeout indicates potential hang (target not responding)
+                logger.debug(
+                    "target_timeout",
+                    host=session.target_host,
+                    port=session.target_port,
+                    phase="receive",
+                    error=str(exc)
+                )
+                result = TestCaseResult.HANG
+                response = None
+
             except TransportError as exc:
                 logger.error(
                     "transport_error",
@@ -1093,12 +1578,17 @@ class FuzzOrchestrator:
                 response = None
 
             finally:
-                await transport.cleanup()
+                # Only cleanup ephemeral transports (not managed persistent ones)
+                if not managed_transport:
+                    await transport.cleanup()
 
         except Exception as e:
             logger.error("execution_error", error=str(e), test_case_id=test_case.id)
             result = TestCaseResult.CRASH
             response = None
+            # If managed transport error, mark as unhealthy for reconnection
+            if managed_transport:
+                managed_transport.healthy = False
 
         test_case.result = result
         test_case.execution_time_ms = (time.time() - start_time) * 1000
@@ -1126,13 +1616,26 @@ class FuzzOrchestrator:
         response: Optional[bytes],
         message_type: Optional[str] = None,
         state_at_send: Optional[str] = None,
-        mutation_strategy: Optional[str] = None,
-        mutators_applied: Optional[List[str]] = None,
+        stage_name: Optional[str] = None,
+        context_snapshot: Optional[Dict[str, Any]] = None,
+        parsed_fields: Optional[Dict[str, Any]] = None,
+        connection_sequence: int = 0,
     ) -> TestCaseExecutionRecord:
         """Record a test case execution for correlation.
 
-        Note: mutation_strategy and mutators_applied are accepted for backward
-        compatibility but not passed to record() - they're extracted from test_case.
+        Args:
+            session: The fuzzing session
+            test_case: The executed test case
+            timestamp_sent: When request was sent
+            timestamp_response: When response was received
+            result: Execution result
+            response: Response bytes
+            message_type: Protocol message type
+            state_at_send: State machine state when sent
+            stage_name: Protocol stage name (for orchestrated sessions)
+            context_snapshot: ProtocolContext snapshot for replay
+            parsed_fields: Parsed field values for re-serialization
+            connection_sequence: Position within current connection
         """
         try:
             record = self.history_store.record(
@@ -1144,6 +1647,10 @@ class FuzzOrchestrator:
                 response,
                 message_type=message_type,
                 state_at_send=state_at_send,
+                stage_name=stage_name,
+                context_snapshot=context_snapshot,
+                parsed_fields=parsed_fields,
+                connection_sequence=connection_sequence,
             )
             logger.debug(
                 "execution_recorded",
@@ -1213,6 +1720,59 @@ class FuzzOrchestrator:
         for tc_id in stale:
             self.pending_tests.pop(tc_id, None)
 
+    def _inject_context_values(self, session: FuzzSession, data: bytes) -> bytes:
+        """
+        Inject context values into test case data for from_context fields.
+
+        For orchestrated protocols, this re-serializes the message with
+        context values (e.g., auth tokens from bootstrap) injected.
+
+        Args:
+            session: The fuzzing session
+            data: Mutated test case data
+
+        Returns:
+            Data with context values injected (or original data if not applicable)
+        """
+        # Check if this is an orchestrated session with context
+        if session.id not in self._session_contexts:
+            return data
+        context = self._session_contexts.get(session.id)
+        if not context or not context.snapshot().get("values"):
+            return data
+
+        # Check if data_model has from_context fields
+        data_model = self.session_data_models.get(session.id)
+        if not data_model:
+            return data
+
+        # Check if any blocks have from_context
+        blocks = data_model.get("blocks", [])
+        has_from_context = any(
+            block.get("from_context") for block in blocks
+        )
+        if not has_from_context:
+            return data
+
+        try:
+            from core.engine.protocol_parser import ProtocolParser
+
+            # Parse the mutated data to get field values
+            parser = ProtocolParser(data_model)
+            parsed_fields = parser.parse(data)
+
+            # Re-serialize with context (from_context fields will be filled)
+            return parser.serialize(parsed_fields, context=context)
+
+        except Exception as e:
+            # If parsing/serialization fails, return original data
+            logger.debug(
+                "context_injection_failed",
+                session_id=session.id,
+                error=str(e),
+            )
+            return data
+
     def _apply_behaviors(self, session: FuzzSession, data: bytes) -> bytes:
         processor = self.behavior_processors.get(session.id)
         if not processor:
@@ -1220,6 +1780,44 @@ class FuzzOrchestrator:
         state = session.behavior_state or processor.initialize_state()
         session.behavior_state = state
         return processor.apply(data, state)
+
+    def _parse_request_payload(
+        self,
+        session: FuzzSession,
+        data: bytes,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Parse request payload into field dictionary for replay support.
+
+        This enables FRESH mode replay to re-serialize messages with current
+        context values (e.g., new auth tokens from fresh bootstrap) instead
+        of replaying exact historical bytes.
+
+        Args:
+            session: The fuzzing session
+            data: Request payload bytes
+
+        Returns:
+            Parsed field dictionary, or None if parsing fails/not applicable
+        """
+        # Get data model for this session
+        data_model = self.session_data_models.get(session.id)
+        if not data_model:
+            return None
+
+        try:
+            from core.engine.protocol_parser import ProtocolParser
+            parser = ProtocolParser(data_model)
+            return parser.parse(data)
+        except Exception as e:
+            # Parsing can fail for heavily mutated payloads - this is expected
+            # during fuzzing when mutations break protocol structure
+            logger.debug(
+                "request_parse_failed",
+                session_id=session.id,
+                error=str(e),
+            )
+            return None
 
     def get_session(self, session_id: str) -> Optional[FuzzSession]:
         """Get session by ID"""
@@ -1235,21 +1833,18 @@ class FuzzOrchestrator:
         if not session:
             return False
 
-        # Stop the session if it's running
+        # Stop the session if it's running (this also handles cleanup)
         if session.status == FuzzSessionStatus.RUNNING:
             await self.stop_session(session_id)
+        else:
+            # Clean up resources for non-running sessions
+            await self._cleanup_session_resources(session_id, session)
 
         # Remove from sessions dict
         del self.sessions[session_id]
 
         # Remove from persistence database
         self.session_store.delete_session(session_id)
-
-        # Clean up runtime helpers
-        self.behavior_processors.pop(session_id, None)
-        self.response_planners.pop(session_id, None)
-        self.followup_queues.pop(session_id, None)
-        self.stateful_sessions.pop(session_id, None)
 
         logger.info("session_deleted", session_id=session_id)
         return True
@@ -1555,7 +2150,7 @@ class FuzzOrchestrator:
             result, response = await self._execute_test_case(session, test_case)
             timestamp_response = datetime.utcnow()
 
-            # Record the replay
+            # Record the replay (preserve original context/stage info)
             replay_record = self._record_execution(
                 session,
                 test_case,
@@ -1565,8 +2160,10 @@ class FuzzOrchestrator:
                 response,
                 message_type=original.message_type,
                 state_at_send=original.state_at_send,
-                mutation_strategy=test_case.mutation_strategy,
-                mutators_applied=test_case.mutators_applied,
+                stage_name=original.stage_name,
+                context_snapshot=original.context_snapshot,
+                parsed_fields=original.parsed_fields,
+                connection_sequence=original.connection_sequence,
             )
 
             results.append(replay_record)

@@ -482,3 +482,25 @@
   color: #fca5a5;
   font-weight: 600;
 }
+
+/* Parse Warning */
+.parse-warning {
+  padding: 16px;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: #fcd34d;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.parse-warning strong {
+  color: #fbbf24;
+}
+
+.section-hint.unparseable {
+  color: #fcd34d;
+  background: rgba(251, 191, 36, 0.1);
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(251, 191, 36, 0.2);
+}

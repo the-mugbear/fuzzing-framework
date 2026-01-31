@@ -27,9 +27,10 @@ data/
 .git/
 .gitignore
 
-# Documentation
-*.md
-docs/
+# Documentation (allow docs/ and key markdown files through)
+# docs/  # Needed for in-app documentation
+# *.md   # README.md and CHANGELOG.md needed
+docs/archive/
 
 # Docker
 .dockerignore

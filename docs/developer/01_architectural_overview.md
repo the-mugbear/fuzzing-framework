@@ -1,101 +1,95 @@
 # 1. Architectural Overview
 
-**Last Updated: 2026-01-26**
+**Last Updated: 2026-01-30**
 
 This document provides a high-level technical overview of the fuzzer's architecture. It is intended for developers who want to understand how the system works, contribute to its development, or debug complex issues.
 
 ## Core Philosophy
 
-The fuzzer is designed as a modular, plugin-driven system for testing the robustness and security of proprietary network protocols. Its core philosophy is to separate the general-purpose fuzzing engine from the protocol-specific knowledge. This separation is achieved through **protocol plugins**, which act as a "driver" for the fuzzer, teaching it the language of the target protocol.
+The fuzzer is designed as a modular, plugin-driven system. Its core philosophy is to separate the general-purpose fuzzing engine from protocol-specific knowledge. This is achieved through **protocol plugins**, which act as "drivers," teaching the fuzzer the language of the target protocol.
 
-The system is built around a central **Orchestrator** that manages the entire fuzzing lifecycle, from test case generation to crash detection. It can operate in a standalone mode or distribute work to remote **Agents** for scaled-out fuzzing campaigns.
+The system is built around a central **FuzzOrchestrator** that manages the entire fuzzing lifecycle. It now supports both simple, stateless fuzzing and complex, **Orchestrated Sessions** for stateful protocols that require handshakes and persistent connections.
 
-## High-Level Diagram
+## High-Level Diagram: Orchestrated Session
 
 ```
-┌───────────────────┐      ┌───────────────────────────┐      ┌───────────────────┐
-│      Web UI       │      │         Core API          │      │       Agent       │
-│ (React SPA)       ├─────▶│ (FastAPI + Orchestrator)  │◀────▶│  (Remote Worker)  │
-└───────────────────┘      └───────────────────────────┘      └───────────────────┘
-                             │             ▲                      │
-                             │             │ Results              │ Test Cases
-                             ▼             │                      ▼
-                      ┌────────────────┐ ┌──────────────────┐   ┌───────────────────┐
-                      │ Protocol       │ │ Data Persistence │   │      Target       │
-                      │ Plugins        │ │ (SQLite + Files) │   │ (Application)     │
-                      └────────────────┘ └──────────────────┘   └───────────────────┘
+                                 ┌───────────────────────────┐
+                                 │         Core API          │
+                                 │ (FastAPI Server)          │
+                                 └───────────────────────────┘
+                                             │ ▲
+                                     (Control & View)
+                                             │ │
+┌───────────────────┐              ┌───────────────────────────┐              ┌───────────────────┐
+│      Web UI       │◀────────────▶│      FuzzOrchestrator     │◀────────────▶│       Agent       │
+│    (React SPA)    │              │ (The Brain)               │              │  (Remote Worker)  │
+└───────────────────┘              └───────────┬───────────────┘              └──────────┬────────┘
+                                               │                                         │
+                      ┌────────────────────────┼─────────────────────────┐               │
+                      │                        │                         │               │
+                      ▼                        ▼                         ▼               ▼
+┌───────────────────────────┐  ┌───────────────────────┐  ┌───────────────────────┐   ┌───────────────────┐
+│        StageRunner        │  │  HeartbeatScheduler   │  │   ConnectionManager   │   │      Target       │
+│ (Executes protocol_stack) │  │ (Sends PINGs)         │  │(Manages Sockets)      │   │ (Application)     │
+└───────────┬───────────────┘  └───────────┬───────────┘  └───────────┬───────────┘   └───────────────────┘
+            │                              │                         │
+            └───────────────┐              │            ┌────────────┘
+                            │              │            │
+                            ▼              ▼            ▼
+                           ┌──────────────────────────────────┐
+                           │         ProtocolContext          │
+                           │(Shared State: e.g., session_token)│
+                           └──────────────────────────────────┘
 ```
 
 ## Key Components
 
-The system is composed of several key Python modules that work in concert.
+### 1. FuzzOrchestrator (`core/engine/orchestrator.py`)
+The "brain" of the fuzzer. It manages the entire lifecycle of a fuzzing session. In an orchestrated session, it is responsible for:
+-   Initiating the `StageRunner` to execute the `bootstrap` process.
+-   Creating and managing the `ProtocolContext`.
+-   Starting the `HeartbeatScheduler` for the session.
+-   Running the main `fuzz_target` loop, injecting context values into test cases.
+-   Coordinating self-healing by providing a `reconnect` callback to the heartbeat scheduler.
 
-### 1. Core API & Orchestrator (`core/api/` & `core/engine/orchestrator.py`)
+### 2. StageRunner (`core/engine/stage_runner.py`)
+This component is responsible for executing the sequential stages (`bootstrap`, `teardown`) of an orchestrated session's `protocol_stack`. It sends the pre-defined messages for each step, validates the server's responses, and, crucially, **exports** values from the responses into the `ProtocolContext`.
 
-*   **Core API (`server.py`)**: A FastAPI application that serves as the main entry point to the system. It exposes a REST API for managing fuzzing sessions, viewing results, and configuring the fuzzer. It also serves the React-based web UI.
-*   **Fuzz Orchestrator (`orchestrator.py`)**: The brain of the fuzzer. It is responsible for running the main fuzzing loop, which consists of several key stages, including session management, test case generation, execution, and result handling.
+### 3. ProtocolContext (`core/engine/protocol_context.py`)
+A simple, per-session, key-value store. It acts as the "shared memory" between stages in an orchestrated session. A `bootstrap` stage can write a session token into the context, and the `fuzz_target` and `heartbeat` stages can read that token to maintain a valid session.
 
-### 2. Mutation Engine (`core/engine/mutators.py` & `structure_mutators.py`)
+### 4. ConnectionManager (`core/engine/connection_manager.py`)
+Manages persistent TCP connections for orchestrated sessions. It provides a thread-safe `send_with_lock` method to prevent race conditions between the main fuzzing loop and the background heartbeat task when both are trying to use the same socket.
 
-This component is responsible for altering seed data to create new test cases. It supports byte-level mutations and structure-aware mutations.
+### 5. HeartbeatScheduler (`core/engine/heartbeat_scheduler.py`)
+For sessions that require it, this component runs a concurrent `asyncio` task that sends periodic keep-alive messages (heartbeats). If the heartbeat fails (e.g., the connection is dropped), it can trigger a `reconnect` action, prompting the `FuzzOrchestrator` to re-run the bootstrap process, making the session self-healing.
 
-### 3. Protocol Plugins & Parser (`core/plugins/` & `core/engine/protocol_parser.py`)
+### 6. Mutation Engine (`core/engine/mutators.py`, `structure_mutators.py`)
+This component alters seed data to create new test cases. It supports both "dumb" byte-level mutations and "smart" structure-aware mutations that respect the protocol's grammar.
 
-*   **Plugins**: Self-contained Python files that provide the fuzzer with the domain-specific knowledge required to test a protocol. They define a `data_model`, an optional `state_model`, and an optional `validate_response` function.
-*   **Protocol Parser**: Uses the `data_model` to perform bidirectional conversion between raw bytes and a structured dictionary of fields.
+### 7. Protocol Plugins & Parser (`core/plugins/`, `core/engine/protocol_parser.py`)
+-   **Plugins**: The core of the fuzzer's extensibility. They define the `data_model` (structure), `state_model` (behavior), and orchestration logic (`protocol_stack`, `heartbeat`, etc.) of a protocol.
+-   **Parser**: A bidirectional engine that uses a plugin's `data_model` to convert between raw bytes and a structured dictionary of fields.
 
-### 4. Stateful Fuzzing (`core/engine/stateful_fuzzer.py`)
+### 8. Data Persistence
+-   **CorpusStore**: Manages interesting test cases (seeds).
+-   **CrashReporter**: Saves crash data.
+-   **ExecutionHistoryStore**: Records every test case to a high-performance SQLite database for later analysis and visualization.
 
-*   **StatefulFuzzingSession**: When a plugin provides a `state_model`, the orchestrator uses this class to manage the fuzzing session according to the protocol's state machine, ensuring messages are sent in a valid sequence.
+## The Orchestrated Fuzzing Lifecycle
 
-### 5. State Machine Walker (`core/api/routes/walker.py`)
+A modern, stateful fuzzing session proceeds as follows:
 
-The State Machine Walker is an interactive debugging and exploration tool for protocols with a `state_model`. It provides a dedicated API and UI (`/state-walker`) that allows a developer to:
-*   Manually step through the protocol's state machine one transition at a time.
-*   Verify that the `state_model` is correctly defined and that transitions behave as expected.
-*   Craft and send specific messages for any given state, helping to debug server responses.
-*   Generate seed data for use in full fuzzing sessions.
-The backend logic in `walker.py` manages walker sessions in memory.
+1.  **User Action**: A user starts a session for a plugin that contains a `protocol_stack`.
+2.  **Session Initialization**: The `FuzzOrchestrator` creates a session and identifies that it is an orchestrated session.
+3.  **Bootstrap**: The `FuzzOrchestrator` invokes the `StageRunner` to execute the `bootstrap` stage(s).
+4.  **Handshake & Export**: The `StageRunner` sends the handshake message(s). Upon receiving a valid response, it **exports** the required data (e.g., a `session_token`) into the `ProtocolContext`.
+5.  **Heartbeat Start**: If a `heartbeat` is configured, the `FuzzOrchestrator` starts the `HeartbeatScheduler` in a background task. The heartbeat messages can now use values from the context (like the `session_token`).
+6.  **Fuzzing Loop Begins**: The orchestrator starts the main fuzzing loop for the `fuzz_target` stage.
+7.  **Test Case Selection & Context Injection**: An input is selected from the corpus. Before mutation, the orchestrator **injects** any required values from the `ProtocolContext` into the test case (e.g., placing the `session_token` into the correct field).
+8.  **Mutation & Execution**: The test case is mutated and sent to the target via the `ConnectionManager`'s locked transport.
+9.  **Monitoring & Result Handling**: The result (pass, crash, hang) is reported back.
+10. **Self-Healing (on failure)**: If the connection is dropped, the background heartbeat will fail. After a configured threshold, it calls the `reconnect` callback provided by the `FuzzOrchestrator`. This triggers the entire process to start again from **Step 3 (Bootstrap)**, creating a new connection and authenticating a new session automatically before resuming fuzzing.
+11. **Iteration**: The loop (Steps 7-9) repeats until the user stops the session.
 
-### 6. Data Persistence (`core/corpus/store.py`, `core/engine/crash_handler.py`, `core/engine/history_store.py`)
-
-The fuzzer persists several types of data to the `/data` volume:
-*   **Corpus (`/data/corpus`)**: The `CorpusStore` manages the collection of interesting test cases (seeds) that are used as a starting point for mutations. These are stored as individual files.
-*   **Crashes (`/data/crashes`)**: When a test case causes the target to crash, the `CrashReporter` saves the finding, including the payload and metadata, to a file for later analysis.
-*   **Execution History (`/data/correlation.db`)**: The `ExecutionHistoryStore` records every single test case execution into a SQLite database. It uses an async, batched writer for high performance and maintains a small in-memory cache of recent records to keep the UI responsive. This database is critical for post-session analysis, debugging, and visualization.
-
-### 7. Advanced Logic Components
-
-*   **ResponsePlanner (`core/engine/response_planner.py`)**: When a plugin defines `response_handlers`, this component evaluates server responses and queues follow-up messages, enabling the fuzzer to navigate complex, interactive protocols.
-*   **BehaviorProcessor (`core/protocol_behavior.py`)**: Applies deterministic transformations to a test case before it is sent, such as updating a sequence number or timestamp, based on `behavior` rules in the plugin.
-
-### 8. Agents (`agent/main.py` & `core/agents/manager.py`)
-
-*   **Agent**: A lightweight, standalone process that polls the Core API for work, executes test cases against its assigned target, and reports back the results.
-*   **Agent Manager**: Manages the pool of registered agents and queues work for them.
-
-### 9. Web UI (`core/ui/spa/`)
-
-A React-based Single Page Application that provides a user-friendly interface for controlling the fuzzer and visualizing results.
-
-## The Fuzzing Lifecycle
-
-A typical fuzzing session proceeds as follows:
-
-1.  **User Action**: A user initiates a fuzzing session through the Web UI or REST API.
-2.  **Session Initialization**: The `FuzzOrchestrator` creates a new session and loads the protocol plugin.
-3.  **The Fuzzing Loop Begins**: The orchestrator enters its main loop.
-4.  **Test Case Selection**: An input is selected for mutation. This could be:
-    *   A seed from the corpus, chosen based on the protocol's current state if a `state_model` is used.
-    *   A follow-up message queued by the `ResponsePlanner` based on a previous server response.
-5.  **Mutation**: The selected input is passed to the `MutationEngine` to generate a new test case.
-6.  **Behavior Application**: The `BehaviorProcessor` applies any deterministic rules (e.g., incrementing sequence numbers) to the mutated data.
-7.  **Execution**: The final test case is sent to the target, either directly from the core or via an agent.
-8.  **Monitoring & Response**: The executor monitors the target for crashes, hangs, or other anomalies.
-9.  **Result Reporting**: The result is reported back to the `FuzzOrchestrator`.
-10. **Crash Handling**: If a crash was detected, the `CrashReporter` saves the finding to the filesystem.
-11. **History Recording**: The `ExecutionHistoryStore` queues the execution record for writing to the SQLite database.
-12. **Response Planning**: The `ResponsePlanner` analyzes the server's response and, if it matches a rule in the plugin, queues a new follow-up message.
-13. **Iteration**: The loop repeats until the user stops the session or a limit is reached.
-
-This modular architecture allows each component to be developed, tested, and improved independently, while the plugin-driven design makes the entire system highly extensible to new and unknown protocols.
+This architecture enables the fuzzer to test complex, modern protocols that require authenticated, persistent sessions, and to recover automatically from network instability.

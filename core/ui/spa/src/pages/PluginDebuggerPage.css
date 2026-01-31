@@ -516,3 +516,228 @@
   font-size: 0.9rem;
   font-weight: 600;
 }
+
+/* Orchestration Section - Protocol Stack */
+.orchestration-section {
+  padding: 20px;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 20px;
+  background: rgba(168, 85, 247, 0.05);
+}
+
+.protocol-stack-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.stage-card {
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.stage-card.bootstrap {
+  border-left: 4px solid #f59e0b;
+}
+
+.stage-card.fuzz_target {
+  border-left: 4px solid #10b981;
+}
+
+.stage-card.teardown {
+  border-left: 4px solid #6366f1;
+}
+
+.stage-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.stage-order {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #e2e8f0;
+}
+
+.stage-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stage-info h4 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: white;
+}
+
+.role-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.role-badge.bootstrap {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.role-badge.fuzz_target {
+  background: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.role-badge.teardown {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.4);
+}
+
+.stage-model {
+  margin-top: 8px;
+}
+
+.model-label {
+  display: block;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.model-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.field-chip {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-family: 'Roboto Mono', monospace;
+  background: rgba(59, 130, 246, 0.15);
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.field-chip.response {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fcd34d;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.field-chip.more {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  font-style: italic;
+}
+
+.stage-exports {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.exports-label {
+  display: inline-block;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin-right: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.export-chip {
+  display: inline-block;
+  padding: 4px 10px;
+  margin: 4px 4px 4px 0;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-family: 'Roboto Mono', monospace;
+  background: rgba(16, 185, 129, 0.15);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.stage-expect {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.expect-label {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stage-expect code {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-family: 'Roboto Mono', monospace;
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.orchestration-config {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.config-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.config-label {
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.config-value {
+  font-weight: 600;
+  color: #e2e8f0;
+  font-family: 'Roboto Mono', monospace;
+  font-size: 0.9rem;
+}
+
+.config-detail {
+  font-size: 0.8rem;
+  color: #6ee7b7;
+  padding-left: 8px;
+  border-left: 1px solid rgba(255, 255, 255, 0.2);
+}

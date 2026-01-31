@@ -1,10 +1,23 @@
 """
-Feature showcase protocol plugin.
+Comprehensive Feature Reference - ALL Framework Capabilities
 
-- Purpose: Demonstrates all supported plugin features and serves as a template.
-- Transport: TCP.
-- Pairs with: tests/feature_showcase_server.py.
-- Includes: Behaviors, response model/handlers, state machine, validation examples.
+This plugin demonstrates EVERY feature supported by the fuzzing framework.
+Use this as a comprehensive reference when you need to use advanced features.
+
+For simpler starting points, see:
+- minimal_tcp.py - Bare minimum TCP protocol
+- minimal_udp.py - Bare minimum UDP protocol
+- field_types.py - Quick copy-paste field reference
+
+Features demonstrated:
+- Sub-byte (bit) fields: 1, 2, 3, 4, 8, 12-bit examples
+- Behaviors: auto-incrementing fields, derived values
+- Response handlers: extract session tokens, transform values
+- Stateful fuzzing: 4-state machine with transitions
+- Validation oracle: custom response validation
+- Intentional vulnerabilities (for learning crash detection)
+
+Test server: tests/feature_showcase_server.py (has intentional bugs!)
 """
 
 __version__ = "1.0.0"

@@ -28,6 +28,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY core/ ./core/
 COPY agent/ ./agent/
 COPY tests/ ./tests/
+COPY docs/ ./docs/
+COPY CHANGELOG.md ./
 COPY --from=ui-builder /ui/dist ./core/ui/spa/dist/
 
 # Create directories for data persistence

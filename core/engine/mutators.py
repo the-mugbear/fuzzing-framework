@@ -365,4 +365,20 @@ class MutationEngine:
 
     @staticmethod
     def available_mutators() -> List[str]:
+        """
+        Return list of available byte-level mutator names.
+
+        These are the mutation algorithms that can be enabled/disabled
+        via the `enabled_mutators` session config:
+        - bitflip: Flip random bits in the input
+        - byteflip: Replace random bytes with random values
+        - arithmetic: Add/subtract small integers from fields
+        - interesting: Replace with boundary values (0, MAX_INT, etc.)
+        - havoc: Aggressive random mutations (insert, delete, shuffle)
+        - splice: Combine parts of two different test cases
+
+        Note: Structure-aware mutation is controlled separately via
+        `mutation_mode` (byte_level, structure_aware, hybrid) and
+        `structure_aware_weight`, not via this list.
+        """
         return ["bitflip", "byteflip", "arithmetic", "interesting", "havoc", "splice"]
