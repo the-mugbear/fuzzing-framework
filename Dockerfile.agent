@@ -1,7 +1,7 @@
 # Dockerfile for Fuzzer Agent
 FROM python:3.11-slim
 
-LABEL maintainer="Ken Charles"
+LABEL maintainer="KM"
 LABEL description="Portable Proprietary Protocol Fuzzer - Target Agent"
 
 # Install system dependencies

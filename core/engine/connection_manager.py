@@ -663,6 +663,37 @@ class ConnectionManager:
 
         return rebootstrap
 
+    async def cleanup_unhealthy(self, session_id: str) -> int:
+        """
+        Remove and close any unhealthy transports for a session.
+
+        Called when a transport is marked unhealthy to force cleanup
+        and ensure reconnection on next get_transport() call.
+
+        Args:
+            session_id: The session ID to clean up unhealthy transports for
+
+        Returns:
+            Number of unhealthy transports that were cleaned up
+        """
+        to_remove = [
+            conn_id for conn_id, transport in self._transports.items()
+            if conn_id.startswith(session_id) and not transport.healthy
+        ]
+
+        for conn_id in to_remove:
+            transport = self._transports.pop(conn_id)
+            await transport.close()
+
+        if to_remove:
+            logger.info(
+                "unhealthy_transports_cleaned",
+                session_id=session_id,
+                cleaned_count=len(to_remove),
+            )
+
+        return len(to_remove)
+
     async def close_session(self, session_id: str) -> None:
         """Close all transports for a session."""
         to_remove = [

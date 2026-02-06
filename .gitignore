@@ -62,3 +62,5 @@ core/ui/spa/*.txt
 # OS
 .DS_Store
 Thumbs.db
+
+CLAUDE.md

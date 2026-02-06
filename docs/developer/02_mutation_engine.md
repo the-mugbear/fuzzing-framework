@@ -1,6 +1,6 @@
 # 2. The Mutation Engine
 
-**Last Updated: 2026-01-30**
+**Last Updated: 2026-02-06**
 
 This document details the fuzzer's mutation engine, the core component responsible for generating novel test cases from an initial set of seeds.
 

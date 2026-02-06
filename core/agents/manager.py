@@ -1,4 +1,77 @@
-"""Agent coordination utilities"""
+"""
+Agent Manager - Coordinates remote agents and work distribution.
+
+This module manages the lifecycle and work distribution for remote fuzzing
+agents that execute test cases near target systems.
+
+Component Overview:
+-------------------
+The AgentManager provides centralized coordination for:
+- Agent registration and heartbeat tracking
+- Work queue management per target endpoint
+- Test case dispatch and completion tracking
+- Session cleanup when fuzzing stops
+
+Key Responsibilities:
+--------------------
+1. Agent Registration:
+   - Track registered agents by ID
+   - Associate agents with target endpoints
+   - Monitor agent health via heartbeats
+
+2. Work Queue Management:
+   - Maintain per-target work queues
+   - Size-limited queues prevent memory exhaustion
+   - Thread-safe queue operations
+
+3. Test Case Dispatch:
+   - Route work items to appropriate target queue
+   - Track in-flight test cases
+   - Handle work completion notifications
+
+4. Session Cleanup:
+   - Clear pending work when sessions stop
+   - Use atomic operations to prevent race conditions
+   - Clean up in-flight tracking
+
+Thread Safety:
+-------------
+The AgentManager uses asyncio.Lock for thread-safe operations on:
+- Queue manipulation during session cleanup
+- In-flight test case tracking
+
+Usage Example:
+-------------
+    # Registration
+    agent_manager.register_agent(
+        agent_id="agent-1",
+        hostname="worker-node",
+        target_host="target-server",
+        target_port=9999,
+        transport=TransportProtocol.TCP,
+    )
+
+    # Dispatch work
+    await agent_manager.enqueue_test_case(
+        target_host="target-server",
+        target_port=9999,
+        transport=TransportProtocol.TCP,
+        work=work_item,
+    )
+
+    # Cleanup
+    await agent_manager.clear_session(session_id)
+
+Configuration:
+-------------
+- agent_queue_size: Maximum items per queue (from settings)
+
+See Also:
+--------
+- core/engine/agent_dispatcher.py - High-level dispatch coordination
+- core/models.py - AgentStatus, AgentWorkItem definitions
+- docs/developer/05_agent_and_core_communication.md - Architecture docs
+"""
 from __future__ import annotations
 
 import asyncio
@@ -145,20 +218,26 @@ class AgentManager:
             self._inflight.pop(test_case_id, None)
 
     async def clear_session(self, session_id: str) -> None:
-        """Remove pending tasks for a session from all queues"""
-        for queue in self._queues.values():
-            retained: list[AgentWorkItem] = []
-            while not queue.empty():
-                try:
-                    item = queue.get_nowait()
-                except asyncio.QueueEmpty:  # pragma: no cover - guard
-                    break
-                if item.session_id != session_id:
-                    retained.append(item)
-            for item in retained:
-                queue.put_nowait(item)
+        """Remove pending tasks for a session from all queues.
 
+        Uses the instance lock to ensure atomic queue manipulation and prevent
+        race conditions with concurrent coroutines.
+        """
         async with self._lock:
+            # Drain and filter each queue atomically
+            for queue in self._queues.values():
+                retained: list[AgentWorkItem] = []
+                while not queue.empty():
+                    try:
+                        item = queue.get_nowait()
+                    except asyncio.QueueEmpty:  # pragma: no cover - guard
+                        break
+                    if item.session_id != session_id:
+                        retained.append(item)
+                for item in retained:
+                    queue.put_nowait(item)
+
+            # Clean up inflight tasks (already protected by lock)
             to_remove = [
                 test_case_id
                 for test_case_id, (_agent_id, sess_id) in self._inflight.items()

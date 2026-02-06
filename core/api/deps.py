@@ -3,7 +3,7 @@ from functools import lru_cache
 
 from core.agents.manager import agent_manager
 from core.corpus.store import CorpusStore
-from core.engine.orchestrator import orchestrator
+from core.engine.orchestrator import get_orchestrator as _get_orchestrator
 from core.plugin_loader import plugin_manager
 
 
@@ -17,7 +17,8 @@ def get_agent_manager():
 
 
 def get_orchestrator():
-    return orchestrator
+    """Get the global orchestrator instance."""
+    return _get_orchestrator()
 
 
 def get_plugin_manager():

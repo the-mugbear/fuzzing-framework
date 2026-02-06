@@ -6,6 +6,159 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed - 2026-02-06
+
+- **Fixed race condition in AgentManager.clear_session** (`core/agents/manager.py:147-175`)
+  - Queue iteration was not atomic - `empty()` and `get_nowait()` could race with other coroutines
+  - Moved queue manipulation inside the existing `_lock` to ensure atomic operation
+  - Impact: Prevents potential data corruption when multiple coroutines access agent queues concurrently
+  - Testing: Run sessions with agent mode and stop them concurrently
+
+- **Fixed incomplete session recovery marking sessions as FAILED** (`core/engine/orchestrator.py:152-168`)
+  - Sessions with failed runtime helper rebuilding were silently added in inconsistent state
+  - Now marks session as FAILED with clear error message when recovery fails
+  - Impact: Users can identify and properly handle sessions that failed to recover
+  - Testing: Simulate plugin load failure during session recovery
+
+- **Fixed resource leak in managed connections** (`core/engine/orchestrator.py:1622-1631`, `core/engine/connection_manager.py:666-694`)
+  - Unhealthy managed transports remained in connection pool after errors
+  - Added `cleanup_unhealthy()` method to ConnectionManager to remove and close unhealthy transports
+  - Orchestrator now calls cleanup when marking transport as unhealthy
+  - Impact: Prevents socket leaks when persistent connections fail
+  - Testing: Run session with persistent connection mode, simulate transport errors
+
+- **Fixed checkpoint failure not propagating errors** (`core/engine/orchestrator.py:206-226`)
+  - `_checkpoint_session` silently swallowed errors
+  - Now returns `bool` indicating success/failure for callers that need to handle failures
+  - Impact: Callers can optionally react to checkpoint failures
+  - Testing: Simulate disk write failure during checkpoint
+
+- **Fixed teardown failure visibility** (`core/engine/orchestrator.py:1505-1518`)
+  - Teardown errors were only logged, not visible to users
+  - Now stores teardown errors in session.error_message for visibility
+  - Impact: Users can see if teardown stages failed during session stop
+  - Testing: Create session with failing teardown stage
+
+- **Fixed CorpusStore LRU cache documentation and methods** (`core/corpus/store.py:69-153`)
+  - Fixed docstring to correctly describe LRU eviction (was incorrectly called FIFO)
+  - Renamed `get_all_seeds()` to `get_cached_seeds()` for clarity (alias preserved for compatibility)
+  - Added `get_all_seed_ids()` method to list all seeds on disk, not just cached ones
+  - Added docstrings to clarify which methods return cached vs disk data
+  - Impact: Clearer API for seed corpus management
+  - Testing: Add many seeds, verify cache behavior
+
+### Added - 2026-02-06
+
+- **SessionRuntimeContext dataclass** (`core/engine/session_context.py`)
+  - New dataclass consolidating all session-specific runtime state
+  - Replaces scattered dictionary-based tracking (behavior_processors, stateful_sessions, etc.)
+  - SessionContextManager class for unified context lifecycle management
+  - Methods: has_behaviors(), has_stateful_fuzzing(), has_orchestration(), get_context_snapshot()
+  - Impact: Cleaner code organization, foundation for further orchestrator decomposition
+  - Testing: Import and instantiate SessionRuntimeContext with various configurations
+
+- **TestExecutor component** (`core/engine/test_executor.py`)
+  - Extracted test case execution logic from orchestrator
+  - Handles transport selection, send/receive, error categorization
+  - Methods: execute(), classify_response(), build_connection_error_message()
+  - Supports both ephemeral and persistent connections via ConnectionManager
+  - Impact: Focused component for test execution, improves testability
+  - Testing: Instantiate with mock ConnectionManager and execute test cases
+
+- **StateNavigator component** (`core/engine/state_navigator.py`)
+  - Extracted state machine navigation logic from orchestrator
+  - Handles fuzzing mode selection (breadth-first, depth-first, targeted)
+  - Termination test injection for cleanup/teardown coverage
+  - Methods: select_message_for_mode(), select_termination_message(), find_path_to_state()
+  - Impact: Focused component for stateful fuzzing navigation
+  - Testing: Wrap StatefulFuzzingSession and test navigation strategies
+
+- **AgentDispatcher component** (`core/engine/agent_dispatcher.py`)
+  - Extracted agent work distribution logic from orchestrator
+  - Manages test case dispatch, result handling, pending test tracking
+  - Methods: dispatch(), handle_result(), discard_pending(), get_stats()
+  - Impact: Focused component for agent coordination
+  - Testing: Dispatch test cases and handle mock agent results
+
+- **SessionManager component** (`core/engine/session_manager.py`)
+  - Extracted session CRUD and lifecycle management from orchestrator
+  - Handles session creation, start, stop, delete operations
+  - Integrates with SessionContextManager for runtime state
+  - Methods: create_session(), start_session(), stop_session(), delete_session(), get_session_stats()
+  - Supports callbacks for orchestrator integration (bootstrap, teardown, heartbeat)
+  - Impact: Focused component for session lifecycle, improves testability
+  - Testing: Create and manage sessions with mock dependencies
+
+- **FuzzingLoopCoordinator component** (`core/engine/fuzzing_loop.py`)
+  - Extracted main fuzzing loop logic from orchestrator
+  - Coordinates test generation, execution, and state tracking
+  - Uses StateNavigator for stateful fuzzing, TestExecutor for execution
+  - Methods: run(), _initialize_context(), _run_loop(), _create_fuzz_test_case()
+  - Supports rate limiting, checkpointing, and max iterations
+  - Impact: Focused component for fuzzing loop, reduces orchestrator complexity
+  - Testing: Run fuzzing loop with mock dependencies
+
+- **Decomposed session models** (`core/engine/session_models.py`)
+  - New structured models grouping related FuzzSession fields
+  - SessionConfig: Immutable configuration (protocol, target, mutation settings)
+  - SessionStats: Counters (total_tests, crashes, hangs, anomalies)
+  - SessionState: Runtime state (status, error_message, current_state)
+  - CoverageState: Coverage tracking (state_coverage, transition_coverage)
+  - OrchestrationState: Protocol stack and connection state
+  - ComposedSession: Aggregates all sub-models with FuzzSession conversion
+  - Impact: Cleaner organization for session data, backward compatible
+  - Testing: Convert FuzzSession to ComposedSession and back
+  - Testing: Dispatch test cases and handle mock agent results
+
+### Changed - 2026-02-06
+
+- **Improved testability with dependency injection** (`core/engine/orchestrator.py:52-118`, `core/api/deps.py`)
+  - FuzzOrchestrator now accepts optional `corpus_store`, `session_store`, `history_store` parameters
+  - Added `skip_session_load` parameter to skip disk loading during tests
+  - Added `get_orchestrator()` factory function with lazy initialization
+  - Added `reset_orchestrator()` for test isolation
+  - Updated `core/api/deps.py` to use factory function
+  - Impact: Enables proper unit testing with mock dependencies
+  - Testing: Create orchestrator with injected mock stores
+
+- **Extracted magic numbers to configuration** (`core/config.py:59-67`, `core/engine/orchestrator.py:905-917`, `core/engine/mutators.py:155`)
+  - Added `termination_test_window` (default: 3) - tests before reset to try termination
+  - Added `termination_test_interval` (default: 50) - periodic termination injection
+  - Added `havoc_max_size` (default: 4096) - maximum size for havoc mutations
+  - Added `seed_cache_max_size` (default: 1000) - maximum seeds in memory cache
+  - Updated orchestrator and mutators to use config settings
+  - Impact: All fuzzing parameters now configurable via environment variables
+  - Testing: Set FUZZER_TERMINATION_TEST_WINDOW=5 and verify behavior change
+
+- **Updated deprecated FastAPI event handlers** (`core/api/server.py:1-45`)
+  - Replaced `@app.on_event("startup")` and `@app.on_event("shutdown")` with lifespan context manager
+  - Uses the modern `@asynccontextmanager` pattern recommended by FastAPI
+  - Impact: Removes deprecation warnings, follows FastAPI best practices
+  - Testing: Start/stop the API server and verify startup/shutdown logs
+
+### Documentation - 2026-02-06
+
+- **Updated all Phase 5 component files with comprehensive headers**
+  - Added detailed module docstrings to all 7 new component files
+  - Each header includes: purpose, responsibilities, integration points, usage examples
+  - Files: session_context.py, test_executor.py, state_navigator.py, agent_dispatcher.py, session_manager.py, fuzzing_loop.py, session_models.py
+
+- **Updated core file headers** (`core/agents/manager.py`, `core/corpus/store.py`, `core/config.py`, `core/api/server.py`, `core/engine/orchestrator.py`)
+  - Added comprehensive module docstrings with component overview and usage examples
+  - Orchestrator header includes ASCII architecture diagram showing component relationships
+
+- **Updated architectural documentation** (`docs/developer/01_architectural_overview.md`)
+  - Added new section documenting Phase 5 decomposed architecture
+  - Added ASCII diagram showing orchestrator facade and component relationships
+  - Added component files table with responsibilities
+  - Added decomposed session models table
+
+- **Updated developer documentation dates and references**
+  - Updated all developer docs with current date (2026-02-06)
+  - Added StateNavigator reference to stateful fuzzing docs
+  - Added AgentDispatcher reference to agent communication docs
+  - Updated documentation index (docs/README.md) with decomposition note
+
 ### Added - 2026-01-31
 
 - **In-app documentation viewer** (`core/api/routes/docs.py`, `core/ui/spa/src/pages/DocumentationHubPage.tsx`)

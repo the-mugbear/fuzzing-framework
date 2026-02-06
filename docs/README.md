@@ -1,10 +1,12 @@
 # Documentation Index
 
-**Last Updated: 2026-01-31**
+**Last Updated: 2026-02-06**
 
 Welcome to the documentation for the protocol fuzzer. This index provides a curated list of the most important documents in the repository, organized by audience.
 
 > **Tip:** All documentation is now viewable directly in the web UI via the **Documentation Hub** page. Click "Read documentation" on any card to view the content without leaving the console.
+
+> **Note:** The orchestrator has been decomposed into focused components (Phase 5). See the [Architectural Overview](developer/01_architectural_overview.md) for the updated architecture.
 
 ## Getting Started
 

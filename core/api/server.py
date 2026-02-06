@@ -1,4 +1,60 @@
-"""FastAPI application entrypoint for the Core API."""
+"""
+FastAPI Application - Core API server entrypoint.
+
+This module provides the main FastAPI application that serves the
+fuzzer's REST API and web UI.
+
+Component Overview:
+-------------------
+The server provides:
+- REST API endpoints for session management
+- WebSocket support for real-time updates
+- Static file serving for documentation and UI
+- CORS configuration for browser access
+
+Key Features:
+------------
+1. API Routes:
+   - /api/sessions: Session CRUD and control
+   - /api/corpus: Seed and finding management
+   - /api/plugins: Protocol plugin access
+   - /api/system: Health and metrics
+
+2. Static Mounts:
+   - /docs: Developer documentation
+   - /ui: Web dashboard
+
+3. Lifespan Management:
+   - Startup: Initialize orchestrator, start background tasks
+   - Shutdown: Flush pending data, clean shutdown
+
+4. CORS Configuration:
+   - Configurable via environment variables
+   - Permissive by default for local development
+
+Configuration:
+-------------
+- FUZZER_API_HOST: Bind address (default: 0.0.0.0)
+- FUZZER_API_PORT: Port (default: 8000)
+- FUZZER_CORS_ENABLED: Enable CORS (default: true)
+- FUZZER_CORS_ORIGINS: Allowed origins (default: ["*"])
+
+Usage:
+-----
+    # Run directly
+    python -m core.api.server
+
+    # Or with uvicorn
+    uvicorn core.api.server:app --host 0.0.0.0 --port 8000
+
+See Also:
+--------
+- core/api/routes/*.py - Individual route modules
+- core/api/deps.py - Dependency injection
+- docs/QUICKSTART.md - Getting started guide
+"""
+from contextlib import asynccontextmanager
+
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,33 +68,35 @@ from core.logging import setup_logging
 setup_logging("core-api")
 logger = structlog.get_logger()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan management.
+
+    Replaces deprecated @app.on_event("startup") and @app.on_event("shutdown")
+    with the modern lifespan context manager pattern.
+    """
+    # Startup
+    from core.api.deps import get_orchestrator
+
+    orchestrator = get_orchestrator()
+    orchestrator.history_store.start_background_writer()
+    logger.info("application_startup")
+
+    yield
+
+    # Shutdown
+    orchestrator = get_orchestrator()
+    await orchestrator.history_store.shutdown()
+    logger.info("application_shutdown")
+
+
 app = FastAPI(
     title="Proprietary Protocol Fuzzer",
     description="Portable, extensible fuzzing framework for proprietary network protocols",
     version="0.1.0",
+    lifespan=lifespan,
 )
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on startup."""
-    from core.api.deps import get_orchestrator
-
-    # Start background writer for execution history persistence
-    orchestrator = get_orchestrator()
-    orchestrator.history_store.start_background_writer()
-
-    logger.info("application_startup")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Gracefully shutdown services."""
-    from core.api.deps import get_orchestrator
-
-    orchestrator = get_orchestrator()
-    await orchestrator.history_store.shutdown()
-    logger.info("application_shutdown")
 
 # Configure CORS (configurable via FUZZER_CORS_ENABLED and FUZZER_CORS_ORIGINS)
 if settings.cors_enabled:

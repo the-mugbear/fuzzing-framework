@@ -1,6 +1,6 @@
 # 5. Agent and Core Communication
 
-**Last Updated: 2026-01-30**
+**Last Updated: 2026-02-06**
 
 To scale the fuzzing process and increase test case throughput, the fuzzer supports distributing workloads to multiple remote **Agents**. An agent is a separate, lightweight process responsible for executing test cases against a specific target.
 
@@ -31,6 +31,15 @@ This polling-based architecture is robust and decouples the Core from agents, al
 
 ### `AgentManager` (`core/agents/manager.py`)
 This class manages the distributed system on the Core side. It maintains `_agents` (registered agents) and `_queues` (work queues for each target). It also tracks `_inflight` test cases to prevent work loss.
+
+The `AgentManager` uses asyncio locks for thread-safe queue manipulation, particularly during session cleanup operations to prevent race conditions.
+
+### `AgentDispatcher` (`core/engine/agent_dispatcher.py`)
+This high-level component (part of the orchestrator decomposition) handles:
+- Packaging test cases as work items
+- Queueing work via `AgentManager`
+- Tracking pending test cases
+- Processing results when agents report back
 
 ### Agent (`agent/main.py`)
 The agent is a much simpler process. Its `run` method orchestrates two main loops:

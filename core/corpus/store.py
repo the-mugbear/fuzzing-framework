@@ -1,5 +1,79 @@
 """
-Corpus management and storage
+Corpus Store - Manages seed corpus and crash findings persistence.
+
+This module provides the storage layer for fuzzing inputs (seeds) and
+discovered findings (crashes, hangs, anomalies).
+
+Component Overview:
+-------------------
+The CorpusStore manages two types of data:
+1. Seeds: Input data used as mutation base
+2. Findings: Crash reports and reproducers
+
+Key Responsibilities:
+--------------------
+1. Seed Management:
+   - Add seeds with automatic deduplication (SHA-256)
+   - LRU cache for efficient memory usage
+   - On-demand loading from disk
+   - Metadata tracking per seed
+
+2. Finding Storage:
+   - Save crash reports with reproducers
+   - Multiple formats (JSON for humans, MessagePack for efficiency)
+   - Per-session finding organization
+   - Finding enumeration and retrieval
+
+3. Memory Efficiency:
+   - LRU cache prevents unbounded memory growth
+   - Configurable cache size via settings
+   - Lazy loading of seed content
+
+Storage Layout:
+--------------
+    corpus/
+    ├── seeds/
+    │   ├── <sha256>.bin      # Raw seed data
+    │   └── <sha256>.meta     # Seed metadata (JSON)
+    └── findings/
+        └── <finding_id>/
+            ├── input.bin     # Reproducer data
+            ├── report.json   # Human-readable report
+            └── report.msgpack # Binary report
+
+LRU Cache Behavior:
+------------------
+Seeds are cached with LRU (Least Recently Used) eviction:
+- Cache hit: seed moved to end (most recently used)
+- Cache miss: seed loaded from disk, added to cache
+- Cache full: oldest entry evicted before adding new
+
+Usage Example:
+-------------
+    store = CorpusStore()
+
+    # Add seed (returns existing ID if duplicate)
+    seed_id = store.add_seed(b"test data", metadata={"source": "manual"})
+
+    # Get seed (loads from disk if not cached)
+    seed_data = store.get_seed(seed_id)
+
+    # Save finding
+    finding_id = store.save_finding(session_id, crash_report)
+
+    # List findings
+    findings = store.list_findings(session_id)
+
+Configuration:
+-------------
+- corpus_dir: Root directory for storage (from settings)
+- seed_cache_max_size: Maximum LRU cache entries (from settings)
+
+See Also:
+--------
+- core/engine/crash_handler.py - Creates CrashReport objects
+- core/models.py - CrashReport, TestCase definitions
+- docs/developer/04_data_management.md - Data flow documentation
 """
 import hashlib
 import json
@@ -35,7 +109,7 @@ class CorpusStore:
 
         # LRU cache with maximum size (prevents unbounded memory growth)
         self._seed_cache: OrderedDict[str, bytes] = OrderedDict()
-        self._max_cache_size = 1000  # Keep max 1000 seeds in memory
+        self._max_cache_size = settings.seed_cache_max_size
         self._load_seed_index()
 
     def _load_seed_index(self):
@@ -67,9 +141,13 @@ class CorpusStore:
             return None
 
     def _evict_if_needed(self):
-        """Evict oldest seed from cache if at capacity."""
+        """Evict least recently used seed from cache if at capacity.
+
+        Uses OrderedDict with move_to_end() in get_seed() to implement LRU.
+        Evicts from the front (oldest/least recently used items).
+        """
         while len(self._seed_cache) >= self._max_cache_size:
-            evicted_id, _ = self._seed_cache.popitem(last=False)  # FIFO eviction
+            evicted_id, _ = self._seed_cache.popitem(last=False)  # LRU eviction (oldest first)
             logger.debug("evicted_seed_from_cache", seed_id=evicted_id)
 
     def add_seed(self, data: bytes, metadata: Optional[Dict] = None) -> str:
@@ -128,13 +206,32 @@ class CorpusStore:
 
         return seed_data
 
-    def get_all_seeds(self) -> List[bytes]:
-        """Get all seeds as a list"""
+    def get_cached_seeds(self) -> List[bytes]:
+        """Get all seeds currently in memory cache.
+
+        Note: This only returns cached seeds, not all seeds on disk.
+        For comprehensive seed listing, use get_all_seed_ids() and load individually.
+        """
         return list(self._seed_cache.values())
 
+    # Backward compatibility alias
+    get_all_seeds = get_cached_seeds
+
     def get_seed_ids(self) -> List[str]:
-        """Get all seed IDs"""
+        """Get IDs of all seeds currently in memory cache.
+
+        Note: This only returns cached seed IDs, not all seeds on disk.
+        For comprehensive listing, use get_all_seed_ids().
+        """
         return list(self._seed_cache.keys())
+
+    def get_all_seed_ids(self) -> List[str]:
+        """Get IDs of all seeds on disk.
+
+        Scans the seeds directory and returns all seed IDs,
+        regardless of whether they are currently cached.
+        """
+        return [f.stem for f in self.seeds_dir.glob("*.bin")]
 
     def save_finding(self, crash_report: CrashReport, test_case_data: bytes) -> str:
         """

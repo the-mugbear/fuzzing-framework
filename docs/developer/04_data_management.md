@@ -1,6 +1,6 @@
 # 4. Data Management: Corpus, Crashes, and History
 
-**Last Updated: 2026-01-31**
+**Last Updated: 2026-02-06**
 
 The fuzzer relies on three key types of data: the **corpus** of inputs, **crashes** (or "findings"), and the complete **execution history** of a session. Each is handled by a specialized component.
 

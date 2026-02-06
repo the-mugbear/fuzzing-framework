@@ -1,5 +1,117 @@
 """
-Fuzzing orchestrator - coordinates the fuzzing campaign
+Fuzzing Orchestrator - Central coordinator for fuzzing campaigns.
+
+This module serves as the main facade for the fuzzing engine, coordinating
+all aspects of session management, test execution, and result processing.
+
+Architecture Overview:
+---------------------
+The orchestrator delegates to focused components for specific responsibilities:
+
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                      FuzzOrchestrator                           │
+    │                         (Facade)                                │
+    └─────────────────────────┬───────────────────────────────────────┘
+                              │
+       ┌──────────────────────┼──────────────────────┐
+       │                      │                      │
+       ▼                      ▼                      ▼
+┌──────────────┐    ┌─────────────────┐    ┌────────────────┐
+│SessionManager│    │SessionContext   │    │FuzzingLoop     │
+│              │    │Manager          │    │Coordinator     │
+│ - create     │    │ - runtime state │    │ - main loop    │
+│ - start/stop │    │ - cleanup       │    │ - seed select  │
+│ - delete     │    │                 │    │ - mutation     │
+└──────────────┘    └─────────────────┘    └────────────────┘
+       │                      │                      │
+       │                      │          ┌───────────┼───────────┐
+       │                      │          │           │           │
+       ▼                      ▼          ▼           ▼           ▼
+┌──────────────┐    ┌─────────────┐ ┌─────────┐ ┌─────────┐ ┌────────┐
+│SessionStore  │    │RuntimeContext│ │TestExec │ │StateNav │ │Agent   │
+│(persistence) │    │(per-session) │ │utor     │ │igator   │ │Dispatch│
+└──────────────┘    └─────────────┘ └─────────┘ └─────────┘ └────────┘
+
+Component Responsibilities:
+--------------------------
+1. SessionManager (session_manager.py):
+   - Session CRUD operations
+   - Lifecycle management (start, stop, delete)
+   - Bootstrap/teardown for orchestrated protocols
+   - Session persistence and recovery
+
+2. SessionContextManager (session_context.py):
+   - Runtime state containers
+   - Behavior processors, stateful sessions
+   - Response planners, protocol contexts
+   - Cleanup on session end
+
+3. FuzzingLoopCoordinator (fuzzing_loop.py):
+   - Main fuzzing iteration loop
+   - Seed selection strategies
+   - Test case generation with mutations
+   - Rate limiting and checkpointing
+
+4. TestExecutor (test_executor.py):
+   - Transport management
+   - Send/receive with error handling
+   - Response classification
+
+5. StateNavigator (state_navigator.py):
+   - State machine navigation
+   - Fuzzing mode strategies
+   - Termination test injection
+
+6. AgentDispatcher (agent_dispatcher.py):
+   - Remote agent coordination
+   - Work queue management
+   - Result processing
+
+Backward Compatibility:
+----------------------
+The orchestrator maintains all existing public methods, delegating to
+the appropriate component internally. This allows gradual migration
+while preserving API stability.
+
+Usage Example:
+-------------
+    # Get or create orchestrator (singleton pattern)
+    orchestrator = get_orchestrator()
+
+    # Create and start session
+    session = await orchestrator.create_session(config)
+    await orchestrator.start_session(session.id)
+
+    # Query status
+    sessions = orchestrator.list_sessions()
+    stats = await orchestrator.get_session_stats(session.id)
+
+    # Stop and cleanup
+    await orchestrator.stop_session(session.id)
+
+Factory Function:
+----------------
+Use get_orchestrator() to get the singleton instance, which supports
+dependency injection for testing:
+
+    # Production usage
+    orchestrator = get_orchestrator()
+
+    # Testing with mocks
+    test_orchestrator = FuzzOrchestrator(
+        corpus_store=mock_corpus,
+        session_store=mock_session_store,
+    )
+
+See Also:
+--------
+- core/engine/session_manager.py - Session lifecycle
+- core/engine/session_context.py - Runtime context
+- core/engine/fuzzing_loop.py - Main loop
+- core/engine/test_executor.py - Test execution
+- core/engine/state_navigator.py - State navigation
+- core/engine/agent_dispatcher.py - Agent coordination
+- docs/developer/01_architectural_overview.md - Architecture docs
 """
 import asyncio
 import base64
@@ -7,7 +119,10 @@ import time
 import uuid
 from collections import deque
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.engine.session_store import SessionStore
 
 import structlog
 
@@ -27,6 +142,7 @@ from core.engine.crash_handler import CrashReporter
 from core.engine.history_store import ExecutionHistoryStore
 from core.engine.mutators import MutationEngine
 from core.engine.response_planner import ResponsePlanner
+from core.engine.session_context import SessionContextManager
 from core.engine.stateful_fuzzer import StatefulFuzzingSession
 from core.engine.transport import TransportFactory
 from core.models import (
@@ -54,10 +170,31 @@ class FuzzOrchestrator:
     Orchestrates fuzzing campaigns
 
     Manages sessions, coordinates mutation engine, corpus, and agents.
+
+    Supports dependency injection for testing:
+        orchestrator = FuzzOrchestrator(
+            corpus_store=mock_corpus,
+            session_store=mock_store,
+        )
     """
 
-    def __init__(self):
-        self.corpus_store = CorpusStore()
+    def __init__(
+        self,
+        corpus_store: Optional[CorpusStore] = None,
+        session_store: Optional["SessionStore"] = None,
+        history_store: Optional[ExecutionHistoryStore] = None,
+        skip_session_load: bool = False,
+    ):
+        """
+        Initialize the orchestrator.
+
+        Args:
+            corpus_store: Optional CorpusStore instance for dependency injection
+            session_store: Optional SessionStore instance for dependency injection
+            history_store: Optional ExecutionHistoryStore instance for dependency injection
+            skip_session_load: If True, skip loading sessions from disk (useful for testing)
+        """
+        self.corpus_store = corpus_store or CorpusStore()
         self.sessions: Dict[str, FuzzSession] = {}
         self.active_tasks: Dict[str, asyncio.Task] = {}
         self.pending_tests: Dict[str, TestCase] = {}
@@ -67,8 +204,13 @@ class FuzzOrchestrator:
         self.followup_queues: Dict[str, deque] = {}
         self.session_data_models: Dict[str, Dict[str, Any]] = {}
         self.session_response_models: Dict[str, Dict[str, Any]] = {}
-        self.history_store = ExecutionHistoryStore()
+        self.history_store = history_store or ExecutionHistoryStore()
         self.crash_reporter = CrashReporter(self.corpus_store)
+
+        # NEW: Unified session context manager (Phase 5 refactoring)
+        # This replaces the scattered dictionary-based tracking above
+        # and provides a cleaner interface for session runtime state.
+        self.context_manager = SessionContextManager()
 
         # Orchestrated session resources (initialized here to prevent race conditions)
         self._session_contexts: Dict[str, Any] = {}  # ProtocolContext per session
@@ -78,8 +220,10 @@ class FuzzOrchestrator:
 
         # Session persistence
         from core.engine.session_store import SessionStore
-        self.session_store = SessionStore()
-        self._load_sessions_from_disk()
+        self.session_store = session_store or SessionStore()
+
+        if not skip_session_load:
+            self._load_sessions_from_disk()
 
     def _load_sessions_from_disk(self):
         """
@@ -150,11 +294,19 @@ class FuzzOrchestrator:
                                 context_keys=list(session.context.get("values", {}).keys()),
                             )
                 except Exception as e:
+                    # Mark session as FAILED with error message instead of silently adding
+                    # in an inconsistent state. User must delete and recreate session.
+                    session.status = FuzzSessionStatus.FAILED
+                    session.error_message = (
+                        f"Recovery failed: {str(e)}. "
+                        "Delete this session and recreate it to resume fuzzing."
+                    )
                     logger.error(
                         "runtime_helper_rebuild_failed",
                         session_id=session.id,
                         protocol=session.protocol,
-                        error=str(e)
+                        error=str(e),
+                        marked_as_failed=True,
                     )
 
             self.sessions[session.id] = session
@@ -169,12 +321,16 @@ class FuzzOrchestrator:
         if recovered_sessions:
             logger.info("sessions_recovery_complete", count=len(recovered_sessions))
 
-    async def _checkpoint_session(self, session: FuzzSession):
+    async def _checkpoint_session(self, session: FuzzSession) -> bool:
         """
         Save session state to disk.
 
         Called periodically during fuzzing and on status changes.
         Syncs protocol context to session for persistence.
+
+        Returns:
+            True if checkpoint succeeded, False if it failed.
+            Callers can choose to handle or ignore the return value.
         """
         try:
             # Sync protocol context to session before saving
@@ -182,8 +338,10 @@ class FuzzOrchestrator:
                 session.context = self._session_contexts[session.id].snapshot()
 
             self.session_store.save_session(session)
+            return True
         except Exception as e:
             logger.error("session_checkpoint_failed", session_id=session.id, error=str(e))
+            return False
 
     async def create_session(self, config: FuzzConfig) -> FuzzSession:
         """
@@ -862,14 +1020,14 @@ class FuzzOrchestrator:
         # Inject termination test when we're about to reset (last few tests before reset)
         # and mark that we should force a termination state before resetting.
         tests_until_reset = reset_interval - (iteration % reset_interval) if reset_interval > 0 else 999
-        if tests_until_reset <= 3:  # Last 3 tests before reset
+        if tests_until_reset <= settings.termination_test_window:
             session.termination_reset_pending = True
             return True
 
-        # Also inject periodically (every ~50 tests by default, but scaled to reset interval)
+        # Also inject periodically (every N tests by default, but scaled to reset interval)
         termination_interval = min(
-            getattr(settings, 'termination_test_interval', 50),
-            max(reset_interval // 2, 10) if reset_interval else 50
+            settings.termination_test_interval,
+            max(reset_interval // 2, 10) if reset_interval else settings.termination_test_interval
         )
         if iteration > 0 and iteration % termination_interval == 0:
             session.termination_reset_pending = True
@@ -1464,6 +1622,12 @@ class FuzzOrchestrator:
 
         except Exception as e:
             # Log but don't fail - session is stopping anyway
+            # Store error in session for visibility
+            teardown_error = f"Teardown warning: {str(e)}"
+            if session.error_message:
+                session.error_message = f"{session.error_message}\n{teardown_error}"
+            else:
+                session.error_message = teardown_error
             logger.warning(
                 "teardown_failed",
                 session_id=session.id,
@@ -1586,9 +1750,12 @@ class FuzzOrchestrator:
             logger.error("execution_error", error=str(e), test_case_id=test_case.id)
             result = TestCaseResult.CRASH
             response = None
-            # If managed transport error, mark as unhealthy for reconnection
+            # If managed transport error, mark as unhealthy and trigger cleanup
             if managed_transport:
                 managed_transport.healthy = False
+                # Force cleanup of unhealthy transport to prevent resource leak
+                if self._connection_manager:
+                    await self._connection_manager.cleanup_unhealthy(session.id)
 
         test_case.result = result
         test_case.execution_time_ms = (time.time() - start_time) * 1000
@@ -2175,5 +2342,37 @@ class FuzzOrchestrator:
         return results
 
 
-# Global orchestrator instance
-orchestrator = FuzzOrchestrator()
+# Global orchestrator instance (lazy initialization)
+_orchestrator: Optional[FuzzOrchestrator] = None
+
+
+def get_orchestrator() -> FuzzOrchestrator:
+    """
+    Get or create the global orchestrator instance.
+
+    Uses lazy initialization to allow for proper startup sequencing.
+    For testing, create a new FuzzOrchestrator instance directly with
+    dependency injection instead of using this function.
+
+    Returns:
+        The global FuzzOrchestrator instance
+    """
+    global _orchestrator
+    if _orchestrator is None:
+        _orchestrator = FuzzOrchestrator()
+    return _orchestrator
+
+
+def reset_orchestrator() -> None:
+    """
+    Reset the global orchestrator instance.
+
+    Primarily for testing - allows creating a fresh orchestrator.
+    """
+    global _orchestrator
+    _orchestrator = None
+
+
+# For backward compatibility, create orchestrator on module load
+# New code should use get_orchestrator() instead
+orchestrator = get_orchestrator()

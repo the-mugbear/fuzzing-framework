@@ -1,6 +1,6 @@
 # 3. Stateful Fuzzing and Orchestration
 
-**Last Updated: 2026-01-30**
+**Last Updated: 2026-02-06**
 
 This document covers the fuzzer's two primary mechanisms for handling stateful protocols: the `state_model` for automated state exploration, and the `protocol_stack` for explicit, multi-stage orchestration. These features can be used independently or combined for testing highly complex, real-world protocols.
 
@@ -25,13 +25,19 @@ state_model = {
 -   **`states`**: A list of all possible states.
 -   **`transitions`**: A list of valid transitions. The `message_type` corresponds to a message type that the fuzzer can select from its seed corpus.
 
-### The `StatefulFuzzingSession`
-When a plugin with a `state_model` is used, the `FuzzOrchestrator` instantiates a `StatefulFuzzingSession` (`core/engine/stateful_fuzzer.py`). This object is responsible for:
+### The `StatefulFuzzingSession` and `StateNavigator`
+When a plugin with a `state_model` is used, the `FuzzOrchestrator` instantiates a `StatefulFuzzingSession` (`core/engine/stateful_fuzzer.py`). This is wrapped by a `StateNavigator` (`core/engine/state_navigator.py`) which provides high-level navigation strategies.
 
+**StatefulFuzzingSession** (low-level):
 1.  **Tracking State**: Maintaining the current state of the protocol.
-2.  **Selecting Valid Messages**: In each iteration, it consults the `state_model` to determine which `message_type`s are valid to send from the current state.
-3.  **Guiding Exploration**: It uses fuzzing modes (`random`, `breadth_first`, `depth_first`, `targeted`) to decide which valid transition to take, balancing "happy path" progression with edge-case exploration.
-4.  **Tracking Coverage**: It tracks which states have been visited and which transitions have been taken.
+2.  **State Coverage**: Tracking which states and transitions have been visited.
+3.  **Message Type Mapping**: Mapping between message types and seeds.
+
+**StateNavigator** (high-level):
+1.  **Selecting Valid Messages**: Consults the `state_model` to determine which `message_type`s are valid from the current state.
+2.  **Guiding Exploration**: Uses fuzzing modes (`random`, `breadth_first`, `depth_first`, `targeted`) to decide which valid transition to take.
+3.  **Termination Fuzzing**: Injects termination tests to exercise cleanup/teardown code.
+4.  **Path Finding**: Uses BFS to find paths to target states in `targeted` mode.
 
 This mechanism is excellent for exploring a self-contained state graph where the fuzzer can discover paths automatically.
 

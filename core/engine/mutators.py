@@ -152,7 +152,7 @@ class HavocMutator(Mutator):
         for _ in range(num_mutations):
             mutation_type = random.choice(["insert", "delete", "duplicate", "shuffle"])
 
-            if mutation_type == "insert" and len(data_array) < 4096:
+            if mutation_type == "insert" and len(data_array) < settings.havoc_max_size:
                 # Insert random bytes
                 pos = random.randint(0, len(data_array))
                 insert_len = random.randint(1, 16)
