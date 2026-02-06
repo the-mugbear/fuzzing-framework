@@ -116,8 +116,27 @@ class ResponsePlanner:
         self.handlers = handlers or []
         self.default_fields = self.request_parser.build_default_fields()
 
+        # Track handlers that have fired (for once_per_reset support)
+        # Handlers with "once_per_reset": true will only fire once until reset() is called
+        self._fired_handlers: set[str] = set()
+
+    def reset(self) -> None:
+        """
+        Reset handler activation tracking.
+
+        Call this when the protocol state machine resets to allow
+        handlers with 'once_per_reset: true' to fire again.
+        """
+        self._fired_handlers.clear()
+        logger.debug("response_planner_reset", cleared_handlers=len(self._fired_handlers))
+
     def plan(self, response_bytes: Optional[bytes]) -> List[Dict[str, Any]]:
-        """Plan follow-up requests based on a raw response."""
+        """
+        Plan follow-up requests based on a raw response.
+
+        Handlers with 'once_per_reset: true' will only fire once until
+        reset() is called. This prevents infinite followup loops.
+        """
         if not response_bytes:
             return []
 
@@ -130,6 +149,17 @@ class ResponsePlanner:
         followups: List[Dict[str, Any]] = []
 
         for handler in self.handlers:
+            handler_name = handler.get("name", "response_handler")
+
+            # Check if handler has already fired (once_per_reset support)
+            if handler.get("once_per_reset", False):
+                if handler_name in self._fired_handlers:
+                    logger.debug(
+                        "handler_skipped_already_fired",
+                        handler=handler_name,
+                    )
+                    continue
+
             if not self._matches(handler.get("match", {}), parsed_response):
                 continue
 
@@ -137,10 +167,18 @@ class ResponsePlanner:
             if payload is None:
                 continue
 
+            # Mark handler as fired if once_per_reset is enabled
+            if handler.get("once_per_reset", False):
+                self._fired_handlers.add(handler_name)
+                logger.debug(
+                    "handler_marked_fired",
+                    handler=handler_name,
+                )
+
             followups.append(
                 {
                     "payload": payload,
-                    "handler": handler.get("name", "response_handler"),
+                    "handler": handler_name,
                     "context": {
                         "parsed_response": parsed_response,
                         "match": handler.get("match", {}),

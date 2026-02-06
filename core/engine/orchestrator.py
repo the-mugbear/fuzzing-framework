@@ -964,6 +964,11 @@ class FuzzOrchestrator:
                 stateful_session.reset_to_initial_state()
                 session.session_resets += 1
                 session.tests_since_last_reset = 0
+
+                # Reset response planner to allow once_per_reset handlers to fire again
+                planner = self.response_planners.get(session.id)
+                if planner:
+                    planner.reset()
                 return
 
         # Periodic reset
@@ -982,6 +987,11 @@ class FuzzOrchestrator:
             stateful_session.reset_to_initial_state()
             session.session_resets += 1
             session.tests_since_last_reset = 0
+
+            # Reset response planner to allow once_per_reset handlers to fire again
+            planner = self.response_planners.get(session.id)
+            if planner:
+                planner.reset()
 
     def _should_inject_termination_test(
         self,

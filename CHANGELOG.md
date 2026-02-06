@@ -6,7 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added - 2026-02-06
+
+- **Feature Reference Protocol Test Server** (`tests/feature_reference_server.py`)
+  - Purpose-built server that properly parses and responds to feature_reference protocol
+  - Implements full state machine: UNINITIALIZED → HANDSHAKE_SENT → ESTABLISHED → CLOSED
+  - Contains 10 intentional vulnerabilities for training users to find bugs:
+    - CVE-FAKE-001: Buffer overflow (payload > 2048) ★☆☆☆☆
+    - CVE-FAKE-002: Auth bypass (session_id = 0xDEADBEEF) ★☆☆☆☆
+    - CVE-FAKE-003: Integer overflow (payload_len >= 32768) ★★☆☆☆
+    - CVE-FAKE-004: Null pointer (payload contains "CRASH") ★★☆☆☆
+    - CVE-FAKE-005: Format string (payload contains %s%n) ★★★☆☆
+    - CVE-FAKE-006: Use-after-free (DATA_STREAM after TERMINATE) ★★★☆☆
+    - CVE-FAKE-007: Race condition (fragmented + urgent + more_frags) ★★★★☆
+    - CVE-FAKE-008: Memory disclosure (encrypted without session) ★★★★☆
+    - CVE-FAKE-009: State confusion (HEARTBEAT + ack + qos=7) ★★★★★
+    - CVE-FAKE-010: Heap corruption (all bits + seq=FFF + channel=F) ★★★★★
+  - Colorful, informative logging showing parsed requests and responses
+  - Replaces simple echo server for feature_reference testing
+
+- **Response handler `once_per_reset` option** (`core/engine/response_planner.py`)
+  - New `"once_per_reset": true` option for response handlers
+  - Prevents handler from firing multiple times until state machine resets
+  - Fixes infinite followup loop when testing with servers that return OK status
+  - ResponsePlanner tracks fired handlers, clears on `reset()` call
+  - Orchestrator calls `planner.reset()` on state machine reset events
+
 ### Fixed - 2026-02-06
+
+- **Fixed infinite followup loop with response handlers** (`core/plugins/examples/feature_reference.py`)
+  - `sync_session_token` handler was firing on every OK response
+  - Created feedback loop: followup → response → new followup → ...
+  - Added `"once_per_reset": true` to prevent repeated activation
+  - Handler now fires once after handshake, then waits for state reset
 
 - **Fixed missing HEARTBEAT seed in feature_reference plugin** (`core/plugins/examples/feature_reference.py`)
   - State model defined HEARTBEAT transition but no seed with message_type=0xFE existed

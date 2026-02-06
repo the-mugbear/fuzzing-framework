@@ -22,14 +22,16 @@ services:
     restart: unless-stopped
 
   # Test target server
+  # Available servers:
+  #   - simple_tcp_server.py: Basic echo server for quick testing
+  #   - feature_reference_server.py: Full protocol server with 10 intentional vulnerabilities
   target:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: fuzzer-target
     #command: python tests/simple_tcp_server.py --host 0.0.0.0 --port 9999
-    command: python tests/feature_showcase_server.py --host 0.0.0.0 --port 9999
-    #command: python tests/functionality_server.py --host 0.0.0.0 --port 9999
+    command: python tests/feature_reference_server.py --host 0.0.0.0 --port 9999
     ports:
       - "9999:9999"
     networks:

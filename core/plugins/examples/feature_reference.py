@@ -1292,6 +1292,15 @@ response_handlers = [
         # Handler name (appears in logs and UI)
         "name": "sync_session_token",
 
+        # ONCE PER RESET:
+        # This handler fires ONCE per state machine cycle, then waits for reset.
+        # Without this, the handler would fire on EVERY OK response, creating
+        # an infinite loop of followup messages.
+        #
+        # When the state machine resets (reaches termination state or periodic
+        # reset), the handler can fire again for the next handshake.
+        "once_per_reset": True,
+
         # WHEN TO ACTIVATE:
         # This handler activates when the response status is either:
         #   - 0x00 (OK) - Request succeeded
@@ -1636,6 +1645,14 @@ def validate_response(response: bytes) -> bool:
     # On error responses, require an explanatory details payload.
     details = fields.get("details") or b""
     if status == 0xFF and len(details) == 0:
+        return False
+
+    # VULNERABILITY DETECTION:
+    # The test server returns "CRASH: CVE-FAKE-XXX" in details when a
+    # vulnerability is triggered. Flag these as anomalies so the fuzzer
+    # reports them as findings.
+    if status == 0xFF and details.startswith(b"CRASH:"):
+        # This is a triggered vulnerability - report as ANOMALY
         return False
 
     return True
