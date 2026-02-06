@@ -258,8 +258,11 @@ class CorpusStore:
                 f.write(crash_report.response_data)
 
         # Save crash report as JSON
+        # Use model_dump(mode='json') to properly convert bytes to base64 strings
+        # then json.dumps for safe serialization
         with open(finding_dir / "report.json", "w") as f:
-            f.write(crash_report.model_dump_json(indent=2))
+            data = crash_report.model_dump(mode='json')
+            json.dump(data, f, indent=2, default=str)
 
         # Save as msgpack for efficient storage
         with open(finding_dir / "report.msgpack", "wb") as f:

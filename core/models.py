@@ -5,7 +5,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field
+import base64
+
+from pydantic import BaseModel, Field, field_serializer
 
 
 class FuzzSessionStatus(str, Enum):
@@ -89,6 +91,12 @@ class TestCase(BaseModel):
     mutation_strategy: Optional[str] = None
     mutators_applied: List[str] = Field(default_factory=list)
 
+    @field_serializer('data', when_used='json')
+    @classmethod
+    def serialize_bytes_to_base64(cls, v: bytes) -> str:
+        """Serialize bytes field to base64 for JSON output."""
+        return base64.b64encode(v).decode('ascii')
+
 
 class CrashReport(BaseModel):
     """Crash/finding report"""
@@ -107,6 +115,14 @@ class CrashReport(BaseModel):
     cpu_usage: Optional[float] = None
     memory_usage_mb: Optional[float] = None
     severity: str = "unknown"
+
+    @field_serializer('reproducer_data', 'response_data', when_used='json')
+    @classmethod
+    def serialize_bytes_to_base64(cls, v: Optional[bytes]) -> Optional[str]:
+        """Serialize bytes fields to base64 for JSON output."""
+        if v is None:
+            return None
+        return base64.b64encode(v).decode('ascii')
 
 
 class AgentStatus(BaseModel):

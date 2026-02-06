@@ -34,6 +34,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed - 2026-02-06
 
+- **Fixed slow fuzzing rate when server keeps connection open** (`tests/feature_reference_server.py`)
+  - Root cause: Server was using persistent connection mode (while True loop)
+  - This caused transport to wait full 5000ms read timeout before returning
+  - Actual rate was 0.2 tests/sec instead of configured 100 tests/sec
+  - Changed to single-request mode: receive one request, send response, close
+  - Now achieves ~130 tests/sec matching the configured rate limit
+  - Note: This matches fuzzer's default 'per_test' connection mode
+
+- **Fixed JSON serialization error when saving crash reports** (`core/models.py`, `core/corpus/store.py`)
+  - Error: "PydanticSerializationError: invalid utf-8 sequence" when fuzzer found anomalies
+  - Root cause: Pydantic's model_dump() tried to decode binary bytes as UTF-8
+  - Added `@field_serializer` decorators to CrashReport and TestCase models
+  - Bytes fields now base64-encoded for JSON serialization
+  - Updated store.py to use model_dump(mode='json') with json.dump()
+
 - **Fixed infinite followup loop with response handlers** (`core/plugins/examples/feature_reference.py`)
   - `sync_session_token` handler was firing on every OK response
   - Created feedback loop: followup → response → new followup → ...

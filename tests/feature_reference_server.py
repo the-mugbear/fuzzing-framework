@@ -949,44 +949,49 @@ class FeatureReferenceServer:
             self.socket.close()
 
     def _handle_client(self, client_sock: socket.socket, addr: Tuple[str, int]):
-        """Handle a client connection."""
+        """
+        Handle a client connection.
+
+        Uses single-request mode: receives one request, sends response, closes.
+        This matches the fuzzer's default 'per_test' connection mode for fast
+        throughput (avoids waiting for read timeout).
+        """
         try:
-            while True:
-                # Receive data
-                data = client_sock.recv(8192)
-                if not data:
-                    break
+            # Receive data (single request)
+            data = client_sock.recv(8192)
+            if not data:
+                return
 
-                # Parse request
-                req = ProtocolParser.parse(data)
-                self.logger.request(req)
+            # Parse request
+            req = ProtocolParser.parse(data)
+            self.logger.request(req)
 
-                if req.parse_error:
-                    self.logger.warning(f"Parse error: {req.parse_error}")
-                    response = ResponseBuilder.build(
-                        status=Status.ERROR,
-                        details=f"Parse error: {req.parse_error}".encode()[:256],
-                        advice="Check message format"
-                    )
-                else:
-                    # Handle request
-                    response = self.handler.handle(req, addr)
+            if req.parse_error:
+                self.logger.warning(f"Parse error: {req.parse_error}")
+                response = ResponseBuilder.build(
+                    status=Status.ERROR,
+                    details=f"Parse error: {req.parse_error}".encode()[:256],
+                    advice="Check message format"
+                )
+            else:
+                # Handle request
+                response = self.handler.handle(req, addr)
 
-                # Decode response for logging
-                if len(response) >= 6:
-                    status = response[5]
-                    # Extract details and advice lengths for logging
-                    token = struct.unpack('>Q', response[6:14])[0] if len(response) >= 14 else 0
-                    det_len = struct.unpack('>H', response[22:24])[0] if len(response) >= 24 else 0
-                    det_end = 24 + det_len
-                    details = response[24:det_end].decode('utf-8', errors='replace') if det_len > 0 else ""
-                    adv_len = response[det_end] if len(response) > det_end else 0
-                    advice = response[det_end+1:det_end+1+adv_len].decode('utf-8', errors='replace') if adv_len > 0 else ""
+            # Decode response for logging
+            if len(response) >= 6:
+                status = response[5]
+                # Extract details and advice lengths for logging
+                token = struct.unpack('>Q', response[6:14])[0] if len(response) >= 14 else 0
+                det_len = struct.unpack('>H', response[22:24])[0] if len(response) >= 24 else 0
+                det_end = 24 + det_len
+                details = response[24:det_end].decode('utf-8', errors='replace') if det_len > 0 else ""
+                adv_len = response[det_end] if len(response) > det_end else 0
+                advice = response[det_end+1:det_end+1+adv_len].decode('utf-8', errors='replace') if adv_len > 0 else ""
 
-                    self.logger.response(Status(status), token, details, advice)
+                self.logger.response(Status(status), token, details, advice)
 
-                # Send response
-                client_sock.sendall(response)
+            # Send response and close (single-request mode)
+            client_sock.sendall(response)
 
         except ConnectionResetError:
             self.logger.connection(addr, "connection reset")
