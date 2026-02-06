@@ -36,7 +36,17 @@ router = APIRouter(prefix="/api", tags=["plugins"])
 
 @router.get("/mutators")
 async def list_mutators():
-    return {"mutators": MutationEngine.available_mutators()}
+    """
+    List available mutators and mutation modes.
+
+    Returns:
+        - mutators: Byte-level mutation algorithms (bitflip, havoc, etc.)
+        - mutation_modes: Available mutation_mode values for session config
+    """
+    return {
+        "mutators": MutationEngine.available_mutators(),
+        "mutation_modes": MutationEngine.available_mutation_modes(),
+    }
 
 
 @router.get("/plugins", response_model=List[str])

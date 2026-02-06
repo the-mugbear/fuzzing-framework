@@ -213,8 +213,21 @@ class MutationEngine:
     """
     Orchestrates mutation strategies
 
-    Supports hybrid mode combining structure-aware and byte-level mutations.
+    Supports multiple modes:
+    - byte_level: Traditional random byte mutations
+    - structure_aware: Grammar-aware field mutations
+    - hybrid: Mix of both (default)
+    - enumeration: Systematic boundary value testing (finite, deterministic)
+    - enumeration_pairwise: Test all pairs of boundary values
     """
+
+    # Enumeration sub-modes mapped from mutation_mode
+    ENUMERATION_MODES = {
+        "enumeration": "field_sweep",
+        "enumeration_sweep": "field_sweep",
+        "enumeration_pairwise": "pairwise",
+        "enumeration_full": "full_permutation",
+    }
 
     def __init__(
         self,
@@ -253,7 +266,7 @@ class MutationEngine:
         }
         self.enabled_mutators = self._normalize_enabled(enabled_mutators)
 
-        # Structure-aware mutator (NEW)
+        # Structure-aware mutator
         self.structure_mutator = None
         if data_model and self.mutation_mode in ["structure_aware", "hybrid"]:
             try:
@@ -267,6 +280,31 @@ class MutationEngine:
             except Exception as e:
                 logger.error("failed_to_load_structure_mutator", error=str(e))
                 self.structure_mutator = None
+
+        # Enumeration generator (for systematic boundary value testing)
+        self._enumeration_generator = None
+        self._enumeration_iterator = None
+        self._enumeration_exhausted = False
+        self._enumeration_count = 0
+        self._enumeration_total = 0
+
+        if data_model and self.mutation_mode in self.ENUMERATION_MODES:
+            try:
+                from core.engine.enumeration_generator import EnumerationGenerator
+                enum_mode = self.ENUMERATION_MODES[self.mutation_mode]
+                self._enumeration_generator = EnumerationGenerator(data_model)
+                self._enumeration_total = self._enumeration_generator.get_total_tests(enum_mode)
+                self._enumeration_iterator = self._enumeration_generator.generate(enum_mode)
+                logger.info(
+                    "enumeration_mode_enabled",
+                    mode=self.mutation_mode,
+                    enum_mode=enum_mode,
+                    total_tests=self._enumeration_total,
+                    mutable_fields=self._enumeration_generator.get_mutable_fields()
+                )
+            except Exception as e:
+                logger.error("failed_to_load_enumeration_generator", error=str(e))
+                self._enumeration_generator = None
 
         self._last_metadata: Dict[str, Any] = {"strategy": None, "mutators": []}
 
@@ -289,18 +327,23 @@ class MutationEngine:
         """
         Generate a new test case by mutating a seed.
 
-        Supports three modes:
+        Supports multiple modes:
         - structure_aware: Only use structure-aware mutations
         - byte_level: Only use byte-level mutations (original behavior)
         - hybrid: Mix both based on structure_aware_weight
+        - enumeration*: Systematic boundary value testing (ignores base_seed)
 
         Args:
-            base_seed: Seed to mutate
+            base_seed: Seed to mutate (ignored in enumeration modes)
             num_mutations: Number of mutation passes to apply
 
         Returns:
-            Mutated test case
+            Mutated test case (or next enumeration test case)
         """
+        # Handle enumeration modes - return next pre-computed test case
+        if self.mutation_mode in self.ENUMERATION_MODES:
+            return self._get_next_enumeration_test(base_seed)
+
         # Determine which mutation approach to use
         use_structure_aware = False
 
@@ -343,6 +386,56 @@ class MutationEngine:
         self._set_last_metadata("byte_level", applied_mutators)
         return data
 
+    def _get_next_enumeration_test(self, fallback_seed: bytes) -> bytes:
+        """
+        Get the next test case from the enumeration generator.
+
+        When enumeration is exhausted, falls back to byte-level mutation.
+
+        Args:
+            fallback_seed: Seed to use if enumeration is exhausted
+
+        Returns:
+            Next enumeration test case or mutated fallback
+        """
+        if self._enumeration_iterator is None or self._enumeration_exhausted:
+            # Enumeration exhausted or not available - fall back to byte-level
+            self._set_last_metadata("byte_level", ["enumeration_exhausted_fallback"])
+            data = fallback_seed
+            mutator_name = random.choices(
+                self.enabled_mutators,
+                weights=[self.weights.get(name, 1) for name in self.enabled_mutators],
+            )[0]
+            mutator = self.mutators[mutator_name]
+            return mutator.mutate(data)
+
+        try:
+            test_case, metadata = next(self._enumeration_iterator)
+            self._enumeration_count += 1
+
+            # Set metadata for tracking
+            self._set_last_metadata(
+                strategy="enumeration",
+                mutators=[metadata.get("mode", "field_sweep")],
+                field=metadata.get("field")
+            )
+            # Store additional enumeration metadata
+            self._last_metadata["enumeration"] = metadata
+            self._last_metadata["enumeration_progress"] = f"{self._enumeration_count}/{self._enumeration_total}"
+
+            return test_case
+
+        except StopIteration:
+            # Enumeration complete
+            self._enumeration_exhausted = True
+            logger.info(
+                "enumeration_complete",
+                total_generated=self._enumeration_count,
+                mode=self.mutation_mode
+            )
+            # Fall back to byte-level for continued fuzzing
+            return self._get_next_enumeration_test(fallback_seed)
+
     def generate_batch(self, count: int) -> List[bytes]:
         """Generate a batch of test cases"""
         test_cases = []
@@ -363,6 +456,41 @@ class MutationEngine:
             return available
         return normalized
 
+    def is_enumeration_mode(self) -> bool:
+        """Check if running in an enumeration mode."""
+        return self.mutation_mode in self.ENUMERATION_MODES
+
+    def is_enumeration_exhausted(self) -> bool:
+        """Check if enumeration has completed all test cases."""
+        return self._enumeration_exhausted
+
+    def get_enumeration_progress(self) -> Dict[str, Any]:
+        """
+        Get enumeration progress information.
+
+        Returns:
+            Dict with 'current', 'total', 'exhausted', 'percent' keys
+        """
+        if not self.is_enumeration_mode():
+            return {"current": 0, "total": 0, "exhausted": False, "percent": 0}
+
+        percent = (self._enumeration_count / self._enumeration_total * 100) if self._enumeration_total > 0 else 0
+        return {
+            "current": self._enumeration_count,
+            "total": self._enumeration_total,
+            "exhausted": self._enumeration_exhausted,
+            "percent": round(percent, 1),
+        }
+
+    def reset_enumeration(self) -> None:
+        """Reset enumeration to start from the beginning."""
+        if self._enumeration_generator and self.mutation_mode in self.ENUMERATION_MODES:
+            enum_mode = self.ENUMERATION_MODES[self.mutation_mode]
+            self._enumeration_iterator = self._enumeration_generator.generate(enum_mode)
+            self._enumeration_exhausted = False
+            self._enumeration_count = 0
+            logger.info("enumeration_reset", mode=self.mutation_mode)
+
     @staticmethod
     def available_mutators() -> List[str]:
         """
@@ -382,3 +510,38 @@ class MutationEngine:
         `structure_aware_weight`, not via this list.
         """
         return ["bitflip", "byteflip", "arithmetic", "interesting", "havoc", "splice"]
+
+    @staticmethod
+    def available_mutation_modes() -> List[Dict[str, str]]:
+        """
+        Return list of available mutation modes with descriptions.
+
+        Returns:
+            List of dicts with 'name' and 'description' keys
+        """
+        return [
+            {
+                "name": "byte_level",
+                "description": "Random byte-level mutations (bitflip, havoc, etc.)"
+            },
+            {
+                "name": "structure_aware",
+                "description": "Grammar-aware mutations respecting field boundaries"
+            },
+            {
+                "name": "hybrid",
+                "description": "Mix of structure-aware and byte-level (default)"
+            },
+            {
+                "name": "enumeration",
+                "description": "Systematic boundary value testing - varies one field at a time"
+            },
+            {
+                "name": "enumeration_pairwise",
+                "description": "Test all pairs of boundary values across fields"
+            },
+            {
+                "name": "enumeration_full",
+                "description": "Full permutation of all boundary values (WARNING: can be huge!)"
+            },
+        ]

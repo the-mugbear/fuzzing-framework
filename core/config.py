@@ -128,7 +128,9 @@ class Settings(BaseSettings):
     # Consider: CPU cores, RAM (500MB-2GB per session), network bandwidth
 
     # Mutation strategy
-    mutation_mode: str = "hybrid"  # "structure_aware", "byte_level", "hybrid"
+    # Modes: "byte_level", "structure_aware", "hybrid" (random mutations)
+    #        "enumeration", "enumeration_pairwise", "enumeration_full" (systematic)
+    mutation_mode: str = "hybrid"
     structure_aware_weight: int = 70  # Percentage for structure-aware (0-100)
     fallback_on_parse_error: bool = True  # Fall back to byte-level if parsing fails
 

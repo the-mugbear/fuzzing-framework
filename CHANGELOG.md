@@ -32,6 +32,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - ResponsePlanner tracks fired handlers, clears on `reset()` call
   - Orchestrator calls `planner.reset()` on state machine reset events
 
+- **Enumeration mutation modes for systematic boundary testing** (`core/engine/enumeration_generator.py`, `core/engine/mutators.py`)
+  - New `mutation_mode` options for deterministic, systematic test generation:
+    - `enumeration`: Varies one field at a time through boundary values
+    - `enumeration_pairwise`: Tests all pairs of boundary values across fields
+    - `enumeration_full`: Full permutation of all values (use with caution!)
+  - Generates comprehensive boundary value test cases:
+    - Numeric fields: 0, 1, mid, max-1, max
+    - Signed fields: min, min+1, -1, 0, 1, max-1, max
+    - Enum fields: All defined values
+  - After enumeration exhausts, falls back to random mutation for continued fuzzing
+  - API endpoint `/api/mutators` now returns available `mutation_modes`
+  - Example usage:
+    ```json
+    {"protocol": "my_proto", "mutation_mode": "enumeration", ...}
+    ```
+
 ### Fixed - 2026-02-06
 
 - **Fixed slow fuzzing rate when server keeps connection open** (`tests/feature_reference_server.py`)
