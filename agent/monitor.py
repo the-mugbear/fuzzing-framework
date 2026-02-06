@@ -95,19 +95,19 @@ class ProcessMonitor:
                         crashed = True
                         try:
                             exit_code = process.wait(timeout=0.1)
-                        except:
-                            pass
+                        except Exception:
+                            pass  # Process already gone or wait failed
                         break
 
                     # Sample CPU and memory
+                    # Note: cpu_percent(interval=0.1) blocks for 0.1s to measure CPU
                     cpu_percent = process.cpu_percent(interval=0.1)
                     mem_info = process.memory_info()
                     memory_mb = mem_info.rss / (1024 * 1024)
 
                     cpu_samples.append(cpu_percent)
                     memory_samples.append(memory_mb)
-
-                    time.sleep(0.1)
+                    # No additional sleep needed - cpu_percent already waited 0.1s
 
                 except psutil.NoSuchProcess:
                     crashed = True

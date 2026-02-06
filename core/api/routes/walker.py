@@ -3,7 +3,7 @@ import asyncio
 import time
 import uuid
 from datetime import datetime, timedelta
-from typing import Dict
+from typing import Any, Dict
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -70,7 +70,7 @@ _walker_sessions: Dict[str, StatefulFuzzingSession] = {}
 _session_protocols: Dict[str, str] = {}  # Maps session_id -> protocol_name
 _execution_history: Dict[str, list] = {}  # Maps session_id -> list of execution results
 _response_planners: Dict[str, ResponsePlanner] = {}  # Maps session_id -> ResponsePlanner
-_field_overrides: Dict[str, Dict[str, any]] = {}  # Maps session_id -> field overrides from response handlers
+_field_overrides: Dict[str, Dict[str, Any]] = {}  # Maps session_id -> field overrides from response handlers
 
 # Session metadata for cleanup
 _session_metadata: Dict[str, Dict[str, datetime]] = {}  # Maps session_id -> {created_at, last_accessed_at}
