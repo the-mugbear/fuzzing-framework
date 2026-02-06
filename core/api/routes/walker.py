@@ -42,8 +42,30 @@ def _get_message_type(transition: dict) -> str:
 MAX_EXECUTION_HISTORY_PER_SESSION = 1000  # Limit history size per session
 SESSION_TTL_HOURS = 96  # Auto-cleanup sessions older than this
 CLEANUP_INTERVAL_SECONDS = 300  # Run cleanup every 5 minutes
+TRANSACTION_TIMEOUT_SECONDS = 30.0  # Total timeout for send/receive transaction
+READ_TIMEOUT_SECONDS = 5.0  # Per-read timeout within transaction
 
-# In-memory storage for walker sessions (could be moved to Redis in production)
+# =============================================================================
+# IN-MEMORY SESSION STORAGE
+# =============================================================================
+# IMPORTANT: Walker sessions are stored in process-local memory. This means:
+#
+# 1. Sessions do NOT survive server restarts
+# 2. In multi-worker deployments (uvicorn --workers N, gunicorn), each worker
+#    has its own session storage. Requests may be routed to different workers,
+#    causing "session not found" errors.
+#
+# PRODUCTION RECOMMENDATIONS:
+# - For single-worker deployments: Current implementation works fine
+# - For multi-worker deployments: Consider one of:
+#   a) Use sticky sessions (route by session_id to same worker)
+#   b) Replace with Redis/Memcached for shared session storage
+#   c) Run walker API on a dedicated single-worker service
+#
+# The fuzzing sessions (FuzzSession) use SQLite persistence and don't have
+# this limitation. Only the State Walker feature is affected.
+# =============================================================================
+
 _walker_sessions: Dict[str, StatefulFuzzingSession] = {}
 _session_protocols: Dict[str, str] = {}  # Maps session_id -> protocol_name
 _execution_history: Dict[str, list] = {}  # Maps session_id -> list of execution results
@@ -359,10 +381,10 @@ async def execute_transition(
 
         # Get valid transitions
         valid_transitions = session.get_valid_transitions()
-        if request.transition_index >= len(valid_transitions):
+        if request.transition_index < 0 or request.transition_index >= len(valid_transitions):
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid transition index {request.transition_index}"
+                detail=f"Invalid transition index {request.transition_index}. Must be 0-{len(valid_transitions) - 1}"
             )
 
         selected_transition = valid_transitions[request.transition_index]
@@ -416,12 +438,12 @@ async def execute_transition(
         response_bytes = b""
         success = True
         error_msg = None
-        timeout = 5.0
 
-        try:
+        async def _execute_transaction() -> bytes:
+            """Execute the send/receive transaction with per-read timeouts."""
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(request.target_host, request.target_port),
-                timeout=timeout,
+                timeout=READ_TIMEOUT_SECONDS,
             )
             try:
                 writer.write(seed)
@@ -434,16 +456,31 @@ async def execute_transition(
                 response_chunks = []
                 while True:
                     try:
-                        chunk = await asyncio.wait_for(reader.read(4096), timeout=timeout)
+                        chunk = await asyncio.wait_for(reader.read(4096), timeout=READ_TIMEOUT_SECONDS)
                     except asyncio.TimeoutError:
                         break
                     if not chunk:
                         break
                     response_chunks.append(chunk)
-                response_bytes = b"".join(response_chunks)
+                return b"".join(response_chunks)
             finally:
                 writer.close()
                 await writer.wait_closed()
+
+        try:
+            # Wrap entire transaction in total timeout to prevent indefinite hangs
+            response_bytes = await asyncio.wait_for(
+                _execute_transaction(),
+                timeout=TRANSACTION_TIMEOUT_SECONDS
+            )
+        except asyncio.TimeoutError:
+            success = False
+            error_msg = f"Transaction timeout after {TRANSACTION_TIMEOUT_SECONDS}s"
+            logger.error(
+                "transition_transaction_timeout",
+                session_id=request.session_id,
+                timeout_seconds=TRANSACTION_TIMEOUT_SECONDS,
+            )
         except Exception as e:
             success = False
             error_msg = str(e)
@@ -713,7 +750,9 @@ async def list_walker_sessions():
             "ttl_hours": SESSION_TTL_HOURS,
             "max_history_per_session": MAX_EXECUTION_HISTORY_PER_SESSION,
             "cleanup_interval_seconds": CLEANUP_INTERVAL_SECONDS,
-        }
+            "transaction_timeout_seconds": TRANSACTION_TIMEOUT_SECONDS,
+        },
+        "storage_note": "Sessions are process-local and won't survive restarts or multi-worker deployments.",
     }
 
 

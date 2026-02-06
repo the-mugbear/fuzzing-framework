@@ -8,6 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added - 2026-02-06
 
+- **Comprehensive enumeration modes documentation** (`docs/MUTATION_STRATEGIES.md`)
+  - Updated mutation strategies guide with enumeration modes section
+  - Added mutator selection documentation with strategy mapping table
+  - Added mode selection guide for choosing appropriate mutation strategy
+  - Updated date to 2026-02-06
+
+### Removed - 2026-02-06
+
+- **Removed stale archive documentation** (`docs/archive/`)
+  - Removed FIXES_IMPLEMENTED.md, MUTATION_TYPES_ENHANCEMENT.md, PHASE2_ENHANCEMENTS.md,
+    STATE_FUZZING_TEST_REPORT.md, VISUALIZATION_IMPROVEMENTS.md
+  - These were historical development tracking docs with outdated code references
+  - Relevant information has been incorporated into main documentation
+
+### Added - 2026-02-06
+
 - **Feature Reference Protocol Test Server** (`tests/feature_reference_server.py`)
   - Purpose-built server that properly parses and responds to feature_reference protocol
   - Implements full state machine: UNINITIALIZED → HANDSHAKE_SENT → ESTABLISHED → CLOSED
@@ -70,6 +86,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Helps users review what settings were used for a given session
 
 ### Fixed - 2026-02-06
+
+- **Fixed Walker API negative index vulnerability** (`core/api/routes/walker.py:362`)
+  - transition_index now validated to be >= 0
+  - Python's negative indexing allowed -1 to access last transition unintentionally
+  - Now returns proper error: "Invalid transition index -1. Must be 0-N"
+
+- **Fixed Walker API indefinite hang on streaming targets** (`core/api/routes/walker.py:421-465`)
+  - Added total transaction timeout (TRANSACTION_TIMEOUT_SECONDS = 30s)
+  - Entire send/receive transaction wrapped in asyncio.wait_for()
+  - Prevents worker exhaustion when targets stream data indefinitely
+  - Separate per-read timeout (READ_TIMEOUT_SECONDS = 5s) still applies
+
+- **Documented Walker session storage limitation** (`core/api/routes/walker.py:46-57`)
+  - Added prominent documentation that walker sessions are process-local
+  - Sessions don't survive restarts or multi-worker deployments
+  - Documented production recommendations: sticky sessions, Redis, or single-worker
+  - Note: Fuzzing sessions (FuzzSession) use SQLite and are NOT affected
 
 - **Fixed structure-aware mode ignoring mutator selection** (`core/engine/structure_mutators.py`, `core/engine/mutators.py`)
   - Previously, selecting specific mutators (e.g., only "bitflip") was ignored in structure_aware mode
