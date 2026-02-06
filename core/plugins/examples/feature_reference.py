@@ -1037,6 +1037,25 @@ data_model = {
          b"\x00\x00\x00\x00"
          b"\r\n"),
 
+        # =====================================================================
+        # Seed 7: HEARTBEAT Message (Keep-Alive)
+        # =====================================================================
+        # Heartbeat messages keep the session alive during idle periods.
+        # This seed is REQUIRED for the state_model HEARTBEAT transition.
+        #
+        # message_type = 0xFE (HEARTBEAT)
+        # All other fields at default/minimal values
+        (b"SHOW\x01\x0B\xAD\xDE\xFE\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+         b"\x00"              # bit fields byte 1: all zeros
+         b"\x00\x00"          # seq_num(12)=0, channel_id(4)=0
+         b"\x04\x00"          # qos(3)=0, ecn(2)=0, ack(1)=1, more(1)=0, frag_off(8)=0
+         b"\x00\x00\x00\x00"  # payload_len=0 (no payload for heartbeat)
+         b"\x00\x00"          # metadata_len
+         b"\x00\x00"          # telemetry_counter
+         b"\x00"              # opcode_bias
+         b"\x00\x00\x00\x00"  # trace_cookie
+         b"\r\n"),
+
         # TIP: To add more seeds, you can:
         #   1. Use the State Walker UI to execute transitions and export the raw hex
         #   2. Run your protocol client with logging to capture real messages

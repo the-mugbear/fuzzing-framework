@@ -8,6 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed - 2026-02-06
 
+- **Fixed missing HEARTBEAT seed in feature_reference plugin** (`core/plugins/examples/feature_reference.py`)
+  - State model defined HEARTBEAT transition but no seed with message_type=0xFE existed
+  - State Walker failed with "No seed found for message type 'HEARTBEAT'"
+  - Added Seed 7 with message_type=0xFE for HEARTBEAT messages
+  - Root cause: When users provide explicit seeds, auto-generation is skipped
+  - Impact: HEARTBEAT transitions now work in State Walker
+
+- **Fixed BehaviorProcessor failing to compute offsets for protocols with bit fields** (`core/protocol_behavior.py`)
+  - `_block_size()` returned None for `type: "bits"` fields, causing `behavior_offset_unknown` warnings
+  - Added `_block_size_bits()` method to return field size in bits for all field types
+  - Updated `_compute_offset()` to track position in bits and handle byte alignment
+  - Now correctly navigates through packed bit fields to reach behavior target fields
+  - Impact: Protocols with bit fields (like feature_reference) no longer spam warnings
+  - Testing: Run structure-aware fuzzing with feature_reference plugin
+
 - **Fixed race condition in AgentManager.clear_session** (`core/agents/manager.py:147-175`)
   - Queue iteration was not atomic - `empty()` and `get_nowait()` could race with other coroutines
   - Moved queue manipulation inside the existing `_lock` to ensure atomic operation
@@ -48,6 +63,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Testing: Add many seeds, verify cache behavior
 
 ### Added - 2026-02-06
+
+- **Plugin validator: missing seed detection for state transitions** (`core/engine/plugin_validator.py`)
+  - New validation warns when state_model transitions reference message types without seeds
+  - Only applies when users explicitly provide seeds (auto-generation handles this otherwise)
+  - Warning includes list of missing message types and suggests adding seeds or using auto-generation
+  - Impact: Catches plugin configuration errors at validation time, not runtime
 
 - **SessionRuntimeContext dataclass** (`core/engine/session_context.py`)
   - New dataclass consolidating all session-specific runtime state

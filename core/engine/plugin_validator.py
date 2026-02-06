@@ -468,6 +468,9 @@ class PluginValidator:
         # Check for unreachable states
         self._check_unreachable_states(state_model)
 
+        # Check that message types have corresponding seeds
+        self._validate_message_type_seeds(state_model, data_model)
+
     def _validate_transitions(self, state_model: Dict[str, Any], data_model: Dict[str, Any]):
         """Validate state transitions"""
         transitions = state_model.get("transitions", [])
@@ -538,6 +541,87 @@ class PluginValidator:
                 f"Unreachable states detected: {', '.join(sorted(unreachable))}",
                 suggestion="Add transitions to reach these states or remove them",
             )
+
+    def _validate_message_type_seeds(self, state_model: Dict[str, Any], data_model: Dict[str, Any]):
+        """
+        Validate that state_model message types have corresponding seeds.
+
+        When users explicitly provide seeds (not auto-generated), they must
+        include at least one seed for each message_type used in transitions.
+        Otherwise, the state walker cannot execute those transitions.
+        """
+        seeds = data_model.get("seeds", [])
+
+        # Skip if no seeds provided (auto-generation will handle it)
+        if not seeds:
+            return
+
+        transitions = state_model.get("transitions", [])
+        if not transitions:
+            return
+
+        # Build message_type -> command_value mapping from data_model
+        blocks = data_model.get("blocks", [])
+        message_type_field = None
+        value_to_name: Dict[int, str] = {}
+
+        for block in blocks:
+            if "values" in block:
+                message_type_field = block.get("name")
+                # Invert the mapping: value -> name (e.g., 0xFE -> "HEARTBEAT")
+                for val, name in block["values"].items():
+                    value_to_name[val] = name
+                break
+
+        if not message_type_field or not value_to_name:
+            return
+
+        # Get all message types used in transitions
+        required_message_types: Set[str] = set()
+        for transition in transitions:
+            msg_type = transition.get("message_type")
+            if msg_type:
+                required_message_types.add(msg_type)
+
+        if not required_message_types:
+            return
+
+        # Invert to get name -> value
+        name_to_value = {name: val for val, name in value_to_name.items()}
+
+        # Parse seeds to find which message types are covered
+        try:
+            denormalized_model = denormalize_data_model_from_json(data_model)
+            parser = ProtocolParser(denormalized_model)
+            seeds_bytes = denormalized_model.get("seeds", [])
+
+            covered_message_types: Set[str] = set()
+            for seed in seeds_bytes:
+                if not isinstance(seed, bytes):
+                    continue
+                try:
+                    fields = parser.parse(seed)
+                    cmd_value = fields.get(message_type_field)
+                    if cmd_value in value_to_name:
+                        covered_message_types.add(value_to_name[cmd_value])
+                except Exception:
+                    continue
+
+            # Find missing message types
+            missing = required_message_types - covered_message_types
+            if missing:
+                missing_list = ", ".join(sorted(missing))
+                self.result.add_warning(
+                    "seeds",
+                    f"State model transitions use message types without corresponding seeds: {missing_list}",
+                    suggestion=(
+                        f"Add seeds with {message_type_field} set to these values, "
+                        "or remove the 'seeds' list to enable auto-generation"
+                    ),
+                )
+
+        except Exception as e:
+            logger.debug("message_type_seed_validation_failed", error=str(e))
 
     def _validate_dependencies(self, data_model: Dict[str, Any]):
         """Validate field dependencies (size_of, etc.)"""
