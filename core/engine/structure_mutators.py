@@ -43,25 +43,75 @@ class StructureAwareMutator:
         "repeat_pattern": 5,
     }
 
-    def __init__(self, data_model: Dict[str, Any]):
+    # Mapping from byte-level mutator names to structure-aware strategies
+    # This allows users to select familiar mutator names and have them
+    # applied in a structure-aware manner
+    MUTATOR_TO_STRATEGY = {
+        "bitflip": ["bit_flip_field"],
+        "byteflip": ["bit_flip_field"],  # Byte flip = bit flips at field level
+        "arithmetic": ["arithmetic"],
+        "interesting": ["interesting_values", "boundary_values"],
+        "havoc": ["expand_field", "shrink_field", "repeat_pattern"],
+        "splice": [],  # No direct equivalent - requires multiple seeds
+    }
+
+    def __init__(self, data_model: Dict[str, Any], enabled_mutators: Optional[List[str]] = None):
         """
         Initialize structure-aware mutator.
 
         Args:
             data_model: Protocol definition with 'blocks' list
+            enabled_mutators: Optional list of mutator names to enable.
+                             Maps to structure-aware strategies via MUTATOR_TO_STRATEGY.
+                             If None or empty, all strategies are enabled.
         """
         self.data_model = data_model
         self.parser = ProtocolParser(data_model)
         self.blocks = data_model.get('blocks', [])
 
-        # Build weighted strategy list
+        # Determine which strategies to enable based on mutator selection
+        enabled_strategies = self._resolve_strategies(enabled_mutators)
+
+        # Build weighted strategy list (only enabled strategies)
         self.strategy_list = []
         for strategy, weight in self.STRATEGIES.items():
-            self.strategy_list.extend([strategy] * weight)
+            if strategy in enabled_strategies:
+                self.strategy_list.extend([strategy] * weight)
+
+        # Fallback: if no strategies enabled, use all
+        if not self.strategy_list:
+            for strategy, weight in self.STRATEGIES.items():
+                self.strategy_list.extend([strategy] * weight)
+            logger.warning(
+                "structure_mutator_no_strategies_matched",
+                enabled_mutators=enabled_mutators,
+                using="all_strategies"
+            )
 
         # Track last applied strategy and field for metadata
         self.last_strategy: Optional[str] = None
         self.last_mutated_field: Optional[str] = None
+
+    def _resolve_strategies(self, enabled_mutators: Optional[List[str]]) -> set:
+        """
+        Convert byte-level mutator names to structure-aware strategies.
+
+        Args:
+            enabled_mutators: List of mutator names (bitflip, arithmetic, etc.)
+
+        Returns:
+            Set of enabled strategy names
+        """
+        if not enabled_mutators:
+            # No filter - enable all strategies
+            return set(self.STRATEGIES.keys())
+
+        strategies = set()
+        for mutator in enabled_mutators:
+            mapped = self.MUTATOR_TO_STRATEGY.get(mutator, [])
+            strategies.update(mapped)
+
+        return strategies if strategies else set(self.STRATEGIES.keys())
 
     def mutate(self, seed: bytes) -> bytes:
         """

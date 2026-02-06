@@ -71,6 +71,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed - 2026-02-06
 
+- **Fixed structure-aware mode ignoring mutator selection** (`core/engine/structure_mutators.py`, `core/engine/mutators.py`)
+  - Previously, selecting specific mutators (e.g., only "bitflip") was ignored in structure_aware mode
+  - Structure-aware mutator now maps user-selected mutators to equivalent strategies:
+    - bitflip/byteflip → bit_flip_field (flips bits within field boundaries)
+    - arithmetic → arithmetic (adds/subtracts from field values)
+    - interesting → interesting_values + boundary_values
+    - havoc → expand_field + shrink_field + repeat_pattern
+  - User expectation now works: selecting "bitflip" in structure_aware mode means
+    bit flips are applied to mutable fields while respecting protocol structure
+
 - **Fixed slow fuzzing rate when server keeps connection open** (`tests/feature_reference_server.py`)
   - Root cause: Server was using persistent connection mode (while True loop)
   - This caused transport to wait full 5000ms read timeout before returning

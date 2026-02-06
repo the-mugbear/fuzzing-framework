@@ -427,7 +427,7 @@ function DashboardPage() {
             </label>
           )}
 
-          {/* Mutator Selection - only for random mutation modes */}
+          {/* Mutator Selection - works for all random mutation modes */}
           {['hybrid', 'structure_aware', 'byte_level'].includes(form.mutation_mode) && (
             <>
               <label className="checkbox-label">
@@ -438,7 +438,7 @@ function DashboardPage() {
                 />
                 <span>
                   Customize Mutators
-                  <Tooltip content="Select which mutation algorithms to use. By default all are enabled. Disabling some can focus the fuzzer on specific strategies." />
+                  <Tooltip content="Select which mutation algorithms to use. In structure-aware modes, these map to equivalent field-aware strategies." />
                 </span>
               </label>
 
@@ -473,7 +473,19 @@ function DashboardPage() {
             </>
           )}
 
-          {/* Enumeration mode info */}
+          {/* Mode-specific info boxes */}
+          {form.mutation_mode === 'hybrid' && (
+            <div className="info-box">
+              <strong>Hybrid Mode:</strong> Combines structure-aware ({form.structure_aware_weight}%) with byte-level ({100 - form.structure_aware_weight}%) mutations.
+              Mutator selection applies to both: e.g., selecting only "Bit Flip" uses bit flips in both modes.
+            </div>
+          )}
+          {form.mutation_mode === 'structure_aware' && (
+            <div className="info-box">
+              <strong>Structure-Aware Mode:</strong> Mutations respect field boundaries and only affect mutable fields.
+              Mutator selection maps to field-aware strategies: Bit Flip → field bit flips, Arithmetic → field arithmetic, etc.
+            </div>
+          )}
           {form.mutation_mode.startsWith('enumeration') && (
             <div className="info-box">
               <strong>Enumeration Mode:</strong> Systematically tests boundary values (0, 1, max-1, max) for each mutable field.

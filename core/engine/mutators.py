@@ -271,11 +271,13 @@ class MutationEngine:
         if data_model and self.mutation_mode in ["structure_aware", "hybrid"]:
             try:
                 from core.engine.structure_mutators import StructureAwareMutator
-                self.structure_mutator = StructureAwareMutator(data_model)
+                # Pass enabled_mutators so structure-aware respects user's mutator selection
+                self.structure_mutator = StructureAwareMutator(data_model, self.enabled_mutators)
                 logger.info(
                     "structure_aware_mutation_enabled",
                     mode=self.mutation_mode,
-                    weight=self.structure_aware_weight
+                    weight=self.structure_aware_weight,
+                    enabled_mutators=self.enabled_mutators
                 )
             except Exception as e:
                 logger.error("failed_to_load_structure_mutator", error=str(e))
