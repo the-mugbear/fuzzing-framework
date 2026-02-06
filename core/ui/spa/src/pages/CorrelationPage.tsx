@@ -20,6 +20,17 @@ interface FuzzSessionSummary {
   enabled_mutators: string[];
   fuzzing_mode?: string | null;
   state_coverage?: Record<string, number> | null;
+  // Session configuration parameters
+  mutation_mode?: string | null;
+  structure_aware_weight?: number | null;
+  rate_limit_per_second?: number | null;
+  max_iterations?: number | null;
+  timeout_per_test_ms?: number | null;
+  session_reset_interval?: number | null;
+  enable_termination_fuzzing?: boolean | null;
+  target_state?: string | null;
+  created_at?: string | null;
+  started_at?: string | null;
 }
 
 interface TestCaseExecutionRecord {
@@ -91,6 +102,7 @@ function CorrelationPage() {
   const [parsedResponse, setParsedResponse] = useState<PacketParseResponse | null>(null);
   const [parseLoading, setParseLoading] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
+  const [showParams, setShowParams] = useState(false);
   const [payloadEncoding, setPayloadEncoding] = useState<'hex' | 'base64'>('hex');
   const [responseEncoding, setResponseEncoding] = useState<'hex' | 'base64'>('hex');
 
@@ -508,6 +520,114 @@ function CorrelationPage() {
             <span>Coverage</span>
             <Link to={`/state-graph?session=${selectedSessionId}`}>View State Graph →</Link>
           </div>
+        </div>
+      )}
+
+      {/* Session Parameters - Collapsible */}
+      {selectedSession && (
+        <div className="session-params-section">
+          <button
+            className="params-toggle"
+            onClick={() => setShowParams(!showParams)}
+            aria-expanded={showParams}
+          >
+            {showParams ? '▼' : '▶'} Session Configuration
+          </button>
+          {showParams && (
+            <div className="session-params-grid">
+              <div className="param-group">
+                <h4>Target</h4>
+                <div className="param-row">
+                  <span>Protocol:</span>
+                  <code>{selectedSession.protocol}</code>
+                </div>
+                <div className="param-row">
+                  <span>Host:</span>
+                  <code>{selectedSession.target_host}:{selectedSession.target_port}</code>
+                </div>
+                <div className="param-row">
+                  <span>Transport:</span>
+                  <code>{selectedSession.transport}</code>
+                </div>
+              </div>
+
+              <div className="param-group">
+                <h4>Mutation</h4>
+                <div className="param-row">
+                  <span>Mode:</span>
+                  <code>{selectedSession.mutation_mode || 'hybrid'}</code>
+                </div>
+                {selectedSession.mutation_mode === 'hybrid' && (
+                  <div className="param-row">
+                    <span>Structure Weight:</span>
+                    <code>{selectedSession.structure_aware_weight ?? 70}%</code>
+                  </div>
+                )}
+                <div className="param-row">
+                  <span>Mutators:</span>
+                  <code>{selectedSession.enabled_mutators?.length
+                    ? selectedSession.enabled_mutators.join(', ')
+                    : 'all'}</code>
+                </div>
+              </div>
+
+              <div className="param-group">
+                <h4>Execution</h4>
+                <div className="param-row">
+                  <span>Mode:</span>
+                  <code>{selectedSession.execution_mode}</code>
+                </div>
+                <div className="param-row">
+                  <span>Rate Limit:</span>
+                  <code>{selectedSession.rate_limit_per_second ?? 'unlimited'}/sec</code>
+                </div>
+                <div className="param-row">
+                  <span>Timeout:</span>
+                  <code>{selectedSession.timeout_per_test_ms ?? 5000}ms</code>
+                </div>
+                <div className="param-row">
+                  <span>Max Iterations:</span>
+                  <code>{selectedSession.max_iterations ?? 'unlimited'}</code>
+                </div>
+              </div>
+
+              <div className="param-group">
+                <h4>Strategy</h4>
+                <div className="param-row">
+                  <span>Fuzzing Mode:</span>
+                  <code>{selectedSession.fuzzing_mode || 'random'}</code>
+                </div>
+                {selectedSession.target_state && (
+                  <div className="param-row">
+                    <span>Target State:</span>
+                    <code>{selectedSession.target_state}</code>
+                  </div>
+                )}
+                {selectedSession.session_reset_interval && (
+                  <div className="param-row">
+                    <span>Reset Interval:</span>
+                    <code>{selectedSession.session_reset_interval}</code>
+                  </div>
+                )}
+              </div>
+
+              <div className="param-group">
+                <h4>Timestamps</h4>
+                <div className="param-row">
+                  <span>Created:</span>
+                  <code>{selectedSession.created_at
+                    ? new Date(selectedSession.created_at).toLocaleString()
+                    : 'N/A'}</code>
+                </div>
+                <div className="param-row">
+                  <span>Started:</span>
+                  <code>{selectedSession.started_at
+                    ? new Date(selectedSession.started_at).toLocaleString()
+                    : 'Not started'}</code>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

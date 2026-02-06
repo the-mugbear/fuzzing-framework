@@ -53,6 +53,9 @@ interface CreateSessionForm {
   rate_limit_per_second: number | '';
   max_iterations: number | '';
   timeout_per_test_ms: number;
+  // Mutator selection
+  enabled_mutators: string[];
+  show_mutator_controls: boolean;
   // Targeting options
   fuzzing_mode: string;
   target_state: string;
@@ -67,6 +70,42 @@ type FormAction =
   | { type: 'set_field'; field: keyof CreateSessionForm; value: any }
   | { type: 'reset'; payload?: Partial<CreateSessionForm> };
 
+// Mutator descriptions for tooltips
+const MUTATOR_INFO: Record<string, { name: string; description: string; example: string }> = {
+  bitflip: {
+    name: 'Bit Flip',
+    description: 'Flips random bits in the input',
+    example: '0x41 (01000001) → 0x43 (01000011)',
+  },
+  byteflip: {
+    name: 'Byte Flip',
+    description: 'Replaces random bytes with random values',
+    example: 'ABCD → AXCD (B→X)',
+  },
+  arithmetic: {
+    name: 'Arithmetic',
+    description: 'Adds or subtracts small integers from fields',
+    example: '100 → 101, 99, 108, 92...',
+  },
+  interesting: {
+    name: 'Interesting Values',
+    description: 'Replaces with boundary values known to trigger bugs',
+    example: '42 → 0, 255, 0x7FFFFFFF, -1',
+  },
+  havoc: {
+    name: 'Havoc',
+    description: 'Aggressive random mutations: insert, delete, shuffle bytes',
+    example: 'ABCD → AXXBCD (insert) or AD (delete)',
+  },
+  splice: {
+    name: 'Splice',
+    description: 'Combines parts of two different test cases',
+    example: 'ABC + XYZ → ABYZ or AXYZ',
+  },
+};
+
+const ALL_MUTATORS = ['bitflip', 'byteflip', 'arithmetic', 'interesting', 'havoc', 'splice'];
+
 const initialForm: CreateSessionForm = {
   protocol: '',
   target_host: 'target',
@@ -77,6 +116,9 @@ const initialForm: CreateSessionForm = {
   rate_limit_per_second: '',
   max_iterations: '',
   timeout_per_test_ms: 5000,
+  // Mutator selection
+  enabled_mutators: [...ALL_MUTATORS],  // All enabled by default
+  show_mutator_controls: false,
   // Targeting options
   fuzzing_mode: 'random',
   target_state: '',
@@ -173,6 +215,11 @@ function DashboardPage() {
     if (form.max_iterations !== '' && Number(form.max_iterations) <= 0)
       issues.push('Max iterations must be positive.');
     if (form.timeout_per_test_ms < 100) issues.push('Timeout must be at least 100ms.');
+    // Validate mutators for random modes
+    if (['hybrid', 'structure_aware', 'byte_level'].includes(form.mutation_mode) &&
+        form.show_mutator_controls && form.enabled_mutators.length === 0) {
+      issues.push('At least one mutator must be enabled.');
+    }
     return issues;
   };
 
@@ -210,6 +257,11 @@ function DashboardPage() {
       }
       if (form.enable_termination_fuzzing) {
         payload.enable_termination_fuzzing = true;
+      }
+      // Include custom mutator selection if user has customized it
+      if (form.show_mutator_controls && form.enabled_mutators.length > 0 &&
+          form.enabled_mutators.length < ALL_MUTATORS.length) {
+        payload.enabled_mutators = form.enabled_mutators;
       }
 
       await api('/api/sessions', {
@@ -339,15 +391,22 @@ function DashboardPage() {
           <label>
             <span className="label-text">
               Mutation Strategy
-              <Tooltip content="Hybrid: Mix of structure-aware and byte-level. Structure-Aware: Respects protocol fields. Byte-Level: Random byte mutations." />
+              <Tooltip content="Random modes mutate probabilistically. Enumeration modes systematically test boundary values for comprehensive coverage." />
             </span>
             <select
               value={form.mutation_mode}
               onChange={(e) => dispatch({ type: 'set_field', field: 'mutation_mode', value: e.target.value })}
             >
-              <option value="hybrid">Hybrid</option>
-              <option value="structure_aware">Structure-Aware</option>
-              <option value="byte_level">Byte-Level</option>
+              <optgroup label="Random Mutations">
+                <option value="hybrid">Hybrid (structure + byte-level)</option>
+                <option value="structure_aware">Structure-Aware (field boundaries)</option>
+                <option value="byte_level">Byte-Level (raw bytes)</option>
+              </optgroup>
+              <optgroup label="Systematic Enumeration">
+                <option value="enumeration">Enumeration (one field at a time)</option>
+                <option value="enumeration_pairwise">Pairwise (all field pairs)</option>
+                <option value="enumeration_full">Full Permutation (all combinations)</option>
+              </optgroup>
             </select>
           </label>
           {form.mutation_mode === 'hybrid' && (
@@ -366,6 +425,63 @@ function DashboardPage() {
                 }
               />
             </label>
+          )}
+
+          {/* Mutator Selection - only for random mutation modes */}
+          {['hybrid', 'structure_aware', 'byte_level'].includes(form.mutation_mode) && (
+            <>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={form.show_mutator_controls}
+                  onChange={(e) => dispatch({ type: 'set_field', field: 'show_mutator_controls', value: e.target.checked })}
+                />
+                <span>
+                  Customize Mutators
+                  <Tooltip content="Select which mutation algorithms to use. By default all are enabled. Disabling some can focus the fuzzer on specific strategies." />
+                </span>
+              </label>
+
+              {form.show_mutator_controls && (
+                <div className="mutator-selection">
+                  <div className="mutator-grid">
+                    {ALL_MUTATORS.map((mutator) => {
+                      const info = MUTATOR_INFO[mutator];
+                      return (
+                        <label key={mutator} className="mutator-item">
+                          <input
+                            type="checkbox"
+                            checked={form.enabled_mutators.includes(mutator)}
+                            onChange={(e) => {
+                              const newMutators = e.target.checked
+                                ? [...form.enabled_mutators, mutator]
+                                : form.enabled_mutators.filter((m) => m !== mutator);
+                              dispatch({ type: 'set_field', field: 'enabled_mutators', value: newMutators });
+                            }}
+                          />
+                          <span className="mutator-name">{info.name}</span>
+                          <Tooltip content={`${info.description}\n\nExample: ${info.example}`} />
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {form.enabled_mutators.length === 0 && (
+                    <div className="warning-text">At least one mutator must be enabled</div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Enumeration mode info */}
+          {form.mutation_mode.startsWith('enumeration') && (
+            <div className="info-box">
+              <strong>Enumeration Mode:</strong> Systematically tests boundary values (0, 1, max-1, max) for each mutable field.
+              {form.mutation_mode === 'enumeration' && ' Varies one field at a time.'}
+              {form.mutation_mode === 'enumeration_pairwise' && ' Tests all pairs of field values.'}
+              {form.mutation_mode === 'enumeration_full' && ' Tests ALL combinations (can be very large!).'}
+              {' '}After enumeration completes, falls back to random mutation.
+            </div>
           )}
           <label>
             <span className="label-text">

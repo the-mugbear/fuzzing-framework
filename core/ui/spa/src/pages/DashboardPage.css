@@ -254,3 +254,61 @@
 .health-badge.hb.warn {
   background: rgba(234, 179, 8, 0.2);
 }
+
+/* Mutator Selection */
+.mutator-selection {
+  grid-column: 1 / -1;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  margin-top: var(--space-sm);
+}
+
+.mutator-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-sm);
+}
+
+.mutator-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  background: var(--bg-primary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.mutator-item:hover {
+  border-color: var(--border-active);
+}
+
+.mutator-item input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
+.mutator-name {
+  font-weight: 500;
+  flex: 1;
+}
+
+.warning-text {
+  color: var(--status-warning);
+  font-size: 0.85rem;
+  margin-top: var(--space-sm);
+}
+
+/* Info Box */
+.info-box {
+  grid-column: 1 / -1;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}

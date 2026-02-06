@@ -48,6 +48,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     {"protocol": "my_proto", "mutation_mode": "enumeration", ...}
     ```
 
+- **Mutator selection UI controls** (`core/ui/spa/src/pages/DashboardPage.tsx`)
+  - New "Customize Mutators" checkbox exposes individual mutator selection
+  - Each mutator has a tooltip with description and example:
+    - Bit Flip: `0x41 (01000001) → 0x43 (01000011)`
+    - Byte Flip: `ABCD → AXCD (B→X)`
+    - Arithmetic: `100 → 101, 99, 108, 92...`
+    - Interesting Values: `42 → 0, 255, 0x7FFFFFFF, -1`
+    - Havoc: `ABCD → AXXBCD (insert) or AD (delete)`
+    - Splice: `ABC + XYZ → ABYZ or AXYZ`
+  - Mutation Strategy dropdown now includes enumeration modes in a separate group
+  - Info box explains enumeration mode behavior
+
+- **Session parameters on Correlation page** (`core/ui/spa/src/pages/CorrelationPage.tsx`)
+  - Collapsible "Session Configuration" panel shows all session settings:
+    - Target: protocol, host:port, transport
+    - Mutation: mode, structure weight, enabled mutators
+    - Execution: mode, rate limit, timeout, max iterations
+    - Strategy: fuzzing mode, target state, reset interval
+    - Timestamps: created, started
+  - Helps users review what settings were used for a given session
+
 ### Fixed - 2026-02-06
 
 - **Fixed slow fuzzing rate when server keeps connection open** (`tests/feature_reference_server.py`)
