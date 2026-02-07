@@ -780,7 +780,13 @@ function CorrelationPage() {
                     width: `${timelineRange.endPct - timelineRange.startPct}%`,
                   }}
                 />
-                {timelineExecutions.slice(0, 200).map((execution) => {
+                {/* Sample evenly across timeline to show max 200 dots */}
+                {(() => {
+                  const maxDots = 200;
+                  const step = Math.max(1, Math.floor(timelineExecutions.length / maxDots));
+                  const sampled = timelineExecutions.filter((_, i) => i % step === 0).slice(0, maxDots);
+                  return sampled;
+                })().map((execution) => {
                   const ts = new Date(execution.timestamp_sent).getTime();
                   const pct =
                     timelineBounds.end === timelineBounds.start
