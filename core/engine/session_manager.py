@@ -378,18 +378,18 @@ class SessionManager:
 
         # Check for probe availability in PROBE mode
         if session.execution_mode == ExecutionMode.PROBE:
-            if not probe_manager.has_agent_for_target(
+            if not probe_manager.has_probe_for_target(
                 session.target_host,
                 session.target_port,
                 session.transport,
             ):
                 session.error_message = (
-                    f"No live agents registered for target "
+                    f"No live probes registered for target "
                     f"{session.target_host}:{session.target_port}"
                 )
                 session.status = FuzzSessionStatus.FAILED
                 await self._checkpoint_session(session)
-                logger.error("no_agents_for_session", session_id=session_id)
+                logger.error("no_probes_for_session", session_id=session_id)
                 return False
 
         # Apply connection configuration

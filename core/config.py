@@ -31,7 +31,7 @@ Key Setting Categories:
 
 2. Security:
    - tls_cert_path, tls_key_path: HTTPS configuration
-   - agent_auth_token: Probe authentication
+   - probe_auth_token: Probe authentication
 
 3. Paths:
    - plugins_dir: Protocol plugin location
@@ -93,7 +93,7 @@ class Settings(BaseSettings):
     # Security
     tls_cert_path: Optional[Path] = None
     tls_key_path: Optional[Path] = None
-    agent_auth_token: Optional[str] = None
+    probe_auth_token: Optional[str] = None
 
     # CORS - permissive by default since this is a local tool
     # If you expose this to a network, restrict cors_origins to specific domains
@@ -154,9 +154,9 @@ class Settings(BaseSettings):
     termination_test_interval: int = 50  # Periodic termination injection interval
 
     # Probe settings
-    agent_heartbeat_interval: int = 30
-    agent_timeout_sec: int = 60
-    agent_queue_size: int = 1024
+    probe_heartbeat_interval: int = 30
+    probe_timeout_sec: int = 60
+    probe_queue_size: int = 1024
 
     # Oracle thresholds
     cpu_spike_threshold: float = 90.0  # percent

@@ -53,7 +53,7 @@ ALLOWED_PATHS = {
     "docs/developer/02_mutation_engine.md",
     "docs/developer/03_stateful_fuzzing.md",
     "docs/developer/04_data_management.md",
-    "docs/developer/05_agent_and_core_communication.md",
+    "docs/developer/05_probe_and_core_communication.md",
     "docs/developer/06_first_debug_session.md",
     "docs/developer/ORCHESTRATED_SESSIONS_ARCHITECTURE.md",
 }

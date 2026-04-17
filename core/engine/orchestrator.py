@@ -169,7 +169,7 @@ class FuzzOrchestrator:
     """
     Orchestrates fuzzing campaigns
 
-    Manages sessions, coordinates mutation engine, corpus, and agents.
+    Manages sessions, coordinates mutation engine, corpus, and probes.
 
     Supports dependency injection for testing:
         orchestrator = FuzzOrchestrator(
@@ -491,18 +491,18 @@ class FuzzOrchestrator:
             logger.warning("session_already_running", session_id=session_id)
             return False
 
-        if session.execution_mode == ExecutionMode.PROBE and not probe_manager.has_agent_for_target(
+        if session.execution_mode == ExecutionMode.PROBE and not probe_manager.has_probe_for_target(
             session.target_host,
             session.target_port,
             session.transport,
         ):
             session.error_message = (
-                "No live agents registered for target "
+                "No live probes registered for target "
                 f"{session.target_host}:{session.target_port}"
             )
             session.status = FuzzSessionStatus.FAILED
             await self._checkpoint_session(session)
-            logger.error("no_agents_for_session", session_id=session_id)
+            logger.error("no_probes_for_session", session_id=session_id)
             return False
 
         # Apply connection configuration early (for all sessions, not just those with bootstrap)
@@ -862,7 +862,7 @@ class FuzzOrchestrator:
             Tuple of (result, response)
         """
         if session.execution_mode == ExecutionMode.PROBE:
-            await self._dispatch_to_agent(session, test_case)
+            await self._dispatch_to_probe(session, test_case)
             return TestCaseResult.PASS, None  # Probe results handled asynchronously
 
         # Core execution mode
@@ -1257,7 +1257,7 @@ class FuzzOrchestrator:
             # Final checkpoint when fuzzing loop exits
             await self._checkpoint_session(session)
 
-    async def _dispatch_to_agent(self, session: FuzzSession, test_case: TestCase) -> None:
+    async def _dispatch_to_probe(self, session: FuzzSession, test_case: TestCase) -> None:
         """Send a test case to the probe queue"""
         work = ProbeWorkItem(
             session_id=session.id,

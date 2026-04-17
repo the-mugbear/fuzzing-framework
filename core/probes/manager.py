@@ -2,7 +2,7 @@
 Probe Manager - Coordinates remote probes and work distribution.
 
 This module manages the lifecycle and work distribution for remote fuzzing
-agents that execute test cases near target systems.
+probes that execute test cases near target systems.
 
 Component Overview:
 -------------------
@@ -15,8 +15,8 @@ The AgentManager provides centralized coordination for:
 Key Responsibilities:
 --------------------
 1. Probe Registration:
-   - Track registered agents by ID
-   - Associate agents with target endpoints
+   - Track registered probes by ID
+   - Associate probes with target endpoints
    - Monitor probe health via heartbeats
 
 2. Work Queue Management:
@@ -43,7 +43,7 @@ The AgentManager uses asyncio.Lock for thread-safe operations on:
 Usage Example:
 -------------
     # Registration
-    probe_manager.register_agent(
+    probe_manager.register_probe(
         probe_id="probe-1",
         hostname="worker-node",
         target_host="target-server",
@@ -64,13 +64,13 @@ Usage Example:
 
 Configuration:
 -------------
-- agent_queue_size: Maximum items per queue (from settings)
+- probe_queue_size: Maximum items per queue (from settings)
 
 See Also:
 --------
 - core/engine/probe_dispatcher.py - High-level dispatch coordination
 - core/models.py - ProbeStatus, ProbeWorkItem definitions
-- docs/developer/05_agent_and_core_communication.md - Architecture docs
+- docs/developer/05_probe_and_core_communication.md - Architecture docs
 """
 from __future__ import annotations
 
@@ -96,12 +96,12 @@ class AgentManager:
     def __init__(self) -> None:
         self._probes: Dict[str, ProbeStatus] = {}
         self._queues: Dict[TargetKey, asyncio.Queue[ProbeWorkItem]] = defaultdict(
-            lambda: asyncio.Queue(maxsize=settings.agent_queue_size)
+            lambda: asyncio.Queue(maxsize=settings.probe_queue_size)
         )
         self._inflight: Dict[str, Tuple[str, str]] = {}  # test_case_id -> (probe_id, session_id)
         self._lock = asyncio.Lock()
 
-    def register_agent(
+    def register_probe(
         self,
         probe_id: str,
         hostname: str,
@@ -121,7 +121,7 @@ class AgentManager:
         )
         self._probes[probe_id] = status
         logger.info(
-            "agent_registered",
+            "probe_registered",
             probe_id=probe_id,
             target_host=target_host,
             target_port=target_port,
@@ -139,7 +139,7 @@ class AgentManager:
         """Update heartbeat info for a probe"""
         status = self._probes.get(probe_id)
         if not status:
-            logger.warning("heartbeat_from_unknown_agent", probe_id=probe_id)
+            logger.warning("heartbeat_from_unknown_probe", probe_id=probe_id)
             return None
 
         status.is_alive = True
@@ -149,10 +149,10 @@ class AgentManager:
         status.active_test_count = active_tests
         return status
 
-    def get_agent(self, probe_id: str) -> Optional[ProbeStatus]:
+    def get_probe(self, probe_id: str) -> Optional[ProbeStatus]:
         return self._probes.get(probe_id)
 
-    def has_agent_for_target(
+    def has_probe_for_target(
         self,
         target_host: str,
         target_port: int,
@@ -176,7 +176,7 @@ class AgentManager:
         transport: TransportProtocol,
         work: ProbeWorkItem,
     ) -> None:
-        """Queue a test case for agents matching the given target"""
+        """Queue a test case for probes matching the given target"""
         key = (target_host, target_port, transport)
         queue = self._queues[key]
         await queue.put(work)

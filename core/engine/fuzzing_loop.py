@@ -590,7 +590,7 @@ class FuzzingLoopCoordinator:
         """Execute test case and record results."""
         if session.execution_mode == ExecutionMode.PROBE:
             timestamp_sent = utcnow()
-            await self._dispatch_to_agent(session, test_case)
+            await self._dispatch_to_probe(session, test_case)
             # Record placeholder so the test case exists in history.
             # The actual response is written via INSERT OR REPLACE when
             # ProbeDispatcher.handle_result fires.
@@ -643,7 +643,7 @@ class FuzzingLoopCoordinator:
 
         return result, response
 
-    async def _dispatch_to_agent(
+    async def _dispatch_to_probe(
         self,
         session: FuzzSession,
         test_case: TestCase,

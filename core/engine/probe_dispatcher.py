@@ -8,9 +8,9 @@ Component Overview:
 -------------------
 The ProbeDispatcher manages the full lifecycle of probe-based test execution:
 - Packaging test cases as ProbeWorkItems
-- Queueing work for specific agents
+- Queueing work for specific probes
 - Tracking pending test cases
-- Processing results when agents report back
+- Processing results when probes report back
 - Cleaning up on session stop
 
 Key Responsibilities:
@@ -82,9 +82,9 @@ probe coordination into a focused, testable component.
 
 See Also:
 --------
-- core/agents/manager.py - Probe queue management
+- core/probes/manager.py - Probe queue management
 - core/models.py - ProbeWorkItem, ProbeTestResult definitions
-- docs/developer/05_agent_and_core_communication.md - Probe architecture
+- docs/developer/05_probe_and_core_communication.md - Probe architecture
 """
 from __future__ import annotations
 
@@ -116,7 +116,7 @@ class ProbeDispatcher:
 
     Handles:
     - Test case dispatch to probe queues
-    - Result collection from agents
+    - Result collection from probes
     - Pending test case tracking
     - Session cleanup on stop
 

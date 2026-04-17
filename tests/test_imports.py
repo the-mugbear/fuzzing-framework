@@ -22,7 +22,7 @@ def test_core_imports():
     print("✓ Core imports successful")
 
 
-def test_agent_imports():
+def test_probe_imports():
     """Test probe module imports"""
     print("Testing probe imports...")
     from probe.monitor import ProcessMonitor, TargetExecutor
@@ -89,7 +89,7 @@ if __name__ == "__main__":
         test_core_imports()
         print()
 
-        test_agent_imports()
+        test_probe_imports()
         print()
 
         test_plugin_discovery()

@@ -80,7 +80,7 @@ class FuzzerProbe:
                 timeout=10.0,
             )
             response.raise_for_status()
-            logger.info("agent_registered", probe_id=self.probe_id, core_url=self.core_url)
+            logger.info("probe_registered", probe_id=self.probe_id, core_url=self.core_url)
             return True
         except Exception as e:
             logger.error("registration_failed", error=str(e), core_url=self.core_url)
@@ -164,8 +164,8 @@ class FuzzerProbe:
 
         if work_transport != self.transport:
             logger.debug(
-                "agent_transport_override",
-                agent_transport=self.transport.value,
+                "probe_transport_override",
+                probe_transport=self.transport.value,
                 work_transport=work_transport.value,
             )
 
