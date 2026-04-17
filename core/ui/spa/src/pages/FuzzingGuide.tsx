@@ -18,7 +18,7 @@ const FuzzingGuide: React.FC = () => {
             <tr><td><strong>Session</strong></td><td>A fuzzing campaign bound to a protocol, host, port, execution mode, and mutator selection.</td></tr>
             <tr><td><strong>Mutator</strong></td><td>Algorithm that transforms a seed (e.g., <code>bitflip</code>, <code>havoc</code>, <code>splice</code>). Choose them via <code>enabled_mutators</code>.</td></tr>
             <tr><td><strong>Behavior</strong></td><td>Declarative rule attached to a protocol block (e.g., “increment sequence”, “add constant”). Behaviors run before every send to keep deterministic fields valid.</td></tr>
-            <tr><td><strong>Agent Mode</strong></td><td>Test cases are executed by remote agents that talk to the target and stream results back to the core.</td></tr>
+            <tr><td><strong>Probe Mode</strong></td><td>Test cases are executed by remote probes that talk to the target and stream results back to the core.</td></tr>
             <tr><td><strong>One-off Test</strong></td><td>Single payload execution via <code>POST /api/tests/execute</code> in core mode-use it for quick validation or reproduction.</td></tr>
           </tbody>
         </table>
@@ -56,7 +56,7 @@ const FuzzingGuide: React.FC = () => {
           <li>
             <h3>Choose Execution & Mutators</h3>
             <ul>
-              <li>Core mode is simplest; agent mode lets you forward traffic via remote workers.</li>
+              <li>Core mode is simplest; probe mode lets you forward traffic via remote workers.</li>
               <li>Use <code>/api/mutators</code> to list options and pass <code>enabled_mutators</code> when creating the session.</li>
             </ul>
           </li>
@@ -64,7 +64,7 @@ const FuzzingGuide: React.FC = () => {
             <h3>Run & Observe</h3>
             <ul>
               <li>Poll <code>/api/sessions/&lt;id&gt;/stats</code> or watch the UI dashboard.</li>
-              <li>Monitor target logs, <code>logs/core-api.log</code>, and agent logs at the same time.</li>
+              <li>Monitor target logs, <code>logs/core-api.log</code>, and probe logs at the same time.</li>
             </ul>
           </li>
           <li>

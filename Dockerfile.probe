@@ -1,8 +1,8 @@
-# Dockerfile for Fuzzer Agent
+# Dockerfile for Fuzzer Probe
 FROM python:3.11-slim
 
 LABEL maintainer="KM"
-LABEL description="Portable Proprietary Protocol Fuzzer - Target Agent"
+LABEL description="Portable Proprietary Protocol Fuzzer - Target Probe"
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -17,9 +17,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy agent code and core modules it depends on
-# Agent imports: core.logging -> core.config, core.models
-COPY agent/ ./agent/
+# Copy probe code and core modules it depends on
+# Probe imports: core.logging -> core.config, core.models
+COPY probe/ ./probe/
 COPY core/__init__.py core/config.py core/logging.py core/models.py ./core/
 
 # Set environment variables
@@ -28,5 +28,5 @@ ENV FUZZER_CORE_URL=http://core:8000
 ENV FUZZER_TARGET_HOST=localhost
 ENV FUZZER_TARGET_PORT=9999
 
-# Run the agent - use shell form for env var expansion
-CMD python -m agent.main --core-url $FUZZER_CORE_URL --target-host $FUZZER_TARGET_HOST --target-port $FUZZER_TARGET_PORT
+# Run the probe - use shell form for env var expansion
+CMD python -m probe.main --core-url $FUZZER_CORE_URL --target-host $FUZZER_TARGET_HOST --target-port $FUZZER_TARGET_PORT

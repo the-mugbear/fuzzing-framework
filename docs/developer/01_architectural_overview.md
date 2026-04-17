@@ -24,7 +24,7 @@ The orchestrator has been decomposed into focused components for better maintain
          │             │                  │               │              │
          ▼             ▼                  ▼               ▼              ▼
 ┌──────────────┐ ┌───────────────┐ ┌─────────────┐ ┌───────────┐ ┌────────────┐
-│ Session      │ │ SessionContext│ │ FuzzingLoop │ │   Test    │ │   Agent    │
+│ Session      │ │ SessionContext│ │ FuzzingLoop │ │   Test    │ │   Probe    │
 │ Manager      │ │ Manager       │ │ Coordinator │ │ Executor  │ │ Dispatcher │
 └──────┬───────┘ └───────┬───────┘ └──────┬──────┘ └─────┬─────┘ └──────┬─────┘
        │                 │                │              │              │
@@ -46,7 +46,7 @@ The orchestrator has been decomposed into focused components for better maintain
 | **FuzzingLoopCoordinator** | `fuzzing_loop.py` | Main loop, seed selection, mutations |
 | **TestExecutor** | `test_executor.py` | Transport management, error handling |
 | **StateNavigator** | `state_navigator.py` | State machine navigation, termination fuzzing |
-| **AgentDispatcher** | `agent_dispatcher.py` | Remote agent coordination, result handling |
+| **AgentDispatcher** | `probe_dispatcher.py` | Remote probe coordination, result handling |
 
 ### Decomposed Session Models
 
@@ -81,7 +81,7 @@ The decomposition maintains backward compatibility:
                                      (Control & View)
                                              │ │
 ┌───────────────────┐              ┌───────────────────────────┐              ┌───────────────────┐
-│      Web UI       │◀────────────▶│      FuzzOrchestrator     │◀────────────▶│       Agent       │
+│      Web UI       │◀────────────▶│      FuzzOrchestrator     │◀────────────▶│       Probe       │
 │    (React SPA)    │              │ (The Brain)               │              │  (Remote Worker)  │
 └───────────────────┘              └───────────┬───────────────┘              └──────────┬────────┘
                                                │                                         │
@@ -111,7 +111,7 @@ The central facade that coordinates all fuzzing operations. It delegates to spec
 -   **FuzzingLoopCoordinator**: Main fuzzing iteration loop
 -   **TestExecutor**: Test case execution against targets
 -   **StateNavigator**: State machine navigation for stateful fuzzing
--   **AgentDispatcher**: Remote agent work coordination
+-   **AgentDispatcher**: Remote probe work coordination
 
 In an orchestrated session, the orchestrator coordinates:
 -   Initiating the `StageRunner` to execute the `bootstrap` process.
@@ -158,8 +158,8 @@ Manages state machine navigation:
 -   Path finding to target states
 -   Coverage tracking updates
 
-### 1f. AgentDispatcher (`core/engine/agent_dispatcher.py`)
-Coordinates remote agent execution:
+### 1f. AgentDispatcher (`core/engine/probe_dispatcher.py`)
+Coordinates remote probe execution:
 -   Packages test cases as work items
 -   Queues work for target-specific agents
 -   Processes results when agents report back

@@ -26,7 +26,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY core/ ./core/
-COPY agent/ ./agent/
+COPY probe/ ./probe/
 COPY tests/ ./tests/
 COPY docs/ ./docs/
 COPY CHANGELOG.md ./

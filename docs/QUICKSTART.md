@@ -115,11 +115,11 @@ python -m core.api.server
 
 You should see: `INFO: Uvicorn running on http://0.0.0.0:8000`
 
-### 4. Start the Agent (Optional)
+### 4. Start the Probe (Optional)
 
 In terminal 3:
 ```bash
-python -m agent.main --core-url http://localhost:8000 --target-host localhost --target-port 9999
+python -m probe.main --core-url http://localhost:8000 --target-host localhost --target-port 9999
 ```
 
 ### 5. Access the Web UI
@@ -168,7 +168,7 @@ Reload the Core or restart Docker to load the new plugin.
 - Check port 8000 is not in use: `lsof -i :8000`
 - Check logs: `docker-compose logs core`
 
-### Agent can't connect
+### Probe can't connect
 - Verify Core is running: `curl http://localhost:8000/api/system/health`
 - Check network connectivity
 
@@ -179,7 +179,7 @@ Reload the Core or restart Docker to load the new plugin.
 
 ```
 ┌──────────────┐      ┌──────────────┐      ┌──────────────┐
-│   Web UI     │      │  Core API    │      │    Agent     │
+│   Web UI     │      │  Core API    │      │    Probe     │
 │  (Browser)   │─────▶│  (FastAPI)   │◀────▶│  (Monitor)   │
 └──────────────┘      └──────────────┘      └──────────────┘
                              │                      │

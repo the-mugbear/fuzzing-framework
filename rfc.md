@@ -12,13 +12,13 @@ Ken Charles (draft) — Architecture & Implementation Leads TBD
 ---
 
 ## 1. Executive Summary (1-paragraph)
-This RFC defines a prioritized engineering plan to implement a portable, plugin-driven, learning-based protocol fuzzing framework for proprietary network protocols. It captures the architecture, modular components (Core, Target Agent, PRE, State Learner, Oracles), prioritized milestones, acceptance criteria, risks, and required integrations (emulation/snapshot, DBI, sanitizers). The objective is an MVP in which users can deploy a Core container and a minimal agent to run mutation-based fuzzing and collect reproducible findings; follow-on milestones add PRE, state learning, checksum synthesis, and deep instrumentation.
+This RFC defines a prioritized engineering plan to implement a portable, plugin-driven, learning-based protocol fuzzing framework for proprietary network protocols. It captures the architecture, modular components (Core, Target Probe, PRE, State Learner, Oracles), prioritized milestones, acceptance criteria, risks, and required integrations (emulation/snapshot, DBI, sanitizers). The objective is an MVP in which users can deploy a Core container and a minimal probe to run mutation-based fuzzing and collect reproducible findings; follow-on milestones add PRE, state learning, checksum synthesis, and deep instrumentation.
 
 ---
 
 ## 2. Goals & Non-goals
 **Goals (must satisfy):**
-- Provide a containerized Core and minimal Target Agent for rapid deployment.
+- Provide a containerized Core and minimal Target Probe for rapid deployment.
 - Support mutation-based fuzzing with seed corpus and corpus management.
 - Provide plugin format (single Python file) for protocol DataModel + StateModel.
 - Basic host-level oracle (CPU/memory/crash) + crash repro artifact generation.
@@ -47,7 +47,7 @@ flowchart LR
     X[Target Network / Device]
   end
 
-  subgraph Agent[Target Agent]
+  subgraph Probe[Target Probe]
     AG[Receiver]
     AG2[Executor -> sends to Target]
     MON[Host Monitor]
@@ -65,7 +65,7 @@ flowchart LR
 ```
 
 **Notes:**
-- Core communicates to Agent over TLS-authenticated channel. Agent can be deployed or replaced by a network-only Probe (PCAP/proxy) when agent install is impossible.
+- Core communicates to Probe over TLS-authenticated channel. Probe can be deployed or replaced by a network-only Probe (PCAP/proxy) when probe install is impossible.
 - Plugins live in `protocols/` as a single Python script implementing `data_model` and `state_model` plus optional `validate_response()`.
 
 ---
@@ -75,12 +75,12 @@ flowchart LR
 ### MVP (4 weeks) — deliverables & acceptance
 - **Deliverables:**
   - Core container (Docker) exposing REST API + simple web UI.
-  - Minimal Target Agent (Linux) as signed binary and Docker flavor.
+  - Minimal Target Probe (Linux) as signed binary and Docker flavor.
   - Mutation-only fuzzing runner with seed corpus upload, run control, and basic host-level resource monitoring (CPU/mem/process exit).
   - Plugin scaffold (Python) + example plugin for a trivial TCP protocol.
   - Corpus store, crash repro packaging (pcap + plugin + minimal run metadata).
 - **Acceptance Criteria:**
-  - Able to fuzz a local TCP server in snapshot or agent mode and produce reproducible crash artifact.
+  - Able to fuzz a local TCP server in snapshot or probe mode and produce reproducible crash artifact.
   - Plugin can be loaded at runtime without restarting Core.
 
 ### M2 (8–12 weeks) — learning & statefulness
@@ -111,22 +111,22 @@ flowchart LR
   - `data_model` — declarative block types + example seeds
   - `state_model` — graph of named states and transitions (callable hooks allowed)
   - `validate_response(response)` — optional user-provided oracle
-- **Agent:** Minimal runtime (Go or Rust for static binary) that accepts test cases, forwards to target endpoint (socket/serial), and collects resource metrics.
+- **Probe:** Minimal runtime (Go or Rust for static binary) that accepts test cases, forwards to target endpoint (socket/serial), and collects resource metrics.
 - **PRE:** Heuristic baseline that creates candidate fields via clustering and boundary detection; users can opt-in to DBI-assisted PRE.
 
 ---
 
 ## 6. Security & Operational Safeguards
-- Mutual TLS with short-lived certs for Core↔Agent.
-- Agent least-privilege, signed artifacts, and tamper-evident logs.
+- Mutual TLS with short-lived certs for Core↔Probe.
+- Probe least-privilege, signed artifacts, and tamper-evident logs.
 - Safe-mode default: no disk writes or destructive commands allowed; rate-limits on destructive actions.
 - Audit trail for all fuzz sessions; automatic alerting for repeated outages.
 
 ---
 
 ## 7. Testing Strategy & Benchmarks
-- **Unit:** Plugin loader, agent comms, mutators, corpus triage.
-- **Integration:** Local containerized server + agent + Core fuzz run producing repros.
+- **Unit:** Plugin loader, probe comms, mutators, corpus triage.
+- **Integration:** Local containerized server + probe + Core fuzz run producing repros.
 - **Performance:** Measure TCPSend/sec in mutation mode; target 1K+ inputs/sec in stack-bypass mode.
 - **Effectiveness:** Track number of unique states discovered, crashes, and logical anomalies across canonical benchmarks (e.g., small test suite of synthetic protocols).
 
@@ -148,7 +148,7 @@ flowchart LR
 
 ## 10. Next Steps (immediate)
 1. Approve MVP scope and staffing (1 backend eng, 1 systems/instrumentation eng, 1 frontend/UX).
-2. Implement Core + Agent minimal proof-of-concept (2–4 weeks).
+2. Implement Core + Probe minimal proof-of-concept (2–4 weeks).
 3. Prepare test harness (simple TCP server with seeded bugs) and run acceptance tests.
 
 ---
@@ -201,7 +201,7 @@ The primary table is `executions`, which stores a comprehensive record for each 
 
 The SQLite persistence layer is functional but has several known issues in its current implementation:
 
-- **Agent Executions Not Recorded:** Test cases that are dispatched to and executed by an agent are not currently recorded in the database. This is a critical gap that prevents the history of agent-based sessions from being analyzed or replayed.
+- **Probe Executions Not Recorded:** Test cases that are dispatched to and executed by an probe are not currently recorded in the database. This is a critical gap that prevents the history of probe-based sessions from being analyzed or replayed.
 - **Response Data Not Stored:** The `response_data` column in the `executions` table is not populated, meaning the full raw response from the target is not being saved.
 - **No Retry on Write Failure:** If a batch write to the database fails, the records in that batch are currently dropped. A retry mechanism or dead-letter queue should be implemented to prevent data loss.
 

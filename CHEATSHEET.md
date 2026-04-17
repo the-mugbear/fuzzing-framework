@@ -25,7 +25,7 @@ make docker-logs           # View logs
 
 # Development
 make run-core              # Start Core API
-make run-agent             # Start agent
+make run-probe             # Start probe
 make run-target            # Start test target
 make test                  # Run tests
 
@@ -318,8 +318,8 @@ Project Structure:
 │   ├── plugins/
 │   │   └── *.py               - Protocol definitions
 │   └── corpus/store.py        - Corpus management
-├── agent/
-│   ├── main.py                - Agent app
+├── probe/
+│   ├── main.py                - Probe app
 │   └── monitor.py             - Process monitoring
 ├── tests/
 │   └── simple_tcp_server.py   - Test target
@@ -340,7 +340,7 @@ FUZZER_CORPUS_DIR=/path/to/corpus
 FUZZER_CRASH_DIR=/path/to/crashes
 FUZZER_MAX_CONCURRENT_TESTS=10
 
-# Agent
+# Probe
 FUZZER_CORE_URL=http://core:8000
 FUZZER_TARGET_HOST=localhost
 FUZZER_TARGET_PORT=9999
@@ -381,7 +381,7 @@ ps aux | grep simple_tcp_server
 ### No findings
 - MVP uses simulated execution by default
 - For real bugs, target must be running and accepting connections
-- Check agent is connected: `docker-compose logs agent`
+- Check probe is connected: `docker-compose logs probe`
 
 ### Import errors
 ```bash
@@ -421,9 +421,9 @@ docker-compose exec core bash
 
 ## Development Workflow
 
-1. Edit code in `core/` or `agent/`
+1. Edit code in `core/` or `probe/`
 2. Plugins are hot-reloadable via API
-3. For Core/Agent changes, restart service:
+3. For Core/Probe changes, restart service:
    ```bash
    docker-compose restart core
    # or locally:

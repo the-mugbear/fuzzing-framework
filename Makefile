@@ -1,4 +1,4 @@
-.PHONY: help install dev test clean docker-build docker-up docker-down run-core run-agent run-target ui-install ui-build ui-dev
+.PHONY: help install dev test clean docker-build docker-up docker-down run-core run-probe run-target ui-install ui-build ui-dev
 
 help:
 	@echo "Fuzzer MVP - Available Commands"
@@ -10,7 +10,7 @@ help:
 	@echo "  make ui-build      - Build the React SPA"
 	@echo "  make ui-dev        - Run the UI dev server"
 	@echo "  make run-core      - Run Core API server"
-	@echo "  make run-agent     - Run agent"
+	@echo "  make run-probe     - Run probe"
 	@echo "  make run-target    - Run test target server"
 	@echo ""
 	@echo "Docker:"
@@ -45,8 +45,8 @@ ui-dev:
 run-core:
 	python -m core.api.server
 
-run-agent:
-	python -m agent.main --core-url http://localhost:8000 --target-host localhost --target-port 9999
+run-probe:
+	python -m probe.main --core-url http://localhost:8000 --target-host localhost --target-port 9999
 
 run-target:
 	python tests/simple_tcp_server.py

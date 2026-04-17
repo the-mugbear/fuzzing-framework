@@ -24,7 +24,7 @@ Key Responsibilities:
 
 2. Session Start:
    - Enforce concurrent session limits
-   - Check agent availability for AGENT mode
+   - Check probe availability for PROBE mode
    - Execute bootstrap stages for orchestrated protocols
    - Start heartbeat scheduler if configured
    - Launch fuzzing task via callback
@@ -107,7 +107,7 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 import structlog
 
-from core.agents.manager import agent_manager
+from core.probes.manager import probe_manager
 from core.config import settings
 from core.corpus.store import CorpusStore
 from core.engine.session_context import SessionContextManager, SessionRuntimeContext
@@ -376,9 +376,9 @@ class SessionManager:
             logger.warning("session_already_running", session_id=session_id)
             return False
 
-        # Check for agent availability in AGENT mode
-        if session.execution_mode == ExecutionMode.AGENT:
-            if not agent_manager.has_agent_for_target(
+        # Check for probe availability in PROBE mode
+        if session.execution_mode == ExecutionMode.PROBE:
+            if not probe_manager.has_agent_for_target(
                 session.target_host,
                 session.target_port,
                 session.transport,
@@ -577,7 +577,7 @@ class SessionManager:
         session: Optional[FuzzSession] = None,
     ) -> None:
         """Clean up all resources associated with a session."""
-        await agent_manager.clear_session(session_id)
+        await probe_manager.clear_session(session_id)
 
         # Get context for coverage snapshot
         ctx = self.context_manager.get_context(session_id)

@@ -242,29 +242,29 @@ class QueueFullError(ResourceError):
     pass
 
 
-# Agent Communication Errors
+# Probe Communication Errors
 
 class AgentError(FuzzerError):
     """
-    Agent communication and coordination errors.
+    Probe communication and coordination errors.
 
-    Base class for agent-related issues.
+    Base class for probe-related issues.
     """
     pass
 
 
 class AgentNotFoundError(AgentError):
-    """Agent is not registered or has disconnected."""
+    """Probe is not registered or has disconnected."""
     pass
 
 
 class AgentCommunicationError(AgentError):
-    """Failed to communicate with agent."""
+    """Failed to communicate with probe."""
     pass
 
 
 class AgentTimeoutError(AgentError):
-    """Agent didn't respond within timeout."""
+    """Probe didn't respond within timeout."""
     pass
 
 

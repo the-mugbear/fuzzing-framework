@@ -23,10 +23,10 @@ def test_core_imports():
 
 
 def test_agent_imports():
-    """Test agent module imports"""
-    print("Testing agent imports...")
-    from agent.monitor import ProcessMonitor, TargetExecutor
-    print("✓ Agent imports successful")
+    """Test probe module imports"""
+    print("Testing probe imports...")
+    from probe.monitor import ProcessMonitor, TargetExecutor
+    print("✓ Probe imports successful")
 
 
 def test_plugin_discovery():

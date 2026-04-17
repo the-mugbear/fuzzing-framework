@@ -38,12 +38,12 @@ services:
       - fuzzer-network
     restart: unless-stopped
 
-  # Fuzzer Agent (optional - can run externally)
-  # agent:
+  # Fuzzer Probe (optional - can run externally)
+  # probe:
   #   build:
   #     context: .
-  #     dockerfile: Dockerfile.agent
-  #   container_name: fuzzer-agent
+  #     dockerfile: Dockerfile.probe
+  #   container_name: fuzzer-probe
   #   environment:
   #     - FUZZER_CORE_URL=http://core:8000
   #     - FUZZER_TARGET_HOST=target

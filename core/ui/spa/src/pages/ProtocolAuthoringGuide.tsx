@@ -87,7 +87,7 @@ response_handlers = [
           <li><strong>`increment`</strong>: Automatically increments a sequence number or counter. The fuzzer tracks the current value for the session.</li>
           <li><strong>`add_constant`</strong>: Adds a constant value to a field. Useful for fixed offsets or required tweaks.</li>
         </ul>
-        <p>Behaviors require fixed-width blocks (e.g., `uint16`, `uint32`, or `bytes` with a `size`). They run in both core and agent modes and remove the need for complex custom mutators. Checksums are handled by checksum fields during serialization, not by behaviors.</p>
+        <p>Behaviors require fixed-width blocks (e.g., `uint16`, `uint32`, or `bytes` with a `size`). They run in both core and probe modes and remove the need for complex custom mutators. Checksums are handled by checksum fields during serialization, not by behaviors.</p>
       </section>
 
       <section>

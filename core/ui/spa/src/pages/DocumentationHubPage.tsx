@@ -28,7 +28,7 @@ type SectionFilter = 'all' | 'interactive' | 'repository' | 'developer';
 const interactiveGuides: InternalGuide[] = [
   {
     title: 'Getting Started',
-    description: 'Bootstrap the orchestrator, agent, and sample target in a few minutes.',
+    description: 'Bootstrap the orchestrator, probe, and sample target in a few minutes.',
     to: '/guides/getting-started',
   },
   {
@@ -128,8 +128,8 @@ const developerReferences: RepoDoc[] = [
     path: 'docs/developer/04_data_management.md',
   },
   {
-    title: 'Agent & Core Communication',
-    description: 'Distributed execution, agent telemetry, and crash artifact handling.',
+    title: 'Probe & Core Communication',
+    description: 'Distributed execution, probe telemetry, and crash artifact handling.',
     path: 'docs/developer/05_agent_and_core_communication.md',
   },
   {

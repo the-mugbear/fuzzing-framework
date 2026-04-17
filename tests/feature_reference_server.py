@@ -70,7 +70,7 @@ class Colors:
     GREEN = "\033[92m"
     YELLOW = "\033[93m"
     BLUE = "\033[94m"
-    MAGENTA = "\033[95m"
+    MPROBEA = "\033[95m"
     CYAN = "\033[96m"
     WHITE = "\033[97m"
 
@@ -544,7 +544,7 @@ class Logger:
     def banner(self):
         """Print startup banner."""
         print(f"\n{Colors.BLUE}{'='*70}{Colors.RESET}")
-        print(f"{Colors.MAGENTA}{Colors.BOLD}  Feature Reference Protocol Test Server{Colors.RESET}")
+        print(f"{Colors.MPROBEA}{Colors.BOLD}  Feature Reference Protocol Test Server{Colors.RESET}")
         print(f"{Colors.CYAN}  Training server with intentional vulnerabilities{Colors.RESET}")
         print(f"{Colors.BLUE}{'='*70}{Colors.RESET}\n")
 
@@ -577,9 +577,9 @@ class Logger:
         """Log a parsed request with details."""
         msg_name = self._msg_type_name(req.message_type)
 
-        print(f"\n{Colors.MAGENTA}{'─'*70}{Colors.RESET}")
-        print(f"{Colors.MAGENTA}[REQUEST]{Colors.RESET} {Colors.BOLD}{msg_name}{Colors.RESET}")
-        print(f"{Colors.MAGENTA}{'─'*70}{Colors.RESET}")
+        print(f"\n{Colors.MPROBEA}{'─'*70}{Colors.RESET}")
+        print(f"{Colors.MPROBEA}[REQUEST]{Colors.RESET} {Colors.BOLD}{msg_name}{Colors.RESET}")
+        print(f"{Colors.MPROBEA}{'─'*70}{Colors.RESET}")
 
         # Header info
         print(f"  {Colors.DIM}Magic:{Colors.RESET}        {req.magic!r}")

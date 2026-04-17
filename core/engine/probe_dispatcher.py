@@ -1,13 +1,13 @@
 """
-Agent Dispatcher - Manages work distribution to remote agents.
+Probe Dispatcher - Manages work distribution to remote probes.
 
 This module handles the coordination of test case execution when using
-remote agents instead of direct Core-based execution.
+remote probes instead of direct Core-based execution.
 
 Component Overview:
 -------------------
-The AgentDispatcher manages the full lifecycle of agent-based test execution:
-- Packaging test cases as AgentWorkItems
+The ProbeDispatcher manages the full lifecycle of probe-based test execution:
+- Packaging test cases as ProbeWorkItems
 - Queueing work for specific agents
 - Tracking pending test cases
 - Processing results when agents report back
@@ -16,8 +16,8 @@ The AgentDispatcher manages the full lifecycle of agent-based test execution:
 Key Responsibilities:
 --------------------
 1. Test Case Dispatch:
-   - Create AgentWorkItem with all necessary context
-   - Queue work item for target-specific agent
+   - Create ProbeWorkItem with all necessary context
+   - Queue work item for target-specific probe
    - Track pending test case for result correlation
 
 2. Result Processing:
@@ -38,7 +38,7 @@ Key Responsibilities:
 
 Integration Points:
 ------------------
-- Uses agent_manager for queue operations
+- Uses probe_manager for queue operations
 - Uses CrashReporter for crash persistence
 - Uses ExecutionHistoryStore for history recording
 - Integrates with FuzzOrchestrator via callbacks
@@ -46,27 +46,27 @@ Integration Points:
 Usage Example:
 -------------
     # Create dispatcher with dependencies
-    dispatcher = AgentDispatcher(
+    dispatcher = ProbeDispatcher(
         crash_reporter=crash_reporter,
         history_store=history_store,
     )
 
-    # Dispatch test case to agent
+    # Dispatch test case to probe
     await dispatcher.dispatch(session, test_case)
 
-    # Handle result when agent reports back
+    # Handle result when probe reports back
     status = await dispatcher.handle_result(
-        agent_id="agent-1",
-        payload=agent_result,
+        probe_id="probe-1",
+        payload=probe_result,
         session=session,
     )
 
     # Clean up on session stop
     discarded = dispatcher.discard_pending(session_id)
 
-Agent Work Item Structure:
+Probe Work Item Structure:
 -------------------------
-AgentWorkItem contains:
+ProbeWorkItem contains:
 - session_id: For result correlation
 - test_case_id: Unique test identifier
 - protocol: Protocol name for validation
@@ -78,13 +78,13 @@ AgentWorkItem contains:
 Note:
 ----
 This module is part of the Phase 5 orchestrator decomposition. It extracts
-agent coordination into a focused, testable component.
+probe coordination into a focused, testable component.
 
 See Also:
 --------
-- core/agents/manager.py - Agent queue management
-- core/models.py - AgentWorkItem, AgentTestResult definitions
-- docs/developer/05_agent_and_core_communication.md - Agent architecture
+- core/agents/manager.py - Probe queue management
+- core/models.py - ProbeWorkItem, ProbeTestResult definitions
+- docs/developer/05_agent_and_core_communication.md - Probe architecture
 """
 from __future__ import annotations
 
@@ -94,10 +94,10 @@ from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 
 import structlog
 
-from core.agents.manager import agent_manager
+from core.probes.manager import probe_manager
 from core.models import (
-    AgentTestResult,
-    AgentWorkItem,
+    ProbeTestResult,
+    ProbeWorkItem,
     FuzzSession,
     TestCase,
     TestCaseResult,
@@ -110,12 +110,12 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 
-class AgentDispatcher:
+class ProbeDispatcher:
     """
-    Coordinates work distribution to remote agents.
+    Coordinates work distribution to remote probes.
 
     Handles:
-    - Test case dispatch to agent queues
+    - Test case dispatch to probe queues
     - Result collection from agents
     - Pending test case tracking
     - Session cleanup on stop
@@ -130,7 +130,7 @@ class AgentDispatcher:
         on_finalize: Optional[Callable[[FuzzSession, TestCase, TestCaseResult, Optional[bytes], Dict], None]] = None,
     ):
         """
-        Initialize the AgentDispatcher.
+        Initialize the ProbeDispatcher.
 
         Args:
             crash_reporter: Optional CrashReporter for recording crashes
@@ -157,13 +157,13 @@ class AgentDispatcher:
         test_case: TestCase,
     ) -> None:
         """
-        Send a test case to the agent queue.
+        Send a test case to the probe queue.
 
         Args:
             session: The fuzzing session
             test_case: The test case to dispatch
         """
-        work = AgentWorkItem(
+        work = ProbeWorkItem(
             session_id=session.id,
             test_case_id=test_case.id,
             protocol=session.protocol,
@@ -176,7 +176,7 @@ class AgentDispatcher:
 
         self._pending_tests[test_case.id] = test_case
 
-        await agent_manager.enqueue_test_case(
+        await probe_manager.enqueue_test_case(
             session.target_host,
             session.target_port,
             session.transport,
@@ -191,18 +191,18 @@ class AgentDispatcher:
 
     async def handle_result(
         self,
-        agent_id: str,
-        payload: AgentTestResult,
+        probe_id: str,
+        payload: ProbeTestResult,
         session: FuzzSession,
         context_snapshot: Optional[Dict[str, Any]] = None,
         parsed_fields: Optional[Dict[str, Any]] = None,
         record_execution: Optional[Callable] = None,
     ) -> Dict[str, Any]:
         """
-        Handle results coming back from an agent.
+        Handle results coming back from a probe.
 
         Args:
-            agent_id: The agent that executed the test
+            probe_id: The probe that executed the test
             payload: The test result payload
             session: The fuzzing session
             context_snapshot: Optional protocol context snapshot
@@ -213,15 +213,15 @@ class AgentDispatcher:
             Status dict with result information
         """
         if not session:
-            await agent_manager.complete_work(payload.test_case_id)
-            logger.error("agent_result_unknown_session", session_id=payload.session_id)
+            await probe_manager.complete_work(payload.test_case_id)
+            logger.error("probe_result_unknown_session", session_id=payload.session_id)
             return {"status": "unknown_session"}
 
         test_case = self._pending_tests.pop(payload.test_case_id, None)
         if not test_case:
-            await agent_manager.complete_work(payload.test_case_id)
+            await probe_manager.complete_work(payload.test_case_id)
             logger.warning(
-                "agent_result_missing_test",
+                "probe_result_missing_test",
                 test_case_id=payload.test_case_id,
                 session_id=payload.session_id,
             )
@@ -268,11 +268,11 @@ class AgentDispatcher:
                 response_bytes,
             )
 
-        await agent_manager.complete_work(payload.test_case_id)
+        await probe_manager.complete_work(payload.test_case_id)
 
         logger.debug(
-            "agent_result_processed",
-            agent_id=agent_id,
+            "probe_result_processed",
+            probe_id=probe_id,
             session_id=session.id,
             test_case_id=test_case.id,
             result=payload.result.value if payload.result else "unknown",

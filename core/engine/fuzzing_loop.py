@@ -35,7 +35,7 @@ Key Responsibilities:
    - Apply behavior processors
 
 4. Execution Coordination:
-   - Route to TestExecutor (Core mode) or AgentDispatcher (Agent mode)
+   - Route to TestExecutor (Core mode) or ProbeDispatcher (Probe mode)
    - Record execution history with timing
    - Process response followups
 
@@ -114,7 +114,7 @@ from typing import Any, Callable, Deque, Dict, List, Optional, Tuple, TYPE_CHECK
 
 import structlog
 
-from core.agents.manager import agent_manager
+from core.probes.manager import probe_manager
 from core.config import settings
 from core.exceptions import PluginError, SessionInitializationError
 from core.engine.mutators import MutationEngine
@@ -176,7 +176,7 @@ class FuzzingLoopCoordinator:
         self.history_store = history_store
         self.test_executor = test_executor or TestExecutor()
 
-        # Pending tests for agent mode
+        # Pending tests for probe mode
         self.pending_tests: Dict[str, TestCase] = {}
 
         # Callbacks
@@ -256,8 +256,8 @@ class FuzzingLoopCoordinator:
             session.error_message = f"Fuzzing error: {type(e).__name__}: {str(e)}"
             await self._checkpoint(session)
         finally:
-            if session.execution_mode == ExecutionMode.AGENT:
-                await agent_manager.clear_session(session_id)
+            if session.execution_mode == ExecutionMode.PROBE:
+                await probe_manager.clear_session(session_id)
             self._discard_pending_tests(session_id)
             if stateful_session:
                 session.coverage_snapshot = stateful_session.get_coverage_stats()
@@ -588,12 +588,12 @@ class FuzzingLoopCoordinator:
         state_navigator: Optional[StateNavigator],
     ) -> Tuple[TestCaseResult, Optional[bytes]]:
         """Execute test case and record results."""
-        if session.execution_mode == ExecutionMode.AGENT:
+        if session.execution_mode == ExecutionMode.PROBE:
             timestamp_sent = utcnow()
             await self._dispatch_to_agent(session, test_case)
             # Record placeholder so the test case exists in history.
             # The actual response is written via INSERT OR REPLACE when
-            # AgentDispatcher.handle_result fires.
+            # ProbeDispatcher.handle_result fires.
             self.history_store.record(
                 session,
                 test_case,
@@ -648,10 +648,10 @@ class FuzzingLoopCoordinator:
         session: FuzzSession,
         test_case: TestCase,
     ) -> None:
-        """Send a test case to the agent queue."""
-        from core.models import AgentWorkItem
+        """Send a test case to the probe queue."""
+        from core.models import ProbeWorkItem
 
-        work = AgentWorkItem(
+        work = ProbeWorkItem(
             session_id=session.id,
             test_case_id=test_case.id,
             protocol=session.protocol,
@@ -662,7 +662,7 @@ class FuzzingLoopCoordinator:
             timeout_ms=session.timeout_per_test_ms,
         )
         self.pending_tests[test_case.id] = test_case
-        await agent_manager.enqueue_test_case(
+        await probe_manager.enqueue_test_case(
             session.target_host,
             session.target_port,
             session.transport,

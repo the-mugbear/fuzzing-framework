@@ -103,11 +103,11 @@ Your debugger will now hit the breakpoints.
 
 This setup is invaluable for understanding the complex interactions within an orchestrated session and debugging issues related to handshakes, token management, or connection stability.
 
-## Debugging Agent-Side Orchestration (Advanced)
+## Debugging Probe-Side Orchestration (Advanced)
 
-If you need to debug an orchestrated session running on a remote agent:
+If you need to debug an orchestrated session running on a remote probe:
 
-1.  **Enable Debugpy in `Dockerfile.agent`**: Modify `Dockerfile.agent` to install `debugpy` and start the agent with it enabled.
-2.  **Expose Debug Port**: Add a port mapping for the agent's debug port (e.g., `5679:5679`) to the `agent` service in `docker-compose.yml`.
-3.  **Create New `launch.json` Config**: Add a new configuration in `launch.json` similar to the Core's, but pointing to the agent's debug port and mapping its local root (`/app`) accordingly.
-4.  **Attach to Agent**: Start the agent service with the debugpy port exposed, then attach the debugger using your new configuration. The agent will then execute the orchestrated session, allowing you to debug its local `StageRunner`, `ConnectionManager`, etc.
+1.  **Enable Debugpy in `Dockerfile.probe`**: Modify `Dockerfile.probe` to install `debugpy` and start the probe with it enabled.
+2.  **Expose Debug Port**: Add a port mapping for the probe's debug port (e.g., `5679:5679`) to the `probe` service in `docker-compose.yml`.
+3.  **Create New `launch.json` Config**: Add a new configuration in `launch.json` similar to the Core's, but pointing to the probe's debug port and mapping its local root (`/app`) accordingly.
+4.  **Attach to Probe**: Start the probe service with the debugpy port exposed, then attach the debugger using your new configuration. The probe will then execute the orchestrated session, allowing you to debug its local `StageRunner`, `ConnectionManager`, etc.

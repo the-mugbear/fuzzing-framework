@@ -47,7 +47,7 @@ interface CreateSessionForm {
   protocol: string;
   target_host: string;
   target_port: number;
-  execution_mode: 'core' | 'agent';
+  execution_mode: 'core' | 'probe';
   mutation_mode: string;
   structure_aware_weight: number;
   rate_limit_per_second: number | '';
@@ -422,14 +422,14 @@ function DashboardPage() {
           <label>
             <span className="label-text">
               Where to Run
-              <Tooltip content="Local runner executes tests on this machine. Remote agent runs tests on a worker closer to the target." />
+              <Tooltip content="Local runner executes tests on this machine. Remote probe runs tests on a worker closer to the target." />
             </span>
             <select
               value={form.execution_mode}
-              onChange={(e) => handleFieldChange('execution_mode', e.target.value as 'core' | 'agent')}
+              onChange={(e) => handleFieldChange('execution_mode', e.target.value as 'core' | 'probe')}
             >
               <option value="core">Local runner (recommended)</option>
-              <option value="agent">Remote agent</option>
+              <option value="probe">Remote probe</option>
             </select>
           </label>
           <label>

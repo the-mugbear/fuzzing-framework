@@ -6,13 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed - 2026-04-17
+
+- **Renamed "agent" to "probe" across entire codebase** (38+ files, 408 references)
+  - `agent/` directory → `probe/`, `core/agents/` → `core/probes/`
+  - `Dockerfile.agent` → `Dockerfile.probe`, `core/engine/agent_dispatcher.py` → `core/engine/probe_dispatcher.py`
+  - `core/api/routes/agents.py` → `core/api/routes/probes.py`, API endpoints `/api/agents/` → `/api/probes/`
+  - Models: `AgentWorkItem` → `ProbeWorkItem`, `AgentTestResult` → `ProbeTestResult`, `AgentStatus` → `ProbeStatus`, `AgentDispatcher` → `ProbeDispatcher`
+  - `ExecutionMode.AGENT` → `ExecutionMode.PROBE`, `agent_manager` → `probe_manager`
+  - All documentation, Docker configs, Makefile targets, and UI strings updated
+  - Rationale: Avoid confusion with agentic AI — "probe" accurately describes the target-side monitoring/delivery component
+  - Impact: API consumers must update `/api/agents/` → `/api/probes/`, session `execution_mode` from `"agent"` to `"probe"`
+
 ### Fixed - 2026-04-17
 
-- **Agent executions now recorded in history store** (`core/engine/agent_dispatcher.py:247-258`, `core/engine/fuzzing_loop.py:592-603`)
-  - `AgentDispatcher.handle_result` now falls back to `history_store.record()` when no explicit `record_execution` callback is provided
-  - `FuzzingLoopCoordinator._execute_and_record` now writes a placeholder record on agent dispatch so test cases exist in the DB
-  - Response bytes are persisted via INSERT OR REPLACE when the agent result arrives
-  - Impact: Agent-mode sessions no longer have empty execution history
+- **Probe executions now recorded in history store** (`core/engine/probe_dispatcher.py:247-258`, `core/engine/fuzzing_loop.py:592-603`)
+  - `ProbeDispatcher.handle_result` now falls back to `history_store.record()` when no explicit `record_execution` callback is provided
+  - `FuzzingLoopCoordinator._execute_and_record` now writes a placeholder record on probe dispatch so test cases exist in the DB
+  - Response bytes are persisted via INSERT OR REPLACE when the probe result arrives
+  - Impact: Probe-mode sessions no longer have empty execution history
 
 - **Retry on DB write failure** (`core/engine/history_store.py`)
   - Background writer re-queues failed batches with per-record retry counter (default 3 attempts)

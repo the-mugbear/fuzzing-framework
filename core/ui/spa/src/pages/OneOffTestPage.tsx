@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import './OneOffTestPage.css';
 import { api, API_BASE } from '../services/api';
 
-type ExecutionMode = 'core' | 'agent';
+type ExecutionMode = 'core' | 'probe';
 
 interface ProtocolBlock {
   name: string;
@@ -218,7 +218,7 @@ function OneOffTestPage() {
           Execution Mode
           <select value={mode} onChange={(e) => setMode(e.target.value as ExecutionMode)}>
             <option value="core">Core</option>
-            <option value="agent">Agent</option>
+            <option value="probe">Probe</option>
           </select>
         </label>
         <div className="oneoff-fields">

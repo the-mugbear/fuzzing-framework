@@ -1,7 +1,7 @@
 """
-Target Agent main application
+Target Probe main application
 
-Lightweight agent that:
+Lightweight probe that:
 1. Registers with Core
 2. Receives fuzzed test cases
 3. Forwards to target
@@ -20,18 +20,18 @@ import httpx
 import psutil
 import structlog
 
-from agent.monitor import TargetExecutor
+from probe.monitor import TargetExecutor
 from core.logging import setup_logging
 from core.models import TransportProtocol
 
-setup_logging("agent")
+setup_logging("probe")
 
 logger = structlog.get_logger()
 
 
-class FuzzerAgent:
+class FuzzerProbe:
     """
-    Minimal fuzzing agent
+    Minimal fuzzing probe
 
     Connects to Core and executes test cases against a target
     """
@@ -41,7 +41,7 @@ class FuzzerAgent:
         core_url: str,
         target_host: str,
         target_port: int,
-        agent_id: Optional[str] = None,
+        probe_id: Optional[str] = None,
         poll_interval: float = 0.5,
         launch_cmd: Optional[str] = None,
         transport: TransportProtocol = TransportProtocol.TCP,
@@ -49,7 +49,7 @@ class FuzzerAgent:
         self.core_url = core_url.rstrip("/")
         self.target_host = target_host
         self.target_port = target_port
-        self.agent_id = agent_id or str(uuid.uuid4())
+        self.probe_id = probe_id or str(uuid.uuid4())
         self.hostname = socket.gethostname()
         self.transport = transport
         self.executor = TargetExecutor(
@@ -69,9 +69,9 @@ class FuzzerAgent:
         """Register with Core"""
         try:
             response = await self.client.post(
-                f"{self.core_url}/api/agents/register",
+                f"{self.core_url}/api/probes/register",
                 json={
-                    "agent_id": self.agent_id,
+                    "probe_id": self.probe_id,
                     "hostname": self.hostname,
                     "target_host": self.target_host,
                     "target_port": self.target_port,
@@ -80,7 +80,7 @@ class FuzzerAgent:
                 timeout=10.0,
             )
             response.raise_for_status()
-            logger.info("agent_registered", agent_id=self.agent_id, core_url=self.core_url)
+            logger.info("agent_registered", probe_id=self.probe_id, core_url=self.core_url)
             return True
         except Exception as e:
             logger.error("registration_failed", error=str(e), core_url=self.core_url)
@@ -93,7 +93,7 @@ class FuzzerAgent:
                 cpu_usage = self._process.cpu_percent(interval=None)
                 memory_usage = self._process.memory_info().rss / (1024 * 1024)
                 await self.client.post(
-                    f"{self.core_url}/api/agents/{self.agent_id}/heartbeat",
+                    f"{self.core_url}/api/probes/{self.probe_id}/heartbeat",
                     json={
                         "status": "running",
                         "target_host": self.target_host,
@@ -105,7 +105,7 @@ class FuzzerAgent:
                     },
                     timeout=5.0,
                 )
-                logger.debug("heartbeat_sent", agent_id=self.agent_id)
+                logger.debug("heartbeat_sent", probe_id=self.probe_id)
             except Exception as e:
                 logger.error("heartbeat_failed", error=str(e))
 
@@ -124,7 +124,7 @@ class FuzzerAgent:
     async def _fetch_next_case(self) -> Optional[dict]:
         try:
             response = await self.client.get(
-                f"{self.core_url}/api/agents/{self.agent_id}/next-case",
+                f"{self.core_url}/api/probes/{self.probe_id}/next-case",
                 timeout=15.0,
             )
             if response.status_code == 204:
@@ -191,7 +191,7 @@ class FuzzerAgent:
 
         try:
             await self.client.post(
-                f"{self.core_url}/api/agents/{self.agent_id}/result",
+                f"{self.core_url}/api/probes/{self.probe_id}/result",
                 json=payload,
                 timeout=10.0,
             )
@@ -204,10 +204,10 @@ class FuzzerAgent:
             logger.error("result_submit_failed", error=str(exc))
 
     async def run(self):
-        """Main agent loop"""
+        """Main probe loop"""
         logger.info(
             "agent_starting",
-            agent_id=self.agent_id,
+            probe_id=self.probe_id,
             target=f"{self.target_host}:{self.target_port}",
             transport=self.transport.value,
         )
@@ -227,7 +227,7 @@ class FuzzerAgent:
         worker_task = asyncio.create_task(self.work_loop())
 
         try:
-            logger.info("agent_ready", agent_id=self.agent_id)
+            logger.info("agent_ready", probe_id=self.probe_id)
             while self.running:
                 await asyncio.sleep(1)
 
@@ -249,12 +249,12 @@ class FuzzerAgent:
             if self.client:
                 await self.client.aclose()
 
-        logger.info("agent_stopped", agent_id=self.agent_id)
+        logger.info("agent_stopped", probe_id=self.probe_id)
 
 
 async def main():
     """Main entry point"""
-    parser = argparse.ArgumentParser(description="Fuzzer Target Agent")
+    parser = argparse.ArgumentParser(description="Fuzzer Target Probe")
     parser.add_argument(
         "--core-url",
         default="http://localhost:8000",
@@ -272,8 +272,8 @@ async def main():
         help="Target port to fuzz",
     )
     parser.add_argument(
-        "--agent-id",
-        help="Agent ID (auto-generated if not provided)",
+        "--probe-id",
+        help="Probe ID (auto-generated if not provided)",
     )
     parser.add_argument(
         "--poll-interval",
@@ -294,17 +294,17 @@ async def main():
 
     args = parser.parse_args()
 
-    agent = FuzzerAgent(
+    probe = FuzzerProbe(
         core_url=args.core_url,
         target_host=args.target_host,
         target_port=args.target_port,
-        agent_id=args.agent_id,
+        probe_id=args.probe_id,
         poll_interval=args.poll_interval,
         launch_cmd=args.launch_cmd,
         transport=TransportProtocol(args.transport),
     )
 
-    await agent.run()
+    await probe.run()
 
 
 if __name__ == "__main__":

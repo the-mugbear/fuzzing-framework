@@ -126,10 +126,10 @@ class CrashReport(BaseModel):
         return base64.b64encode(v).decode('ascii')
 
 
-class AgentStatus(BaseModel):
-    """Agent health and status"""
+class ProbeStatus(BaseModel):
+    """Probe health and status"""
 
-    agent_id: str
+    probe_id: str
     hostname: str
     target_host: str
     target_port: int
@@ -145,7 +145,7 @@ class ExecutionMode(str, Enum):
     """Where test cases execute"""
 
     CORE = "core"
-    AGENT = "agent"
+    PROBE = "probe"
 
 
 
@@ -361,8 +361,8 @@ class FuzzConfig(BaseModel):
     )
 
 
-class AgentWorkItem(BaseModel):
-    """Serialized task sent to an agent"""
+class ProbeWorkItem(BaseModel):
+    """Serialized task sent to a probe"""
 
     session_id: str
     test_case_id: str
@@ -374,8 +374,8 @@ class AgentWorkItem(BaseModel):
     timeout_ms: int
 
 
-class AgentTestResult(BaseModel):
-    """Result payload submitted by an agent"""
+class ProbeTestResult(BaseModel):
+    """Result payload submitted by a probe"""
 
     session_id: str
     test_case_id: str

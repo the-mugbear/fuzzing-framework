@@ -19,7 +19,7 @@ The foundational design of the fuzzer must directly address the user's core requ
 "Deployment pains" in fuzzing are typically twofold: first, the fuzzer itself has a complex set of dependencies (e.g., specific Python versions, analysis libraries, instrumentation tools); second, the target application has its own, often legacy, environment (e.g., an outdated operating system, specific runtimes).
 The proposed solution is a decoupled, microservices-inspired architecture that uses containerization as its core portability primitive.
 * **The Fuzzer Core:** The main fuzzing engine—which houses the state management, test case generation, and user interface—will be fully containerized using Docker.2 This approach leverages container isolation to package the fuzzer and all its dependencies into a single, self-contained artifact. This guarantees a consistent, isolated runtime environment 2 and ensures the fuzzer runs identically on any host that supports Docker, eliminating the fuzzer's own dependency issues.
-* **The Target Agent:** A minimal, lightweight agent, acting as a "courier", will be the only component deployed on the target host (or a host with network access to the target). This agent's responsibilities are minimal: 1) receive fuzzed inputs from the Core, 2) deliver them to the target (e.g., by writing to a network socket), and 3) report monitoring data (CPU, memory, crash logs) back to the Core.
+* **The Target Probe:** A minimal, lightweight probe, acting as a "courier", will be the only component deployed on the target host (or a host with network access to the target). This probe's responsibilities are minimal: 1) receive fuzzed inputs from the Core, 2) deliver them to the target (e.g., by writing to a network socket), and 3) report monitoring data (CPU, memory, crash logs) back to the Core.
 This decoupled design is the key to portability. Containerization serves as a "bridge", allowing a modern, containerized fuzzer to test a non-containerized, legacy target. This architecture solves the "it works on my machine" problem for the fuzzer itself.
 
 ### B. Extensibility: A Plugin-Driven Core for "Simple Alteration"
@@ -185,13 +185,13 @@ This section directly addresses the query on "intelligent for monitoring for fai
 
 ### A. **Host-Level System Monitoring (The "Adverse Effects" Monitor):**
 
-This is a black-box oracle that instruments the environment of the target, not the target itself.6 The "Target Agent" (from Section I) will be responsible for this monitoring.
+This is a black-box oracle that instruments the environment of the target, not the target itself.6 The "Target Probe" (from Section I) will be responsible for this monitoring.
 **Resource Monitoring:**
-**CPU Usage:** The agent will monitor the target process's CPU utilization. A sustained spike to 100% following a test case is a strong indicator of an infinite loop or heavy resource contention.
-**Memory Consumption:** The agent will track the process's memory usage. A steady, non-returning increase in memory consumption after repeated test cases indicates a memory leak.6
+**CPU Usage:** The probe will monitor the target process's CPU utilization. A sustained spike to 100% following a test case is a strong indicator of an infinite loop or heavy resource contention.
+**Memory Consumption:** The probe will track the process's memory usage. A steady, non-returning increase in memory consumption after repeated test cases indicates a memory leak.6
 **Crash & State Monitoring:**
-**Silent Crashes:** The agent will monitor OS event logs and crash dump directories (e.g., for memory.dmp files) to detect crashes that are silently restarted by a parent process.
-**Hardware Oracles:** For embedded/IoT targets, the agent plugin will support hardware-level monitoring. Observing "power consumption" or "core temperatures" can serve as a proxy for failures like reboots (power cycle) or infinite loops (thermal spike).6
+**Silent Crashes:** The probe will monitor OS event logs and crash dump directories (e.g., for memory.dmp files) to detect crashes that are silently restarted by a parent process.
+**Hardware Oracles:** For embedded/IoT targets, the probe plugin will support hardware-level monitoring. Observing "power consumption" or "core temperatures" can serve as a proxy for failures like reboots (power cycle) or infinite loops (thermal spike).6
 
 **Compiler-Level Instrumentation (The "High-Fidelity" Oracle):**
 
@@ -225,8 +225,8 @@ Table 3: A Comparative Framework of Failure Detection Oracles
 |---|---|---|---|
 | Process Exit Code | Obvious crashes (e.g., Segfault). | Low | None. |
 | Crash Dump Analysis | Silent/background crashes, detailed crash info. | Low | Admin access, debug symbols. |
-| Resource Monitor (CPU) | Infinite loops, Denial of Service (DoS). | Medium | Target agent with host access. |
-| Resource Monitor (Memory) | Memory leaks, resource exhaustion. | Medium | Target agent with host access. |
+| Resource Monitor (CPU) | Infinite loops, Denial of Service (DoS). | Medium | Target probe with host access. |
+| Resource Monitor (Memory) | Memory leaks, resource exhaustion. | Medium | Target probe with host access. |
 | Hardware Monitor (Power) | Reboots, physical crashes, infinite loops (thermal).6 | High | Hardware sensor (e.g., for IoT). |
 | Sanitizers (ASan, UBSan) | Use-after-free, buffer overflows, leaks, integer overflows. | High | Source code and recompilation. |
 | State Anomaly Detection | Logic flaws, auth bypass, invalid state transitions. | Medium | Learned State Machine. |

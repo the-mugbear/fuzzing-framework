@@ -31,7 +31,7 @@ Key Setting Categories:
 
 2. Security:
    - tls_cert_path, tls_key_path: HTTPS configuration
-   - agent_auth_token: Agent authentication
+   - agent_auth_token: Probe authentication
 
 3. Paths:
    - plugins_dir: Protocol plugin location
@@ -153,7 +153,7 @@ class Settings(BaseSettings):
     termination_test_window: int = 3  # Number of tests before reset to try termination
     termination_test_interval: int = 50  # Periodic termination injection interval
 
-    # Agent settings
+    # Probe settings
     agent_heartbeat_interval: int = 30
     agent_timeout_sec: int = 60
     agent_queue_size: int = 1024

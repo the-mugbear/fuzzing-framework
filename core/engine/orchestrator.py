@@ -28,7 +28,7 @@ The orchestrator delegates to focused components for specific responsibilities:
        │                      │          │           │           │
        ▼                      ▼          ▼           ▼           ▼
 ┌──────────────┐    ┌─────────────┐ ┌─────────┐ ┌─────────┐ ┌────────┐
-│SessionStore  │    │RuntimeContext│ │TestExec │ │StateNav │ │Agent   │
+│SessionStore  │    │RuntimeContext│ │TestExec │ │StateNav │ │Probe   │
 │(persistence) │    │(per-session) │ │utor     │ │igator   │ │Dispatch│
 └──────────────┘    └─────────────┘ └─────────┘ └─────────┘ └────────┘
 
@@ -62,8 +62,8 @@ Component Responsibilities:
    - Fuzzing mode strategies
    - Termination test injection
 
-6. AgentDispatcher (agent_dispatcher.py):
-   - Remote agent coordination
+6. ProbeDispatcher (probe_dispatcher.py):
+   - Remote probe coordination
    - Work queue management
    - Result processing
 
@@ -110,7 +110,7 @@ See Also:
 - core/engine/fuzzing_loop.py - Main loop
 - core/engine/test_executor.py - Test execution
 - core/engine/state_navigator.py - State navigation
-- core/engine/agent_dispatcher.py - Agent coordination
+- core/engine/probe_dispatcher.py - Probe coordination
 - docs/developer/01_architectural_overview.md - Architecture docs
 """
 import asyncio
@@ -126,7 +126,7 @@ if TYPE_CHECKING:
 
 import structlog
 
-from core.agents.manager import agent_manager
+from core.probes.manager import probe_manager
 from core.config import settings
 from core.corpus.store import CorpusStore
 from core.exceptions import (
@@ -146,8 +146,8 @@ from core.engine.session_context import SessionContextManager
 from core.engine.stateful_fuzzer import StatefulFuzzingSession
 from core.engine.transport import TransportFactory
 from core.models import (
-    AgentTestResult,
-    AgentWorkItem,
+    ProbeTestResult,
+    ProbeWorkItem,
     ExecutionMode,
     FuzzConfig,
     FuzzSession,
@@ -491,7 +491,7 @@ class FuzzOrchestrator:
             logger.warning("session_already_running", session_id=session_id)
             return False
 
-        if session.execution_mode == ExecutionMode.AGENT and not agent_manager.has_agent_for_target(
+        if session.execution_mode == ExecutionMode.PROBE and not probe_manager.has_agent_for_target(
             session.target_host,
             session.target_port,
             session.transport,
@@ -570,13 +570,13 @@ class FuzzOrchestrator:
         Clean up all resources associated with a session.
 
         Called by both stop_session and delete_session to ensure consistent
-        cleanup of runtime helpers, orchestration state, and agent resources.
+        cleanup of runtime helpers, orchestration state, and probe resources.
 
         Args:
             session_id: The session ID to clean up
             session: Optional session object (for coverage snapshot capture)
         """
-        await agent_manager.clear_session(session_id)
+        await probe_manager.clear_session(session_id)
         self._discard_pending_tests(session_id)
 
         # Capture coverage snapshot if stateful session exists
@@ -861,9 +861,9 @@ class FuzzOrchestrator:
         Returns:
             Tuple of (result, response)
         """
-        if session.execution_mode == ExecutionMode.AGENT:
+        if session.execution_mode == ExecutionMode.PROBE:
             await self._dispatch_to_agent(session, test_case)
-            return TestCaseResult.PASS, None  # Agent results handled asynchronously
+            return TestCaseResult.PASS, None  # Probe results handled asynchronously
 
         # Core execution mode
         # Capture state info before execution
@@ -1249,8 +1249,8 @@ class FuzzOrchestrator:
             session.error_message = f"Fuzzing error: {type(e).__name__}: {str(e)}"
             await self._checkpoint_session(session)
         finally:
-            if session.execution_mode == ExecutionMode.AGENT:
-                await agent_manager.clear_session(session_id)
+            if session.execution_mode == ExecutionMode.PROBE:
+                await probe_manager.clear_session(session_id)
             self._discard_pending_tests(session_id)
             if stateful_session:
                 session.coverage_snapshot = stateful_session.get_coverage_stats()
@@ -1258,8 +1258,8 @@ class FuzzOrchestrator:
             await self._checkpoint_session(session)
 
     async def _dispatch_to_agent(self, session: FuzzSession, test_case: TestCase) -> None:
-        """Send a test case to the agent queue"""
-        work = AgentWorkItem(
+        """Send a test case to the probe queue"""
+        work = ProbeWorkItem(
             session_id=session.id,
             test_case_id=test_case.id,
             protocol=session.protocol,
@@ -1270,7 +1270,7 @@ class FuzzOrchestrator:
             timeout_ms=session.timeout_per_test_ms,
         )
         self.pending_tests[test_case.id] = test_case
-        await agent_manager.enqueue_test_case(
+        await probe_manager.enqueue_test_case(
             session.target_host,
             session.target_port,
             session.transport,
@@ -1310,19 +1310,19 @@ class FuzzOrchestrator:
         elif result in (TestCaseResult.ANOMALY, TestCaseResult.LOGICAL_FAILURE):
             session.anomalies += 1
 
-    async def handle_agent_result(self, agent_id: str, payload: AgentTestResult) -> Dict[str, Any]:
-        """Persist results coming back from an agent"""
+    async def handle_probe_result(self, probe_id: str, payload: ProbeTestResult) -> Dict[str, Any]:
+        """Persist results coming back from probe"""
         session = self.sessions.get(payload.session_id)
         if not session:
-            await agent_manager.complete_work(payload.test_case_id)
-            logger.error("agent_result_unknown_session", session_id=payload.session_id)
+            await probe_manager.complete_work(payload.test_case_id)
+            logger.error("probe_result_unknown_session", session_id=payload.session_id)
             return {"status": "unknown_session"}
 
         test_case = self.pending_tests.pop(payload.test_case_id, None)
         if not test_case:
-            await agent_manager.complete_work(payload.test_case_id)
+            await probe_manager.complete_work(payload.test_case_id)
             logger.warning(
-                "agent_result_missing_test",
+                "probe_result_missing_test",
                 test_case_id=payload.test_case_id,
                 session_id=payload.session_id,
             )
@@ -1366,14 +1366,14 @@ class FuzzOrchestrator:
 
         self._evaluate_response_followups(payload.session_id, response_bytes)
 
-        await agent_manager.complete_work(payload.test_case_id)
+        await probe_manager.complete_work(payload.test_case_id)
 
         return {"status": "recorded", "result": payload.result}
 
     async def execute_one_off(self, request: OneOffTestRequest) -> OneOffTestResult:
         """Run a single test case outside of a session"""
-        if request.execution_mode == ExecutionMode.AGENT:
-            raise ValueError("Agent-mode one-off execution is not yet supported")
+        if request.execution_mode == ExecutionMode.PROBE:
+            raise ValueError("Probe-mode one-off execution is not yet supported")
 
         plugin = plugin_manager.load_plugin(request.protocol)
         session_transport = request.transport or plugin.transport

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a portable, extensible fuzzing framework for proprietary network protocols. It uses a microservices architecture with three main components:
 
 1. **Core Container** - FastAPI-based orchestrator with REST API, mutation engine, corpus store, and web UI
-2. **Agent** (optional) - Lightweight monitor deployed near target systems
+2. **Probe** (optional) - Lightweight monitor deployed near target systems
 3. **Target** - The system under test (e.g., SimpleTCP server)
 
 The framework implements intelligent mutation-based fuzzing with a plugin system for protocol definitions.
@@ -76,7 +76,7 @@ docker-compose build core && docker-compose restart core
 # View logs
 docker-compose logs -f core
 docker-compose logs -f target
-docker-compose logs -f agent
+docker-compose logs -f probe
 
 # Stop everything
 docker-compose down
@@ -112,8 +112,8 @@ python -m core.api.server
 # Run test target (terminal 2)
 python tests/simple_tcp_server.py
 
-# Run agent (terminal 3 - optional)
-python -m agent.main --core-url http://localhost:8000 --target-host localhost --target-port 9999
+# Run probe (terminal 3 - optional)
+python -m probe.main --core-url http://localhost:8000 --target-host localhost --target-port 9999
 ```
 
 ### Testing
@@ -131,7 +131,7 @@ curl http://localhost:8000/api/system/health
 
 ### Making Changes
 
-**For Core/Agent code changes**:
+**For Core/Probe code changes**:
 ```bash
 # Rebuild the container
 docker-compose build core
@@ -475,8 +475,8 @@ core/
 ├── config.py              # Settings (from env vars)
 └── models.py              # Pydantic data models
 
-agent/
-├── main.py                # Agent application
+probe/
+├── main.py                # Probe application
 └── monitor.py             # Process monitoring
 
 tests/
@@ -492,7 +492,7 @@ tests/
 - `FUZZER_CORPUS_DIR` - Default: /app/data/corpus
 - `FUZZER_MAX_CONCURRENT_TESTS` - Default: 10
 
-**Agent**:
+**Probe**:
 - `FUZZER_CORE_URL` - Core API URL (e.g., http://core:8000)
 - `FUZZER_TARGET_HOST` - Target hostname
 - `FUZZER_TARGET_PORT` - Target port
