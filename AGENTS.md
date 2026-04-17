@@ -1,10 +1,10 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`core/` hosts the FastAPI orchestrator (`core/api`), mutation engine (`core/engine`), protocol plugins (`core/plugins`), and UI (`core/ui`). The forwarding probe lives in `probe/`, while reusable corpora and crash artifacts sit in `data/`. Sample targets and integration helpers live in `tests/`. Devops assets (Makefile, Dockerfile*, docker-compose.yml, requirements.txt) stay at the root so probes can bootstrap quickly.
+`core/` hosts the FastAPI orchestrator (`core/api`), mutation engine (`core/engine`), protocol plugins (`core/plugins`), and UI (`core/ui`). The forwarding probe lives in `probe/`, while reusable corpora and crash artifacts sit in `data/`. The Target Manager lives in `target_manager/` and manages dynamic test server lifecycles. Sample targets and integration helpers live in `tests/`. Devops assets (Makefile, Dockerfile*, docker-compose.yml, requirements.txt) stay at the root.
 
 ## Build, Test, and Development Commands
-`make install` installs runtime deps; `make dev` adds pytest, pytest-asyncio, black, and ruff. Use `make run-core` to start the API, `make run-probe` to connect to the core, and `make run-target` to launch the SimpleTCP reference server. Container workflows rely on `make docker-build`, `make docker-up`, and `make docker-logs`. Validate changes with `make test` (alias of `pytest tests/ -v`).
+`make install` installs runtime deps; `make dev` adds pytest, pytest-asyncio, black, and ruff. Use `make run-core` to start the API and `make run-probe` to connect to the core. Test targets are started dynamically via the Target Manager (`python -m target_manager`). Container workflows rely on `make docker-build`, `make docker-up`, and `make docker-logs`. Validate changes with `make test` (alias of `pytest tests/ -v`). Use `./start.sh` for an interactive startup menu.
 
 ## Execution Modes & Probe Workflow
 Sessions default to core-side execution. Set `execution_mode` to `probe` in the `FuzzConfig` payload to stream work to remote workers; the orchestrator refuses to start if no probe is registered for that target. Probes poll `/api/probes/{id}/next-case`, run the payload, and reply via `/api/probes/{id}/result`. Use the CLI flags `--poll-interval` to throttle pull cadence and `--launch-cmd` to boot and monitor a local binary (Linux process groups vs. Windows `CREATE_NEW_PROCESS_GROUP`). Heartbeats now include CPU, memory, and the number of inflight tests so the UI can surface unhealthy hosts.
@@ -33,7 +33,7 @@ The runtime stores per-session state, applies these behaviors in both core and p
 Python 3.11+, 4-space indentation, and type hints on exported functions are required. Run `black .` before committing and keep `ruff` clean—CI mirrors `make dev`. Files and functions use snake_case, classes use PascalCase, and protocol plugin modules must expose `data_model`, `state_model`, and optional validators with descriptive names.
 
 ## Testing Guidelines
-Store regression tests under `tests/` with filenames `test_*.py`. Favor pytest fixtures for reusable sockets or mock targets, and capture failing seeds under `data/corpus/` with clear prefixes. Before fuzzing, `make run-target` ensures the reference target is reachable; failures triaged into `data/crashes/` should include reproduction notes or simplified payloads.
+Store regression tests under `tests/` with filenames `test_*.py`. Favor pytest fixtures for reusable sockets or mock targets, and capture failing seeds under `data/corpus/` with clear prefixes. Use the Target Manager to start reference targets before fuzzing; failures triaged into `data/crashes/` should include reproduction notes or simplified payloads.
 
 ## Recording Changes in CHANGELOG.md
 All code changes, bug fixes, new features, and modifications **must** be documented in `CHANGELOG.md`. The changelog follows the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.

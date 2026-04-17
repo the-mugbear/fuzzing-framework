@@ -197,4 +197,4 @@ heartbeat = {
     -   **Solution**: Does your heartbeat message itself require context variables (like `session_token`)? Ensure they are being exported correctly. Is the server expecting a PING and you are not sending one? Set `expect_response: false` if the server does not reply to pings.
 
 ---
-For a complete, working implementation, see the **`orchestrated_example.py`** plugin. For a deeper technical overview, see the **[Orchestrated Sessions Architecture](developer/ORCHESTRATED_SESSIONS_ARCHITECTURE.md)** document.
+For a complete, working implementation, see the **`core/plugins/examples/orchestrated.py`** plugin. For a deeper technical overview, see the **[Orchestrated Sessions Architecture](developer/ORCHESTRATED_SESSIONS_ARCHITECTURE.md)** document.

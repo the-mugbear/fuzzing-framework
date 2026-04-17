@@ -135,5 +135,5 @@ This example demonstrates how the server maintains state (`self.sessions`) and r
 ---
 ## See Also
 -   **Quick Reference**: `docs/TEMPLATE_QUICK_REFERENCE.md`
--   **Complex Example**: `tests/feature_showcase_server.py` (handles orchestration).
+-   **Complex Example**: `tests/feature_reference_server.py` (handles orchestration).
 -   **Simple Example**: `tests/simple_tcp_server.py`.

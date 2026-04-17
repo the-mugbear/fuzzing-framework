@@ -114,5 +114,5 @@ echo -ne '\xDE\xAD\xBE\xEF...' | nc localhost 9999 | xxd
 ---
 ## Resources
 -   **Full Guide**: `docs/PROTOCOL_SERVER_TEMPLATES.md`
--   **Complex Example**: `tests/feature_showcase_server.py` (handles orchestration).
+-   **Complex Example**: `tests/feature_reference_server.py` (handles orchestration).
 -   **Simple Example**: `tests/simple_tcp_server.py`.

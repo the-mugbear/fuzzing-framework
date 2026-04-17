@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-**Last Updated: 2026-01-31**
+**Last Updated: 2026-02-08**
 
 Get the fuzzer running in 5 minutes.
 
@@ -14,8 +14,8 @@ Get the fuzzer running in 5 minutes.
 The fastest way to get started:
 
 ```bash
-# Build and start all services
-make docker-up
+# Interactive menu: Docker/Podman/local, status, stop, logs
+./start.sh
 
 # Or manually:
 docker-compose up -d --build
@@ -23,7 +23,15 @@ docker-compose up -d --build
 
 This starts:
 - **Core API**: The "brain" of the fuzzer, managing sessions, mutations, and serving the web UI. (http://localhost:8000)
-- **Test Target**: The `feature_showcase_server`, a rich target for testing advanced features like orchestration. (localhost:9999)
+- **Target Manager**: A service for dynamically starting/stopping test servers. (http://localhost:8001)
+
+### Start a Test Target
+
+Use the **Targets** page in the web UI, or start a server via the Target Manager API:
+
+```bash
+curl -X POST http://localhost:8001/targets/feature_reference_server/start
+```
 
 ### Access the Web UI
 
@@ -32,9 +40,8 @@ Open http://localhost:8000 in your browser. You should see the fuzzer dashboard.
 ### Example 1: Fuzzing a Standard Protocol
 
 1.  In the UI, select **`feature_reference`** from the protocol dropdown.
-2.  Set Target Host to **`target`** (the Docker service name).
-3.  Set Target Port to **`9999`**.
-4.  Click **Create Session**, then **Start** to begin fuzzing.
+2.  The target host and port will auto-fill from running targets, or set manually to **`target-manager`** and the port shown in the Targets page.
+3.  Click **Create Session**, then **Start** to begin fuzzing.
 
 You should see test cases being executed against the test server.
 
@@ -45,8 +52,8 @@ This fuzzer supports multi-protocol testing, called **Orchestrated Sessions**. T
 The `orchestrated` plugin (in `core/plugins/examples/`) demonstrates this. It performs a handshake to get a session token, then uses that token to fuzz the target. It also uses a **heartbeat** to keep the connection alive.
 
 1.  In the UI, select **`orchestrated`** from the protocol dropdown.
-2.  Set Target Host to **`target`**.
-3.  Set Target Port to **`9999`**.
+2.  Set Target Host to **`target-manager`**.
+3.  Set Target Port to the port shown in the Targets page.
 4.  Click **Create Session**, then **Start**.
 
 Watch the logs (`docker-compose logs -f core`) to see the orchestration in action. You will see the `bootstrap` stage (the handshake) followed by the `fuzz_target` stage. For a deep-dive, see the **[Orchestrated Sessions Guide](ORCHESTRATED_SESSIONS_GUIDE.md)**.
@@ -59,7 +66,7 @@ docker-compose logs -f
 
 # Specific service
 docker-compose logs -f core
-docker-compose logs -f target
+docker-compose logs -f target-manager
 ```
 
 ### Stop Everything
@@ -91,8 +98,11 @@ pip install -r requirements.txt
 
 In terminal 1:
 ```bash
-# This target supports both simple and orchestrated protocols
-python tests/feature_showcase_server.py --port 9999
+# Start the Target Manager to dynamically manage test servers
+python -m target_manager --port 8001
+
+# Then start a test target:
+curl -X POST http://localhost:8001/targets/feature_reference_server/start
 ```
 
 ### 2b. Install & Build the Web UI

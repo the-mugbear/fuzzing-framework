@@ -161,8 +161,8 @@ Manages state machine navigation:
 ### 1f. AgentDispatcher (`core/engine/probe_dispatcher.py`)
 Coordinates remote probe execution:
 -   Packages test cases as work items
--   Queues work for target-specific agents
--   Processes results when agents report back
+-   Queues work for target-specific probes
+-   Processes results when probes report back
 -   Cleans up pending work on session stop
 
 ### 2. StageRunner (`core/engine/stage_runner.py`)

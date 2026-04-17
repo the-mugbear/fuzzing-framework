@@ -13,7 +13,7 @@
 
 The project includes a `docker-compose.yml` file configured for local development. It defines key services:
 *   `core`: The main fuzzer application (API, orchestrator, UI).
-*   `target`: The `feature_showcase_server`, a robust target that supports the `orchestrated_example` plugin.
+*   `target-manager`: The Target Manager service for dynamically starting/stopping test servers.
 
 The `core` service is configured with `debugpy` to allow a remote Python debugger to attach. To start the environment, run:
 
@@ -29,15 +29,15 @@ core_1    | INFO:     debugpy is listening on port 5678
 
 Access the web UI at [http://localhost:8000](http://localhost:8000).
 
-## Step 2: Prepare the `orchestrated_example` Plugin
+## Step 2: Prepare the `orchestrated` Plugin
 
-We'll use the built-in `orchestrated_example` plugin to debug an orchestrated session. This plugin demonstrates:
+We'll use the built-in `orchestrated` plugin to debug an orchestrated session. This plugin demonstrates:
 -   A `bootstrap` stage to perform a handshake.
 -   `exports` to capture a session ID from the handshake response.
 -   `from_context` to inject the session ID into the `fuzz_target` messages.
 -   A `heartbeat` to keep the connection alive.
 
-You don't need to create a new file, as this plugin is already part of `core/plugins/orchestrated_example.py`.
+You don't need to create a new file, as this plugin is already part of `core/plugins/examples/orchestrated.py`.
 
 ## Step 3: Configure and Attach the VSCode Debugger
 
@@ -81,15 +81,15 @@ Now, set strategic breakpoints to understand the orchestrated session lifecycle.
 2.  **Stage Execution**: Open `core/engine/stage_runner.py` and set a breakpoint at the beginning of `run_bootstrap_stages`. This is where the handshake is performed.
 3.  **Context Injection**: In `core/engine/orchestrator.py`, set a breakpoint within the `_inject_context_values` method to observe how session data is injected into test cases.
 4.  **Heartbeat Logic**: Open `core/engine/heartbeat_scheduler.py` and set a breakpoint at the beginning of `_heartbeat_loop` to see the keep-alive mechanism in action.
-5.  **Plugin Logic**: Open `core/plugins/orchestrated_example.py` and set a breakpoint in its `data_model`'s `from_context` field definition or in the `exports` definition to see how values are handled.
+5.  **Plugin Logic**: Open `core/plugins/examples/orchestrated.py` and set a breakpoint in its `data_model`'s `from_context` field definition or in the `exports` definition to see how values are handled.
 
 ## Step 5: Start an Orchestrated Session
 
 1.  Navigate to the web UI at [http://localhost:8000](http://localhost:8000).
 2.  Click on "New Session".
-3.  **Protocol**: Select `orchestrated_example` from the dropdown.
-4.  **Target Host**: Enter `target`.
-5.  **Target Port**: Enter `9999`.
+3.  **Protocol**: Select `orchestrated` from the dropdown.
+4.  **Target Host**: Enter `target-manager`.
+5.  **Target Port**: Enter the port shown for the running target in the Targets page.
 6.  Click "Start Session".
 
 ## Step 6: Step Through and Observe

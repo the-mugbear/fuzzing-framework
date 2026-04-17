@@ -2,22 +2,22 @@
 
 **Last Updated: 2026-02-06**
 
-To scale the fuzzing process and increase test case throughput, the fuzzer supports distributing workloads to multiple remote **Agents**. An probe is a separate, lightweight process responsible for executing test cases against a specific target.
+To scale the fuzzing process and increase test case throughput, the fuzzer supports distributing workloads to multiple remote **Probes**. A probe is a separate, lightweight process responsible for executing test cases against a specific target.
 
 ## Architecture Overview
 
-The distributed fuzzing model offloads the I/O-bound work of sending test cases and monitoring responses from the main Core process. This allows the **Core** to focus on computationally intensive tasks like test case generation and mutation, while **Agents** handle network communication and execution.
+The distributed fuzzing model offloads the I/O-bound work of sending test cases and monitoring responses from the main Core process. This allows the **Core** to focus on computationally intensive tasks like test case generation and mutation, while **Probes** handle network communication and execution.
 
 The system comprises three main components:
-1.  **The `FuzzOrchestrator` (in the Core)**: Generates test cases and enqueues them for an probe. For orchestrated sessions, it dispatches the entire session configuration to the probe.
-2.  **The `AgentManager` (in the Core)**: A central coordinator managing registered agents and their work queues.
+1.  **The `FuzzOrchestrator` (in the Core)**: Generates test cases and enqueues them for a probe. For orchestrated sessions, it dispatches the entire session configuration to the probe.
+2.  **The `AgentManager` (in the Core)**: A central coordinator managing registered probes and their work queues.
 3.  **The Probe (`probe/main.py`)**: A standalone Python process that polls the `AgentManager` for work, executes test cases, and reports results back.
 
 ## Communication Flow
 
 The interaction between the Core and an Probe follows a simple, HTTP-based polling mechanism.
 
-1.  **Probe Registration**: An probe registers with the Core via `POST /api/probes/register`, providing its ID and target configuration.
+1.  **Probe Registration**: A probe registers with the Core via `POST /api/probes/register`, providing its ID and target configuration.
 2.  **Probe Heartbeats**: The probe sends periodic `POST` requests to `/api/probes/{agent_id}/heartbeat` to signal it's alive and report telemetry (CPU/memory).
 3.  **Work Queueing**:
     -   **Simple Sessions**: The `FuzzOrchestrator` generates a test case and places it into the appropriate work queue for the target, managed by the `AgentManager`.
@@ -25,12 +25,12 @@ The interaction between the Core and an Probe follows a simple, HTTP-based polli
 4.  **Probe Polling for Work**: The probe polls the Core (`GET /api/probes/{agent_id}/next-case`). If work is available (either a simple test case or an orchestrated session to start), the `AgentManager` returns it.
 5.  **Execution and Result Submission**: The probe executes the test case(s) against its target and sends the result(s) back to the Core via `POST /api/probes/{agent_id}/result`.
 
-This polling-based architecture is robust and decouples the Core from agents, allowing them to connect, disconnect, or crash without bringing down the entire fuzzing campaign.
+This polling-based architecture is robust and decouples the Core from probes, allowing them to connect, disconnect, or crash without bringing down the entire fuzzing campaign.
 
 ## Key Components in Detail
 
 ### `AgentManager` (`core/agents/manager.py`)
-This class manages the distributed system on the Core side. It maintains `_agents` (registered agents) and `_queues` (work queues for each target). It also tracks `_inflight` test cases to prevent work loss.
+This class manages the distributed system on the Core side. It maintains `_agents` (registered probes) and `_queues` (work queues for each target). It also tracks `_inflight` test cases to prevent work loss.
 
 The `AgentManager` uses asyncio locks for thread-safe queue manipulation, particularly during session cleanup operations to prevent race conditions.
 
@@ -39,16 +39,16 @@ This high-level component (part of the orchestrator decomposition) handles:
 - Packaging test cases as work items
 - Queueing work via `AgentManager`
 - Tracking pending test cases
-- Processing results when agents report back
+- Processing results when probes report back
 
 ### Probe (`probe/main.py`)
 The probe is a much simpler process. Its `run` method orchestrates two main loops:
 -   **`heartbeat_loop()`**: Periodically sends probe heartbeats to the Core.
 -   **`work_loop()`**: Continuously polls the Core for work.
 
-## Agents and Orchestrated Sessions
+## Probes and Orchestrated Sessions
 
-Agents are fully capable of executing **Orchestrated Sessions**. When an probe receives an orchestrated session configuration from the Core:
+Probes are fully capable of executing **Orchestrated Sessions**. When a probe receives an orchestrated session configuration from the Core:
 
 1.  **Local Orchestration**: The probe itself instantiates the `StageRunner`, `ConnectionManager`, and `HeartbeatScheduler` locally for that specific session.
 2.  **`ProtocolContext` Management**: The probe manages the `ProtocolContext` locally for the session, handling `exports` from `bootstrap` stages and `from_context` injections during the `fuzz_target` stage.

@@ -7,9 +7,12 @@
 make docker-up              # Start all services
 open http://localhost:8000  # Open UI
 
+# Or use start.sh for interactive menu
+./start.sh
+
 # Local development
 make install                # Install deps
-make run-target            # Terminal 1: Start target
+python -m target_manager    # Terminal 1: Start Target Manager
 make run-core              # Terminal 2: Start Core
 open http://localhost:8000  # Open UI
 ```
@@ -123,7 +126,7 @@ curl -X POST http://localhost:8000/api/tests/execute \\
 
 ## Creating a Protocol Plugin
 
-Create `core/plugins/my_protocol.py`:
+Create `core/plugins/custom/my_protocol.py`:
 
 ```python
 """My Protocol"""
@@ -296,14 +299,14 @@ curl -X POST http://localhost:8000/api/sessions \
   # Linux: 172.17.0.1
   # Mac/Win: host.docker.internal
 
-# Inside Docker targeting container
+# Inside Docker targeting dynamic target (via Target Manager)
 curl -X POST http://localhost:8000/api/sessions \
-  -d '{"protocol":"my_protocol","target_host":"target","target_port":9999}'
-  # Use service name from docker-compose.yml
+  -d '{"protocol":"my_protocol","target_host":"target-manager","target_port":9999}'
+  # Use target-manager service name from docker-compose.yml
 
 # Check container connectivity
-docker exec fuzzer-core ping -c 1 target
-docker exec fuzzer-core nc -zv target 9999
+docker exec fuzzer-core ping -c 1 target-manager
+docker exec fuzzer-core nc -zv target-manager 9999
 ```
 
 ## File Locations
@@ -313,16 +316,21 @@ Project Structure:
 ├── core/
 │   ├── api/server.py          - REST API
 │   ├── engine/
+│   │   ├── orchestrator.py    - Session coordination (facade)
 │   │   ├── mutators.py        - Mutation strategies
-│   │   └── orchestrator.py    - Session management
+│   │   └── ...                - Decomposed components
+│   ├── plugin_loader.py       - Dynamic plugin loading
 │   ├── plugins/
-│   │   └── *.py               - Protocol definitions
-│   └── corpus/store.py        - Corpus management
+│   │   ├── custom/            - Your plugins (highest priority)
+│   │   ├── examples/          - Reference implementations
+│   │   └── standard/          - Production protocols
+│   ├── corpus/store.py        - Corpus management
+│   └── ui/spa/                - React SPA
+├── target_manager/            - Dynamic test server management
 ├── probe/
 │   ├── main.py                - Probe app
 │   └── monitor.py             - Process monitoring
-├── tests/
-│   └── simple_tcp_server.py   - Test target
+├── tests/                     - Test servers and pytest files
 └── data/                      - Generated data
     ├── corpus/seeds/          - Seed files
     └── crashes/{id}/          - Crash reports
@@ -370,18 +378,17 @@ docker-compose logs core
 
 ### Target not responding
 ```bash
-# Test connection
-echo -ne 'STCP\x00\x00\x00\x05\x01HELLO' | nc localhost 9999
+# Check running targets via Target Manager
+curl http://localhost:8001/targets
 
-# Check if running
+# Check if running locally
 lsof -i :9999
-ps aux | grep simple_tcp_server
 ```
 
 ### No findings
-- MVP uses simulated execution by default
-- For real bugs, target must be running and accepting connections
-- Check probe is connected: `docker-compose logs probe`
+- Target must be running and accepting connections
+- Start a target via the Targets page in the UI or via Target Manager API
+- Check probe is connected: `docker-compose logs core`
 
 ### Import errors
 ```bash
@@ -395,7 +402,8 @@ python tests/test_imports.py
 ## Ports
 
 - **8000** - Core API + Web UI
-- **9999** - Test target (SimpleTCP)
+- **8001** - Target Manager API
+- **9990-9999** - Dynamic test targets (via Target Manager)
 
 ## Useful Docker Commands
 
@@ -441,8 +449,6 @@ docker-compose exec core bash
 ## Getting Help
 
 - **[docs/PROTOCOL_PLUGIN_GUIDE.md](./docs/PROTOCOL_PLUGIN_GUIDE.md)** - Complete guide for creating, testing, and debugging protocol plugins
-- **[QUICKSTART.md](./QUICKSTART.md)** - Detailed setup instructions
-- **[README.md](./README.md)** - Overview and features
+- **[docs/QUICKSTART.md](./docs/QUICKSTART.md)** - Detailed setup instructions
 - `blueprint.md` - Architecture details
-- `MVP_SUMMARY.md` - Feature list
 - View logs for debugging: `docker-compose logs -f core`

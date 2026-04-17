@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed - 2026-02-08
+
+- **Documentation cleanup and consolidation** (12 files updated)
+  - `CLAUDE.md`: Comprehensive rewrite — fixed 9+ stale references (plugin paths, Docker service names, UI architecture, project structure tree, removed dead links to rfc.md/roadmap.md)
+  - `AGENTS.md`: Updated Target Manager references, removed stale `make run-target`, added `start.sh` mention
+  - `blueprint.md`: Added implementation status annotations (**[IMPLEMENTED]**, **[PARTIAL]**, **[ASPIRATIONAL]**) to all major sections
+  - `CHEATSHEET.md`: Fixed plugin paths (`core/plugins/custom/`), Docker networking (`target-manager`), project structure tree, ports section, troubleshooting
+  - `docs/QUICKSTART.md`: Replaced static target service with Target Manager workflow, added `start.sh`, updated all Docker service references
+  - `docs/README.md`: Fixed broken link to `05_probe_and_core_communication.md`, updated terminology
+  - `docs/PROTOCOL_SERVER_TEMPLATES.md`, `docs/TEMPLATE_QUICK_REFERENCE.md`: Fixed `feature_showcase_server` → `feature_reference_server`
+  - `docs/ORCHESTRATED_SESSIONS_GUIDE.md`: Fixed `orchestrated_example.py` → `core/plugins/examples/orchestrated.py`
+  - `docs/developer/01_architectural_overview.md`: Fixed "agents" → "probes" in descriptive text
+  - `docs/developer/05_probe_and_core_communication.md`: Fixed mixed Agent/Probe terminology throughout body text
+  - `docs/developer/06_first_debug_session.md`: Fixed `target` → `target-manager`, `orchestrated_example` → `orchestrated`, plugin path corrections
+  - Impact: All documentation now accurately reflects the current codebase architecture
+  - Areas to revisit: `feature_showcase_server.py` still exists but references a deleted plugin; consider removing or updating it
+
 ### Added - 2026-04-17
 
 - **Target Manager service — dynamic test server lifecycle management** (`target_manager/`)

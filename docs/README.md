@@ -1,6 +1,6 @@
 # Documentation Index
 
-**Last Updated: 2026-02-06**
+**Last Updated: 2026-02-08**
 
 Welcome to the documentation for the protocol fuzzer. This index provides a curated list of the most important documents in the repository, organized by audience.
 
@@ -44,7 +44,7 @@ These documents are for users who want to contribute to the fuzzer's development
 | [developer/02_mutation_engine.md](developer/02_mutation_engine.md) | A deep dive into how test cases and mutations are generated. |
 | [developer/03_stateful_fuzzing.md](developer/03_stateful_fuzzing.md) | Describes the stateful fuzzing engine and how it follows a protocol's state machine. |
 | [developer/04_data_management.md](developer/04_data_management.md) | Details on how the fuzzer manages its test case corpus, session history, and crash data. |
-| [developer/05_agent_and_core_communication.md](developer/05_agent_and_core_communication.md) | Explains the architecture of distributed fuzzing with agents. |
+| [developer/05_probe_and_core_communication.md](developer/05_probe_and_core_communication.md) | Explains the architecture of distributed fuzzing with probes. |
 | [developer/06_first_debug_session.md](developer/06_first_debug_session.md) | A practical guide for setting up a development environment and debugging a fuzzing session. |
 
 
