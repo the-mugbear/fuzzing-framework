@@ -506,28 +506,24 @@ async def orchestrated_replay(
 
 def _get_session_context(orchestrator, session_id: str):
     """Get the ProtocolContext for a session if it exists."""
-    # Context is stored per-session in orchestrator's context registry
-    contexts = getattr(orchestrator, "_session_contexts", {})
-    return contexts.get(session_id)
+    ctx = orchestrator.context_manager.get_context(session_id)
+    return ctx.protocol_context if ctx else None
 
 
 def _get_or_create_session_context(orchestrator, session_id: str):
     """Get or create a ProtocolContext for a session."""
     from core.engine.protocol_context import ProtocolContext
 
-    if not hasattr(orchestrator, "_session_contexts"):
-        orchestrator._session_contexts = {}
-
-    if session_id not in orchestrator._session_contexts:
-        orchestrator._session_contexts[session_id] = ProtocolContext()
-
-    return orchestrator._session_contexts[session_id]
+    ctx = orchestrator.context_manager.get_or_create_context(session_id)
+    if not ctx.protocol_context:
+        ctx.protocol_context = ProtocolContext()
+    return ctx.protocol_context
 
 
 def _get_stage_runner(orchestrator, session_id: str):
     """Get the StageRunner for a session if it exists."""
-    stage_runners = getattr(orchestrator, "_stage_runners", {})
-    return stage_runners.get(session_id)
+    ctx = orchestrator.context_manager.get_context(session_id)
+    return ctx.stage_runner if ctx else None
 
 
 def _get_connection_manager(orchestrator, session_id: str):

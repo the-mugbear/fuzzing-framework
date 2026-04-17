@@ -117,8 +117,8 @@ import asyncio
 import base64
 import time
 import uuid
-from collections import deque
 from datetime import datetime, timedelta
+from core import utcnow
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -198,23 +198,11 @@ class FuzzOrchestrator:
         self.sessions: Dict[str, FuzzSession] = {}
         self.active_tasks: Dict[str, asyncio.Task] = {}
         self.pending_tests: Dict[str, TestCase] = {}
-        self.behavior_processors: Dict[str, Any] = {}
-        self.stateful_sessions: Dict[str, StatefulFuzzingSession] = {}  # Track stateful sessions
-        self.response_planners: Dict[str, ResponsePlanner] = {}
-        self.followup_queues: Dict[str, deque] = {}
-        self.session_data_models: Dict[str, Dict[str, Any]] = {}
-        self.session_response_models: Dict[str, Dict[str, Any]] = {}
+        self.context_manager = SessionContextManager()
         self.history_store = history_store or ExecutionHistoryStore()
         self.crash_reporter = CrashReporter(self.corpus_store)
 
-        # NEW: Unified session context manager (Phase 5 refactoring)
-        # This replaces the scattered dictionary-based tracking above
-        # and provides a cleaner interface for session runtime state.
-        self.context_manager = SessionContextManager()
-
-        # Orchestrated session resources (initialized here to prevent race conditions)
-        self._session_contexts: Dict[str, Any] = {}  # ProtocolContext per session
-        self._stage_runners: Dict[str, Any] = {}  # StageRunner per session
+        # Orchestrated session resources (shared across sessions)
         self._connection_manager: Optional[Any] = None  # Shared ConnectionManager
         self._heartbeat_scheduler: Optional[Any] = None  # Shared HeartbeatScheduler
 
@@ -251,12 +239,15 @@ class FuzzOrchestrator:
                 try:
                     protocol = plugin_manager.load_plugin(session.protocol)
                     if protocol:
+                        # Create runtime context for this session
+                        ctx = self.context_manager.get_or_create_context(session.id)
+
                         # Rebuild behavior processor if protocol has behaviors
                         resolved_data_model = denormalize_data_model_from_json(protocol.data_model)
                         behavior_processor = build_behavior_processor(resolved_data_model)
 
                         if behavior_processor.has_behaviors():
-                            self.behavior_processors[session.id] = behavior_processor
+                            ctx.behavior_processor = behavior_processor
                             logger.debug(
                                 "behavior_processor_rebuilt",
                                 session_id=session.id,
@@ -274,8 +265,7 @@ class FuzzOrchestrator:
                                 resolved_response_model,
                                 protocol.response_handlers,
                             )
-                            self.response_planners[session.id] = planner
-                            self.followup_queues.setdefault(session.id, deque())
+                            ctx.response_planner = planner
                             logger.debug(
                                 "response_planner_rebuilt",
                                 session_id=session.id,
@@ -287,7 +277,7 @@ class FuzzOrchestrator:
                             from core.engine.protocol_context import ProtocolContext
                             context = ProtocolContext()
                             context.restore(session.context)
-                            self._session_contexts[session.id] = context
+                            ctx.protocol_context = context
                             logger.debug(
                                 "protocol_context_restored",
                                 session_id=session.id,
@@ -334,8 +324,9 @@ class FuzzOrchestrator:
         """
         try:
             # Sync protocol context to session before saving
-            if session.id in self._session_contexts:
-                session.context = self._session_contexts[session.id].snapshot()
+            ctx = self.context_manager.get_context(session.id)
+            if ctx and ctx.protocol_context:
+                session.context = ctx.protocol_context.snapshot()
 
             self.session_store.save_session(session)
             return True
@@ -369,9 +360,12 @@ class FuzzOrchestrator:
             if protocol.response_model
             else None
         )
-        self.session_data_models[session_id] = resolved_data_model
+
+        # Create runtime context for this session
+        ctx = self.context_manager.create_context(session_id)
+        ctx.data_model = resolved_data_model
         if resolved_response_model:
-            self.session_response_models[session_id] = resolved_response_model
+            ctx.response_model = resolved_response_model
         session_transport = config.transport or protocol.transport
 
         # Initialize seed corpus from plugin
@@ -431,12 +425,12 @@ class FuzzOrchestrator:
 
         self.sessions[session_id] = session
         if behavior_processor.has_behaviors():
-            self.behavior_processors[session_id] = behavior_processor
+            ctx.behavior_processor = behavior_processor
 
         # Initialize ProtocolContext for orchestrated sessions
         if protocol_stack:
             from core.engine.protocol_context import ProtocolContext
-            self._session_contexts[session_id] = ProtocolContext()
+            ctx.protocol_context = ProtocolContext()
             logger.debug(
                 "orchestration_context_created",
                 session_id=session_id,
@@ -450,8 +444,7 @@ class FuzzOrchestrator:
                 resolved_response_model,
                 protocol.response_handlers,
             )
-            self.response_planners[session_id] = planner
-            self.followup_queues.setdefault(session_id, deque())
+            ctx.response_planner = planner
 
         # Save initial session state to disk
         await self._checkpoint_session(session)
@@ -554,7 +547,7 @@ class FuzzOrchestrator:
                     return False
 
         session.status = FuzzSessionStatus.RUNNING
-        session.started_at = datetime.utcnow()
+        session.started_at = utcnow()
         await self._checkpoint_session(session)
 
         # Start heartbeat scheduler for orchestrated protocols
@@ -585,23 +578,17 @@ class FuzzOrchestrator:
         """
         await agent_manager.clear_session(session_id)
         self._discard_pending_tests(session_id)
-        self.behavior_processors.pop(session_id, None)
 
         # Capture coverage snapshot if stateful session exists
-        stateful_session = self.stateful_sessions.get(session_id)
-        if session and stateful_session:
-            session.coverage_snapshot = stateful_session.get_coverage_stats()
-        self.stateful_sessions.pop(session_id, None)
+        ctx = self.context_manager.get_context(session_id)
+        if session and ctx and ctx.stateful_session:
+            session.coverage_snapshot = ctx.stateful_session.get_coverage_stats()
 
-        self.response_planners.pop(session_id, None)
-        self.followup_queues.pop(session_id, None)
-        self.session_data_models.pop(session_id, None)
-        self.session_response_models.pop(session_id, None)
+        # Clean up all runtime context for this session
+        self.context_manager.cleanup_context(session_id)
         self.history_store.reset_session(session_id)
 
         # Clean up orchestration resources
-        self._session_contexts.pop(session_id, None)
-        self._stage_runners.pop(session_id, None)
         if self._connection_manager:
             await self._connection_manager.close_session(session_id)
 
@@ -620,7 +607,7 @@ class FuzzOrchestrator:
             await self._run_teardown_stages(session)
 
         session.status = FuzzSessionStatus.COMPLETED
-        session.completed_at = datetime.utcnow()
+        session.completed_at = utcnow()
         await self._checkpoint_session(session)
 
         # Cancel task if running
@@ -658,10 +645,11 @@ class FuzzOrchestrator:
             logger.warning("failed_to_load_protocol_for_mutations", error=str(e))
             raise PluginError(f"Failed to load protocol '{session.protocol}': {str(e)}")
 
-        data_model = self.session_data_models.get(session_id)
+        ctx = self.context_manager.get_or_create_context(session_id)
+        data_model = ctx.data_model
         if protocol and not data_model:
             data_model = denormalize_data_model_from_json(protocol.data_model)
-            self.session_data_models[session_id] = data_model
+            ctx.data_model = data_model
 
         # Load seeds
         seeds = [self.corpus_store.get_seed(sid) for sid in session.seed_corpus]
@@ -714,7 +702,7 @@ class FuzzOrchestrator:
                     )
 
                 # Store for metrics access
-                self.stateful_sessions[session_id] = stateful_session
+                ctx.stateful_session = stateful_session
                 logger.info(
                     "stateful_fuzzing_enabled",
                     session_id=session_id,
@@ -889,17 +877,16 @@ class FuzzOrchestrator:
         parsed_fields = self._parse_request_payload(session, test_case.data)
 
         # Execute with timing
-        timestamp_sent = datetime.utcnow()
+        timestamp_sent = utcnow()
         result, response = await self._execute_test_case(session, test_case)
-        timestamp_response = datetime.utcnow()
+        timestamp_response = utcnow()
 
         # Finalize and record
         await self._finalize_test_case(session, test_case, result, response)
 
         # Get context snapshot if orchestrated session
-        context_snapshot = None
-        if session.id in self._session_contexts:
-            context_snapshot = self._session_contexts[session.id].snapshot()
+        ctx = self.context_manager.get_context(session.id)
+        context_snapshot = ctx.get_context_snapshot() if ctx else None
 
         self._record_execution(
             session,
@@ -966,9 +953,9 @@ class FuzzOrchestrator:
                 session.tests_since_last_reset = 0
 
                 # Reset response planner to allow once_per_reset handlers to fire again
-                planner = self.response_planners.get(session.id)
-                if planner:
-                    planner.reset()
+                ctx = self.context_manager.get_context(session.id)
+                if ctx and ctx.response_planner:
+                    ctx.response_planner.reset()
                 return
 
         # Periodic reset
@@ -989,9 +976,9 @@ class FuzzOrchestrator:
             session.tests_since_last_reset = 0
 
             # Reset response planner to allow once_per_reset handlers to fire again
-            planner = self.response_planners.get(session.id)
-            if planner:
-                planner.reset()
+            ctx = self.context_manager.get_context(session.id)
+            if ctx and ctx.response_planner:
+                ctx.response_planner.reset()
 
     def _should_inject_termination_test(
         self,
@@ -1163,7 +1150,8 @@ class FuzzOrchestrator:
                 loop_start = time.time()
 
                 followup_item = None
-                queue = self.followup_queues.get(session_id)
+                loop_ctx = self.context_manager.get_context(session_id)
+                queue = loop_ctx.followup_queue if loop_ctx else None
                 if queue:
                     should_use_followup = True
                     if stateful_session and self._should_inject_termination_test(
@@ -1229,7 +1217,7 @@ class FuzzOrchestrator:
 
                 if session.max_iterations and iteration >= session.max_iterations:
                     session.status = FuzzSessionStatus.COMPLETED
-                    session.completed_at = datetime.utcnow()
+                    session.completed_at = utcnow()
                     await self._checkpoint_session(session)
                     break
 
@@ -1353,7 +1341,7 @@ class FuzzOrchestrator:
             },
         )
 
-        timestamp_response = datetime.utcnow()
+        timestamp_response = utcnow()
         duration_ms = payload.execution_time_ms or 0.0
         timestamp_sent = timestamp_response - timedelta(milliseconds=duration_ms)
 
@@ -1361,9 +1349,8 @@ class FuzzOrchestrator:
         parsed_fields = self._parse_request_payload(session, test_case.data)
 
         # Get context snapshot if orchestrated session
-        context_snapshot = None
-        if session.id in self._session_contexts:
-            context_snapshot = self._session_contexts[session.id].snapshot()
+        ctx = self.context_manager.get_context(session.id)
+        context_snapshot = ctx.get_context_snapshot() if ctx else None
 
         self._record_execution(
             session,
@@ -1444,11 +1431,12 @@ class FuzzOrchestrator:
         from core.engine.stage_runner import StageRunner
 
         # Get or create context for this session
-        if session.id not in self._session_contexts:
+        ctx = self.context_manager.get_or_create_context(session.id)
+        if not ctx.protocol_context:
             from core.engine.protocol_context import ProtocolContext
-            self._session_contexts[session.id] = ProtocolContext()
+            ctx.protocol_context = ProtocolContext()
 
-        context = self._session_contexts[session.id]
+        context = ctx.protocol_context
 
         # Get ConnectionManager for persistent connections (already created in start_session)
         connection_manager = None
@@ -1458,7 +1446,7 @@ class FuzzOrchestrator:
 
         # Reuse existing StageRunner if present (for rebootstrap after heartbeat failure)
         # This preserves the bootstrap sequence counter to avoid collisions
-        stage_runner = self._stage_runners.get(session.id)
+        stage_runner = ctx.stage_runner
         if stage_runner is not None:
             # Reset for reconnect: clear context but preserve sequence counter
             stage_runner.reset_for_reconnect(clear_context=True)
@@ -1476,7 +1464,7 @@ class FuzzOrchestrator:
                 history_store=self.history_store,
                 connection_manager=connection_manager,
             )
-            self._stage_runners[session.id] = stage_runner
+            ctx.stage_runner = stage_runner
 
         # Run bootstrap stages
         await stage_runner.run_bootstrap_stages(session, bootstrap_stages)
@@ -1557,9 +1545,9 @@ class FuzzOrchestrator:
             )
 
         # Get context for this session
-        context = None
-        if session.id in self._session_contexts:
-            context = self._session_contexts[session.id]
+        ctx = self.context_manager.get_context(session.id)
+        if ctx and ctx.protocol_context:
+            context = ctx.protocol_context
         else:
             from core.engine.protocol_context import ProtocolContext
             context = ProtocolContext()
@@ -1595,18 +1583,15 @@ class FuzzOrchestrator:
 
         try:
             # Get stage runner for this session
-            stage_runner = None
-            if session.id in self._stage_runners:
-                stage_runner = self._stage_runners[session.id]
-            else:
+            ctx = self.context_manager.get_context(session.id)
+            stage_runner = ctx.stage_runner if ctx else None
+            if not stage_runner:
                 # Create minimal stage runner for teardown
                 from core.engine.stage_runner import StageRunner
                 from core.engine.protocol_context import ProtocolContext
 
                 # Get or create context for teardown
-                context = ProtocolContext()
-                if session.id in self._session_contexts:
-                    context = self._session_contexts[session.id]
+                context = ctx.protocol_context if ctx else ProtocolContext()
 
                 # Use ConnectionManager if available for persistent connections
                 connection_manager = None
@@ -1874,17 +1859,16 @@ class FuzzOrchestrator:
         if not response:
             return
 
-        planner = self.response_planners.get(session_id)
-        if not planner:
+        ctx = self.context_manager.get_context(session_id)
+        if not ctx or not ctx.response_planner:
             return
 
-        followups = planner.plan(response)
+        followups = ctx.response_planner.plan(response)
         if not followups:
             return
 
-        queue = self.followup_queues.setdefault(session_id, deque())
         for followup in followups:
-            queue.append(followup)
+            ctx.followup_queue.append(followup)
             logger.info(
                 "response_followup_queued",
                 session_id=session_id,
@@ -1912,14 +1896,15 @@ class FuzzOrchestrator:
             Data with context values injected (or original data if not applicable)
         """
         # Check if this is an orchestrated session with context
-        if session.id not in self._session_contexts:
+        ctx = self.context_manager.get_context(session.id)
+        if not ctx or not ctx.protocol_context:
             return data
-        context = self._session_contexts.get(session.id)
-        if not context or not context.snapshot().get("values"):
+        context = ctx.protocol_context
+        if not context.snapshot().get("values"):
             return data
 
         # Check if data_model has from_context fields
-        data_model = self.session_data_models.get(session.id)
+        data_model = ctx.data_model
         if not data_model:
             return data
 
@@ -1951,7 +1936,8 @@ class FuzzOrchestrator:
             return data
 
     def _apply_behaviors(self, session: FuzzSession, data: bytes) -> bytes:
-        processor = self.behavior_processors.get(session.id)
+        ctx = self.context_manager.get_context(session.id)
+        processor = ctx.behavior_processor if ctx else None
         if not processor:
             return data
         state = session.behavior_state or processor.initialize_state()
@@ -1978,7 +1964,8 @@ class FuzzOrchestrator:
             Parsed field dictionary, or None if parsing fails/not applicable
         """
         # Get data model for this session
-        data_model = self.session_data_models.get(session.id)
+        ctx = self.context_manager.get_context(session.id)
+        data_model = ctx.data_model if ctx else None
         if not data_model:
             return None
 
@@ -2043,16 +2030,16 @@ class FuzzOrchestrator:
             "anomalies": session.anomalies,
             "findings_count": len(findings),
             "runtime_seconds": (
-                (datetime.utcnow() - session.started_at).total_seconds()
+                (utcnow() - session.started_at).total_seconds()
                 if session.started_at
                 else 0
             ),
         }
 
         # Add state coverage if using stateful fuzzing
-        stateful_session = self.stateful_sessions.get(session_id)
-        if stateful_session:
-            stats["state_coverage"] = stateful_session.get_coverage_stats()
+        ctx = self.context_manager.get_context(session_id)
+        if ctx and ctx.stateful_session:
+            stats["state_coverage"] = ctx.stateful_session.get_coverage_stats()
 
         return stats
 
@@ -2067,9 +2054,9 @@ class FuzzOrchestrator:
             State coverage stats or None if not stateful
         """
         session = self.sessions.get(session_id)
-        stateful_session = self.stateful_sessions.get(session_id)
-        if stateful_session:
-            coverage = stateful_session.get_coverage_stats()
+        ctx = self.context_manager.get_context(session_id)
+        if ctx and ctx.stateful_session:
+            coverage = ctx.stateful_session.get_coverage_stats()
             if session:
                 session.coverage_snapshot = coverage
             return coverage
@@ -2323,9 +2310,9 @@ class FuzzOrchestrator:
             )
 
             # Execute
-            timestamp_sent = datetime.utcnow()
+            timestamp_sent = utcnow()
             result, response = await self._execute_test_case(session, test_case)
-            timestamp_response = datetime.utcnow()
+            timestamp_response = utcnow()
 
             # Record the replay (preserve original context/stage info)
             replay_record = self._record_execution(

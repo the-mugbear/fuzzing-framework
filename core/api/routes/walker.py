@@ -3,6 +3,7 @@ import asyncio
 import time
 import uuid
 from datetime import datetime, timedelta
+from core import utcnow
 from typing import Any, Dict
 
 import structlog
@@ -82,7 +83,7 @@ _cleanup_task: asyncio.Task = None
 def _record_session_access(session_id: str) -> None:
     """Update last accessed timestamp for session."""
     if session_id in _session_metadata:
-        _session_metadata[session_id]["last_accessed_at"] = datetime.utcnow()
+        _session_metadata[session_id]["last_accessed_at"] = utcnow()
 
 
 def _cleanup_stale_sessions() -> int:
@@ -92,7 +93,7 @@ def _cleanup_stale_sessions() -> int:
     Returns:
         Number of sessions cleaned up
     """
-    now = datetime.utcnow()
+    now = utcnow()
     cutoff = now - timedelta(hours=SESSION_TTL_HOURS)
 
     stale_sessions = [
@@ -311,7 +312,7 @@ async def initialize_walker(
         _field_overrides[session_id] = {}  # Initialize empty field overrides
 
         # Record session metadata for cleanup
-        now = datetime.utcnow()
+        now = utcnow()
         _session_metadata[session_id] = {
             "created_at": now,
             "last_accessed_at": now,
@@ -611,7 +612,7 @@ async def execute_transition(
             error=error_msg,
             validation_passed=validation_passed,
             validation_error=validation_error,
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=utcnow().isoformat(),
         )
 
         # Store in execution history with size limit
@@ -722,7 +723,7 @@ async def list_walker_sessions():
     Returns:
         List of session info including ID, protocol, age, and last access time
     """
-    now = datetime.utcnow()
+    now = utcnow()
     sessions = []
 
     for session_id in _walker_sessions.keys():

@@ -92,6 +92,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from core import utcnow
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -223,7 +224,7 @@ class SessionTimestamps(BaseModel):
     Session timestamps - lifecycle timing.
     """
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
 

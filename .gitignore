@@ -64,3 +64,9 @@ core/ui/spa/*.txt
 Thumbs.db
 
 CLAUDE.md
+
+# Runtime corpus data
+core/corpus/seeds/
+core/corpus/findings/
+data/corpus/
+data/crashes/

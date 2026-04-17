@@ -17,6 +17,7 @@ import asyncio
 import random
 from dataclasses import dataclass, field
 from datetime import datetime
+from core import utcnow
 from enum import Enum
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 
@@ -300,14 +301,14 @@ class HeartbeatScheduler:
                         timeout_ms=response_timeout_ms,
                     )
 
-                    state.last_sent = datetime.utcnow()
+                    state.last_sent = utcnow()
                     state.total_sent += 1
                     session.heartbeat_last_sent = state.last_sent
 
                     # Process response if expected
                     if config.get("expect_response", False):
                         if self._is_valid_response(response, config):
-                            state.last_ack = datetime.utcnow()
+                            state.last_ack = utcnow()
                             state.total_acks += 1
                             state.failures = 0
                             state.status = HeartbeatStatus.HEALTHY

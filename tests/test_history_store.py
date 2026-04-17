@@ -1,4 +1,5 @@
 from datetime import datetime
+from core import utcnow
 
 from core.engine.history_store import ExecutionHistoryStore
 from core.models import ExecutionMode, FuzzSession, FuzzSessionStatus, TestCase, TestCaseResult
@@ -30,7 +31,7 @@ def test_history_store_sequences_are_monotonic(tmp_path):
     )
     session = _make_session("session-1")
 
-    ts = datetime.utcnow()
+    ts = utcnow()
     record_one = store.record(
         session,
         _make_test_case(session.id, "one"),

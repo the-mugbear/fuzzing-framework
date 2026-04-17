@@ -89,6 +89,7 @@ See Also:
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from core import utcnow
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 
 import structlog
@@ -243,7 +244,7 @@ class AgentDispatcher:
 
         # Record execution history if callback provided
         if record_execution:
-            timestamp_response = datetime.utcnow()
+            timestamp_response = utcnow()
             duration_ms = payload.execution_time_ms or 0.0
             timestamp_sent = timestamp_response - timedelta(milliseconds=duration_ms)
 

@@ -10,6 +10,7 @@ Tests cover:
 """
 import pytest
 from datetime import datetime
+from core import utcnow
 
 from core.engine.protocol_context import (
     ProtocolContext,
@@ -116,7 +117,7 @@ class TestProtocolContextSnapshot:
     def test_snapshot_restore_datetime(self):
         """Test datetime values are properly serialized/deserialized."""
         ctx = ProtocolContext()
-        now = datetime.utcnow()
+        now = utcnow()
         ctx.set("timestamp", now)
 
         snapshot = ctx.snapshot()
@@ -293,9 +294,9 @@ class TestProtocolParserDynamicGeneration:
         }
         parser = ProtocolParser(data_model)
 
-        before = int(datetime.utcnow().timestamp())
+        before = int(utcnow().timestamp())
         result = parser.serialize({})
-        after = int(datetime.utcnow().timestamp())
+        after = int(utcnow().timestamp())
 
         # Parse the timestamp back
         import struct

@@ -77,6 +77,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from datetime import datetime
+from core import utcnow
 from typing import Dict, Optional, Tuple
 
 import structlog
@@ -115,7 +116,7 @@ class AgentManager:
             target_host=target_host,
             target_port=target_port,
             is_alive=True,
-            last_heartbeat=datetime.utcnow(),
+            last_heartbeat=utcnow(),
             transport=transport,
         )
         self._agents[agent_id] = status
@@ -142,7 +143,7 @@ class AgentManager:
             return None
 
         status.is_alive = True
-        status.last_heartbeat = datetime.utcnow()
+        status.last_heartbeat = utcnow()
         status.cpu_usage = cpu_usage
         status.memory_usage_mb = memory_usage_mb
         status.active_test_count = active_tests

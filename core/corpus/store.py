@@ -79,6 +79,7 @@ import hashlib
 import json
 from collections import OrderedDict
 from datetime import datetime
+from core import utcnow
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -338,5 +339,5 @@ class CorpusStore:
             "total_seeds": len(self._seed_cache),
             "total_findings": len(list(self.findings_dir.iterdir())),
             "corpus_size_bytes": sum(len(data) for data in self._seed_cache.values()),
-            "last_updated": datetime.utcnow().isoformat(),
+            "last_updated": utcnow().isoformat(),
         }

@@ -15,6 +15,7 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
+from core import utcnow
 from typing import Any, Deque, Dict, Optional, TYPE_CHECKING
 
 import structlog
@@ -49,7 +50,7 @@ class PendingRequest:
     correlation_key: Any = None
     # Future is created lazily to avoid event loop issues at instantiation time
     _future: Optional[asyncio.Future] = field(default=None, repr=False)
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utcnow)
 
     @property
     def future(self) -> asyncio.Future:
@@ -295,7 +296,7 @@ class ManagedTransport:
         await self._transport.connect()
         self.connected = True
         self.healthy = True
-        self.created_at = datetime.utcnow()
+        self.created_at = utcnow()
 
         logger.info(
             "managed_transport_connected",
@@ -315,7 +316,7 @@ class ManagedTransport:
         async with self._send_lock:
             try:
                 await self._transport.send(data)
-                self.last_send = datetime.utcnow()
+                self.last_send = utcnow()
                 self.bytes_sent += len(data)
                 self.send_count += 1
             except Exception as e:
@@ -334,7 +335,7 @@ class ManagedTransport:
 
         if self._mode == "simple":
             data = await self._transport.recv(timeout_ms)
-            self.last_recv = datetime.utcnow()
+            self.last_recv = utcnow()
             self.bytes_received += len(data)
             self.recv_count += 1
             return data
@@ -360,12 +361,12 @@ class ManagedTransport:
         async with self._send_lock:
             try:
                 await self._transport.send(data)
-                self.last_send = datetime.utcnow()
+                self.last_send = utcnow()
                 self.bytes_sent += len(data)
                 self.send_count += 1
 
                 response = await self._transport.recv(timeout_ms)
-                self.last_recv = datetime.utcnow()
+                self.last_recv = utcnow()
                 self.bytes_received += len(response)
                 self.recv_count += 1
 

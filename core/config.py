@@ -80,7 +80,7 @@ See Also:
 """
 from pathlib import Path
 from typing import Optional
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -162,9 +162,7 @@ class Settings(BaseSettings):
     cpu_spike_threshold: float = 90.0  # percent
     memory_leak_threshold_mb: int = 100
 
-    class Config:
-        env_prefix = "FUZZER_"
-        env_file = ".env"
+    model_config = SettingsConfigDict(env_prefix="FUZZER_", env_file=".env")
 
 
 settings = Settings()

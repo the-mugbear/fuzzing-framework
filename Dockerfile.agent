@@ -17,8 +17,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy agent code
+# Copy agent code and core modules it depends on
+# Agent imports: core.logging -> core.config, core.models
 COPY agent/ ./agent/
+COPY core/__init__.py core/config.py core/logging.py core/models.py ./core/
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1

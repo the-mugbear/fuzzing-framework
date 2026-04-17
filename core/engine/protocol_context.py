@@ -13,6 +13,7 @@ import copy
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
+from core import utcnow
 from typing import Any, Dict, List, Optional
 
 import structlog
@@ -64,7 +65,7 @@ class ProtocolContext:
             value: Value to store (must be JSON-serializable or bytes)
         """
         self.values[key] = value
-        self.last_updated = datetime.utcnow()
+        self.last_updated = utcnow()
         logger.debug("context_value_set", key=key, value_type=type(value).__name__)
 
     def has(self, key: str) -> bool:
@@ -80,7 +81,7 @@ class ProtocolContext:
         """
         if key in self.values:
             del self.values[key]
-            self.last_updated = datetime.utcnow()
+            self.last_updated = utcnow()
             return True
         return False
 
@@ -217,7 +218,7 @@ class ProtocolContext:
             self.values[key] = value
         if other.bootstrap_complete:
             self.bootstrap_complete = True
-        self.last_updated = datetime.utcnow()
+        self.last_updated = utcnow()
 
     def copy(self) -> "ProtocolContext":
         """Create a deep copy of this context."""

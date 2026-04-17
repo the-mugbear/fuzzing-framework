@@ -22,6 +22,7 @@ import os
 import struct
 import zlib
 from datetime import datetime
+from core import utcnow
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import structlog
@@ -469,7 +470,7 @@ class ProtocolParser:
             Generated value
         """
         if generator == 'unix_timestamp':
-            return int(datetime.utcnow().timestamp())
+            return int(utcnow().timestamp())
 
         if generator == 'sequence':
             # Use instance counter for sequence generation

@@ -53,8 +53,11 @@ Usage Example:
 
 Note:
 ----
-This module is part of the Phase 5 orchestrator decomposition. It extracts
-runtime context management into a focused, testable component.
+This module consolidates what was previously 8 separate dictionaries
+in the orchestrator (behavior_processors, stateful_sessions, response_planners,
+followup_queues, session_data_models, session_response_models, _session_contexts,
+_stage_runners) into a single SessionContextManager with SessionRuntimeContext
+containers.
 
 See Also:
 --------

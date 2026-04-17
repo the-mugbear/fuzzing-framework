@@ -15,6 +15,7 @@ import asyncio
 import base64
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
+from core import utcnow
 
 from core.engine.replay_executor import (
     ReplayExecutor,
@@ -71,6 +72,14 @@ class MockConnectionManager:
         """Create isolated transport for replay (not cached)."""
         self.replay_transport_calls.append(session)
         return self.transport
+
+    def register_replay_transport(self, session_id: str, transport) -> str:
+        """Register a replay transport so get_transport() returns it."""
+        return f"replay:{session_id}"
+
+    def unregister_replay_transport(self, session_id: str) -> None:
+        """Unregister a replay transport."""
+        pass
 
 
 class MockHistoryStore:
@@ -221,7 +230,13 @@ class TestReplayModes:
         """Test that FRESH mode runs bootstrap stages."""
         transport = MockTransport(responses=[b"RSP1", b"RSP2", b"RSP3"])
         conn_manager = MockConnectionManager(transport)
-        history_store = MockHistoryStore(basic_executions)
+        # Executions must have stage_name matching the fuzz_target stage name
+        fuzz_executions = [
+            MockExecution(1, b"MSG1", b"RSP1", stage_name="app"),
+            MockExecution(2, b"MSG2", b"RSP2", stage_name="app"),
+            MockExecution(3, b"MSG3", b"RSP3", stage_name="app"),
+        ]
+        history_store = MockHistoryStore(fuzz_executions)
 
         protocol_stack = [
             {"name": "auth", "role": "bootstrap"},
@@ -329,8 +344,8 @@ class TestReplayUpTo:
         """Test that bootstrap stage executions are skipped in STORED mode."""
         executions = [
             MockExecution(1, b"AUTH", b"TOKEN", stage_name="auth"),
-            MockExecution(2, b"MSG1", b"RSP1", stage_name="application"),
-            MockExecution(3, b"MSG2", b"RSP2", stage_name="application"),
+            MockExecution(2, b"MSG1", b"RSP1", stage_name="app"),
+            MockExecution(3, b"MSG2", b"RSP2", stage_name="app"),
         ]
 
         protocol_stack = [
@@ -360,9 +375,9 @@ class TestReplayUpTo:
 
         executor = ReplayExecutor(plugin_manager, conn_manager, history_store)
 
-        start = datetime.utcnow()
+        start = utcnow()
         result = await executor.replay_up_to(session, 2, delay_ms=50)
-        end = datetime.utcnow()
+        end = utcnow()
 
         # Should have taken at least 50ms (one delay between 2 messages)
         elapsed_ms = (end - start).total_seconds() * 1000

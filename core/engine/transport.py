@@ -12,7 +12,7 @@ from typing import Optional, Tuple
 from core.config import settings
 from core.exceptions import (
     TransportError,
-    ConnectionRefusedError,
+    ConnectionRefusedError as FuzzerConnectionRefusedError,
     ConnectionTimeoutError,
     SendError,
     ReceiveError,
@@ -102,7 +102,7 @@ class TCPTransport(Transport):
                     details={"timeout_sec": self.timeout_sec}
                 )
             except ConnectionRefusedError as e:
-                raise ConnectionRefusedError(
+                raise FuzzerConnectionRefusedError(
                     f"Connection refused by {self.host}:{self.port}",
                     details={"error": str(e)}
                 )
@@ -238,7 +238,7 @@ class UDPTransport(Transport):
                 port=self.port,
                 error=str(exc),
             )
-            raise ConnectionRefusedError(
+            raise FuzzerConnectionRefusedError(
                 f"UDP target unreachable {self.host}:{self.port}",
                 details={"error": str(exc)}
             )

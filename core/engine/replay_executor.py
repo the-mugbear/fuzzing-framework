@@ -15,6 +15,7 @@ import asyncio
 import base64
 from dataclasses import dataclass, field
 from datetime import datetime
+from core import utcnow
 from enum import Enum
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
@@ -142,7 +143,7 @@ class ReplayExecutor:
         Raises:
             ReplayError: If replay fails fatally
         """
-        start_time = datetime.utcnow()
+        start_time = utcnow()
         warnings: List[str] = []
 
         # Get execution history in ascending order
@@ -291,7 +292,7 @@ class ReplayExecutor:
                     await asyncio.sleep(delay_ms / 1000)
 
             # Calculate total duration
-            end_time = datetime.utcnow()
+            end_time = utcnow()
             duration_ms = (end_time - start_time).total_seconds() * 1000
 
             return ReplayResponse(
@@ -392,7 +393,7 @@ class ReplayExecutor:
         Returns:
             ReplayResult for the execution
         """
-        start_time = datetime.utcnow()
+        start_time = utcnow()
 
         try:
             # Determine payload
@@ -422,7 +423,7 @@ class ReplayExecutor:
             await transport.send(payload)
             response = await transport.recv(timeout_ms=timeout_ms)
 
-            end_time = datetime.utcnow()
+            end_time = utcnow()
             duration_ms = (end_time - start_time).total_seconds() * 1000
 
             # Check if response matches original
@@ -440,7 +441,7 @@ class ReplayExecutor:
             )
 
         except ReceiveTimeoutError:
-            end_time = datetime.utcnow()
+            end_time = utcnow()
             duration_ms = (end_time - start_time).total_seconds() * 1000
             return ReplayResult(
                 original_sequence=execution.sequence_number,
@@ -450,7 +451,7 @@ class ReplayExecutor:
             )
 
         except Exception as e:
-            end_time = datetime.utcnow()
+            end_time = utcnow()
             duration_ms = (end_time - start_time).total_seconds() * 1000
             return ReplayResult(
                 original_sequence=execution.sequence_number,

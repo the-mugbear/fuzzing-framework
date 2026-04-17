@@ -2,12 +2,13 @@
 Core data models
 """
 from datetime import datetime
+from core import utcnow
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 import base64
 
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 
 class FuzzSessionStatus(str, Enum):
@@ -84,7 +85,7 @@ class TestCase(BaseModel):
     session_id: str
     seed_id: Optional[str] = None
     data: bytes
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=utcnow)
     result: Optional[TestCaseResult] = None
     execution_time_ms: Optional[float] = None
     coverage_data: Optional[Dict[str, Any]] = None
@@ -104,7 +105,7 @@ class CrashReport(BaseModel):
     id: str
     session_id: str
     test_case_id: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=utcnow)
     result_type: TestCaseResult
     signal: Optional[int] = None
     exit_code: Optional[int] = None
@@ -173,7 +174,7 @@ class FuzzSession(BaseModel):
         default=None, description="Percentage for structure-aware mutations in hybrid mode (0-100)"
     )
     max_iterations: Optional[int] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error_message: Optional[str] = Field(default=None)  # Error description if status is FAILED
@@ -642,13 +643,12 @@ class WalkerInitRequest(BaseModel):
 
 class TransitionInfo(BaseModel):
     """Information about a state transition"""
+    model_config = ConfigDict(populate_by_name=True)
+
     from_state: str = Field(alias="from")
     to_state: str = Field(alias="to")
     message_type: Optional[str] = None
     expected_response: Optional[str] = None
-
-    class Config:
-        populate_by_name = True
 
 
 class WalkerExecutionRecord(BaseModel):

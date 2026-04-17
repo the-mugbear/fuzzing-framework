@@ -31,8 +31,7 @@ install:
 	pip install -r requirements.txt
 
 dev:
-	pip install -r requirements.txt
-	pip install pytest pytest-asyncio black ruff
+	pip install -r requirements-dev.txt
 
 ui-install:
 	cd core/ui/spa && npm install

@@ -8,6 +8,7 @@ it follows valid state sequences to reach deep protocol logic.
 import random
 from collections import Counter
 from datetime import datetime
+from core import utcnow
 from typing import Any, Dict, List, Optional, Tuple
 
 import structlog
@@ -502,7 +503,7 @@ class StatefulFuzzingSession:
             "from": self.current_state,
             "message_type": message_type,
             "execution_result": execution_result,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utcnow().isoformat()
         }
 
         # Check if transition should succeed

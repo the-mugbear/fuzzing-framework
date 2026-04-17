@@ -6,6 +6,7 @@ Allows sessions to survive container restarts and enables graceful resume.
 import json
 import sqlite3
 from datetime import datetime
+from core import utcnow
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -127,7 +128,7 @@ class SessionStore:
                 "transport": session.transport.value,
                 "status": session.status.value,
                 "execution_mode": session.execution_mode.value,
-                "created_at": session.created_at.timestamp() if session.created_at else datetime.utcnow().timestamp(),
+                "created_at": session.created_at.timestamp() if session.created_at else utcnow().timestamp(),
                 "started_at": session.started_at.timestamp() if session.started_at else None,
                 "completed_at": session.completed_at.timestamp() if session.completed_at else None,
                 "total_tests": session.total_tests,
@@ -308,7 +309,7 @@ class SessionStore:
         if statuses is None:
             statuses = ["completed", "failed"]
 
-        cutoff = datetime.utcnow().timestamp() - (days * 24 * 3600)
+        cutoff = utcnow().timestamp() - (days * 24 * 3600)
 
         conn = sqlite3.connect(self.db_path)
         try:

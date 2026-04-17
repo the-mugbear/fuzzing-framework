@@ -109,6 +109,7 @@ import time
 import uuid
 from collections import deque
 from datetime import datetime
+from core import utcnow
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 import structlog
@@ -323,7 +324,7 @@ class FuzzingLoopCoordinator:
             # Check iteration limit
             if session.max_iterations and iteration >= session.max_iterations:
                 session.status = FuzzSessionStatus.COMPLETED
-                session.completed_at = datetime.utcnow()
+                session.completed_at = utcnow()
                 await self._checkpoint(session)
                 break
 
@@ -599,9 +600,9 @@ class FuzzingLoopCoordinator:
             state_at_send = state_navigator.current_state
 
         # Execute with timing
-        timestamp_sent = datetime.utcnow()
+        timestamp_sent = utcnow()
         result, response = await self.test_executor.execute(session, test_case)
-        timestamp_response = datetime.utcnow()
+        timestamp_response = utcnow()
 
         # Finalize test case
         await self._finalize_test_case(session, test_case, result, response)

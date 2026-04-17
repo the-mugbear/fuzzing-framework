@@ -20,8 +20,13 @@ build/
 
 # Data
 data/
+logs/
 *.log
 *.db
+
+# Node (rebuilt inside Docker multi-stage build)
+core/ui/spa/node_modules/
+core/ui/spa/dist/
 
 # Git
 .git/

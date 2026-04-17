@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed - 2026-04-17
+
+- **Consolidated orchestrator state into SessionContextManager** (`core/engine/orchestrator.py`, `core/engine/session_context.py`, `core/api/routes/orchestration.py`)
+  - Replaced 8 separate per-session dictionaries (`behavior_processors`, `stateful_sessions`, `response_planners`, `followup_queues`, `session_data_models`, `session_response_models`, `_session_contexts`, `_stage_runners`) with a single `SessionContextManager` using `SessionRuntimeContext` containers
+  - Migrated 59 access sites across `orchestrator.py` and 4 access sites in `orchestration.py` routes
+  - All per-session state now managed through `self.context_manager` with proper lifecycle (create → get → cleanup)
+  - Removed unused top-level `deque` import from orchestrator
+  - Updated docstring in `session_context.py` to reflect completed migration
+  - Impact: Unified state management, single cleanup path, reduced dict-key mismatch risk
+  - Testing: 185 tests pass, including integration tests
+
+### Fixed - 2026-04-17
+
+- **Fixed flaky HavocMutator test** (`tests/test_mutators.py:69-73`)
+  - HavocMutator is random — single-run assertion occasionally fails when mutation produces identical output
+  - Changed to retry up to 10 times, asserting at least one produces different output
+
+### Fixed - 2026-02-06
+
+- **Fixed integration tests using async client** (`tests/test_integration.py`)
+  - Replaced sync `TestClient` + `time.sleep()` with `httpx.AsyncClient` + `asyncio.sleep()`
+  - Background fuzzing tasks (via `asyncio.create_task`) now progress during polling
+  - Both integration tests pass in ~2s instead of timing out after 30s
+
 ### Added - 2026-02-06
 
 - **Comprehensive enumeration modes documentation** (`docs/MUTATION_STRATEGIES.md`)

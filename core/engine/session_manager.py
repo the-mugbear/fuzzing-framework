@@ -102,6 +102,7 @@ import asyncio
 import uuid
 from collections import deque
 from datetime import datetime
+from core import utcnow
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 import structlog
@@ -424,7 +425,7 @@ class SessionManager:
                     return False
 
         session.status = FuzzSessionStatus.RUNNING
-        session.started_at = datetime.utcnow()
+        session.started_at = utcnow()
         await self._checkpoint_session(session)
 
         # Start heartbeat scheduler for orchestrated protocols
@@ -470,7 +471,7 @@ class SessionManager:
                 logger.warning("teardown_failed", session_id=session.id, error=str(e))
 
         session.status = FuzzSessionStatus.COMPLETED
-        session.completed_at = datetime.utcnow()
+        session.completed_at = utcnow()
         await self._checkpoint_session(session)
 
         # Cancel task if running
@@ -546,7 +547,7 @@ class SessionManager:
             "anomalies": session.anomalies,
             "findings_count": len(findings),
             "runtime_seconds": (
-                (datetime.utcnow() - session.started_at).total_seconds()
+                (utcnow() - session.started_at).total_seconds()
                 if session.started_at
                 else 0
             ),

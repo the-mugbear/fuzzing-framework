@@ -14,6 +14,7 @@ import base64
 import hashlib
 import uuid
 from datetime import datetime
+from core import utcnow
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
 
 import structlog
@@ -148,13 +149,13 @@ class StageRunner:
             name=stage_name,
             role="bootstrap",
             status="active",
-            started_at=datetime.utcnow(),
+            started_at=utcnow(),
         )
 
         try:
             await self._run_bootstrap_stage(self._last_session, stage)
             self._stage_statuses[stage_name].status = "complete"
-            self._stage_statuses[stage_name].completed_at = datetime.utcnow()
+            self._stage_statuses[stage_name].completed_at = utcnow()
             logger.info("stage_rerun_complete", stage_name=stage_name)
         except BootstrapError:
             self._stage_statuses[stage_name].status = "failed"
@@ -205,13 +206,13 @@ class StageRunner:
                 name=stage_name,
                 role="bootstrap",
                 status="active",
-                started_at=datetime.utcnow(),
+                started_at=utcnow(),
             )
 
             try:
                 await self._run_bootstrap_stage(session, stage)
                 self._stage_statuses[stage_name].status = "complete"
-                self._stage_statuses[stage_name].completed_at = datetime.utcnow()
+                self._stage_statuses[stage_name].completed_at = utcnow()
 
             except BootstrapError as e:
                 self._stage_statuses[stage_name].status = "failed"
@@ -316,7 +317,7 @@ class StageRunner:
             and session.connection_mode in ("session", "per_stage")
         )
 
-        start_time = datetime.utcnow()
+        start_time = utcnow()
 
         if use_persistent:
             # Set current_stage for per_stage connection mode (used in _get_connection_id)
@@ -347,7 +348,7 @@ class StageRunner:
             finally:
                 await transport.cleanup()
 
-        end_time = datetime.utcnow()
+        end_time = utcnow()
         duration_ms = (end_time - start_time).total_seconds() * 1000
 
         # Handle connection/send failures
@@ -598,8 +599,8 @@ class StageRunner:
             test_case_id=test_case_id,
             session_id=session.id,
             sequence_number=bootstrap_seq,
-            timestamp_sent=datetime.utcnow(),
-            timestamp_response=datetime.utcnow(),
+            timestamp_sent=utcnow(),
+            timestamp_response=utcnow(),
             duration_ms=duration_ms,
             payload_size=len(message),
             payload_hash=payload_hash,
@@ -666,13 +667,13 @@ class StageRunner:
                 name=stage_name,
                 role="teardown",
                 status="active",
-                started_at=datetime.utcnow(),
+                started_at=utcnow(),
             )
 
             try:
                 await self._run_teardown_stage(session, stage)
                 self._stage_statuses[stage_name].status = "complete"
-                self._stage_statuses[stage_name].completed_at = datetime.utcnow()
+                self._stage_statuses[stage_name].completed_at = utcnow()
 
             except Exception as e:
                 # Teardown failures are logged but don't fail the session
