@@ -6,6 +6,58 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed - 2025-07-24
+
+- **C1: Unbounded seed cache in add_seed()** (`core/corpus/store.py:182`)
+  - `add_seed()` wrote to `_seed_cache` without calling `_evict_if_needed()`
+  - Bulk seed ingestion could grow cache without bound; now evicts before insert
+  - Testing: Add >max_cache_size seeds, verify cache stays bounded
+
+- **C2: protocol.get() on Pydantic model always returned empty dict** (`core/engine/session_manager.py:269-270`, `core/engine/orchestrator.py:387-388,515,1507`)
+  - `protocol.get("connection", {}) if hasattr(protocol, "get") else {}` always took the else branch because ProtocolPlugin is a Pydantic model, not a dict
+  - Replaced with `protocol.connection or {}` and `protocol.heartbeat or {}` (4 locations)
+  - Impact: Orchestrated sessions now correctly read connection/heartbeat config from plugins
+
+- **C3: CORS wildcard origin with credentials** (`core/api/server.py:108`)
+  - `allow_origins=["*"]` combined with `allow_credentials=True` violates CORS spec
+  - Now sets `allow_credentials=False` when origins are wildcard
+  - Impact: Browsers will no longer reject credentialed cross-origin requests
+
+- **C5: Seed upload with no size limit** (`core/api/routes/corpus.py:23-30`)
+  - `await file.read()` had no cap; multi-GB upload could OOM the process
+  - Added 64 MiB limit; returns HTTP 413 if exceeded
+  - Testing: Upload file >64 MiB, verify 413 response
+
+- **C6: Plugin sys.modules namespace collision** (`core/plugin_loader.py:253`)
+  - Plugins registered as bare top-level names (e.g., `sys.modules["json"]`) could shadow stdlib
+  - Now uses `sys.modules[f"core.plugins.loaded.{plugin_name}"]`
+  - Impact: Prevents silent stdlib shadowing by protocol plugin names
+
+- **H1: Unhandled ValueError from datetime.fromisoformat()** (`core/api/routes/sessions.py:106-107`)
+  - Invalid `since`/`until` query params produced HTTP 500 instead of 400
+  - Wrapped in try/except ValueError with descriptive error message
+  - Testing: Pass `since=not-a-date`, verify HTTP 400
+
+- **H4: Shutdown drain race in history_store** (`core/engine/history_store.py:148-160`)
+  - Spin-loop `while not queue.empty()` then `cancel()` could lose records added between check and cancel
+  - Replaced with sentinel-based drain: puts `None` on queue, writer exits naturally after flushing
+  - Background writer now handles sentinel in both first-record and batch-collection phases
+  - Testing: Add records during shutdown, verify all are persisted
+
+- **H6: target_port accepts invalid values** (`core/models.py:135,162,318,371,397,691`)
+  - `target_port: int` had no range validation; accepted -1 or 999999
+  - Added `Field(..., ge=1, le=65535)` to all 6 target_port declarations
+  - Testing: POST session with port 0 or 70000, verify 422 response
+
+- **M4: Bare except: catches SystemExit/KeyboardInterrupt** (`core/api/routes/plugins.py:1159`)
+  - Replaced `except:` with `except (UnicodeDecodeError, AttributeError):`
+  - Impact: SystemExit and KeyboardInterrupt now propagate correctly
+
+- **M7: reset_session() leaks stale cache entries** (`core/engine/history_store.py:311`)
+  - `reset_session()` cleared `_sequence_counters` but not `_recent_cache`
+  - Added `self._recent_cache.pop(session_id, None)` to clear both caches
+  - Impact: Prevents stale execution records from persisting across session resets
+
 ### Changed - 2026-04-17
 
 - **Renamed "agent" to "probe" across entire codebase** (38+ files, 408 references)

@@ -266,8 +266,8 @@ class SessionManager:
 
         # Extract orchestration configuration from plugin
         protocol_stack = plugin_manager.get_protocol_stack(config.protocol)
-        connection_config = protocol.get("connection", {}) if hasattr(protocol, "get") else {}
-        heartbeat_config = protocol.get("heartbeat", {}) if hasattr(protocol, "get") else {}
+        connection_config = protocol.connection or {}
+        heartbeat_config = protocol.heartbeat or {}
 
         # Determine connection mode (from config or plugin)
         connection_mode = "per_test"

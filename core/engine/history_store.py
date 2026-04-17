@@ -149,14 +149,16 @@ class ExecutionHistoryStore:
         """Gracefully shutdown the background writer."""
         self._shutdown = True
         if self._writer_task and not self._writer_task.done():
-            # Process remaining queue
-            while not self._write_queue.empty():
-                await asyncio.sleep(0.1)
-            self._writer_task.cancel()
+            # Signal writer to drain remaining items and exit
+            await self._write_queue.put(None)
             try:
-                await self._writer_task
-            except asyncio.CancelledError:
-                pass
+                await asyncio.wait_for(self._writer_task, timeout=10.0)
+            except asyncio.TimeoutError:
+                self._writer_task.cancel()
+                try:
+                    await self._writer_task
+                except asyncio.CancelledError:
+                    pass
         logger.info("history_store_shutdown_complete")
 
     async def flush(self, timeout: float = 5.0) -> bool:
@@ -218,6 +220,8 @@ class ExecutionHistoryStore:
                     first_record = await asyncio.wait_for(
                         self._write_queue.get(), timeout=1.0
                     )
+                    if first_record is None:
+                        break  # Sentinel received — drain and exit
                     batch.append(first_record)
                 except asyncio.TimeoutError:
                     continue
@@ -225,7 +229,11 @@ class ExecutionHistoryStore:
                 # Collect up to 100 more records without blocking
                 while len(batch) < 100 and not self._write_queue.empty():
                     try:
-                        batch.append(self._write_queue.get_nowait())
+                        item = self._write_queue.get_nowait()
+                        if item is None:
+                            self._shutdown = True
+                            break  # Sentinel — flush what we have, then exit
+                        batch.append(item)
                     except asyncio.QueueEmpty:
                         break
 
@@ -309,6 +317,7 @@ class ExecutionHistoryStore:
     def reset_session(self, session_id: str) -> None:
         """Clear cached sequence tracking for a session."""
         self._sequence_counters.pop(session_id, None)
+        self._recent_cache.pop(session_id, None)
 
     def get_max_sequence(self, session_id: str) -> int:
         """Return the highest recorded sequence number for a session."""

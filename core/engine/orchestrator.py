@@ -384,8 +384,8 @@ class FuzzOrchestrator:
 
         # Extract orchestration configuration from plugin
         protocol_stack = plugin_manager.get_protocol_stack(config.protocol)
-        connection_config = protocol.get("connection", {}) if hasattr(protocol, "get") else {}
-        heartbeat_config = protocol.get("heartbeat", {}) if hasattr(protocol, "get") else {}
+        connection_config = protocol.connection or {}
+        heartbeat_config = protocol.heartbeat or {}
 
         # Determine connection mode (from config or plugin)
         connection_mode = "per_test"  # default
@@ -512,7 +512,7 @@ class FuzzOrchestrator:
                 self._connection_manager = ConnectionManager()
 
             protocol = plugin_manager.load_plugin(session.protocol)
-            connection_config = protocol.get("connection", {}) if hasattr(protocol, "get") else {}
+            connection_config = protocol.connection or {}
             if connection_config:
                 self._connection_manager.set_connection_config(session.id, connection_config)
                 logger.debug(

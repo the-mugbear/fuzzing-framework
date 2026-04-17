@@ -179,6 +179,7 @@ class CorpusStore:
             with open(meta_file, "w") as f:
                 json.dump(metadata, f, indent=2)
 
+        self._evict_if_needed()
         self._seed_cache[seed_id] = data
         logger.info("seed_added", seed_id=seed_id, size=len(data))
         return seed_id

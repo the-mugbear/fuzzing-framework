@@ -103,8 +103,11 @@ async def get_execution_history(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    since_dt = datetime.fromisoformat(since) if since else None
-    until_dt = datetime.fromisoformat(until) if until else None
+    try:
+        since_dt = datetime.fromisoformat(since) if since else None
+        until_dt = datetime.fromisoformat(until) if until else None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid datetime format: {exc}")
     executions = orchestrator.get_execution_history(
         session_id,
         limit=limit,

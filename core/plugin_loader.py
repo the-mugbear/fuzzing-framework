@@ -250,7 +250,7 @@ class PluginManager:
                 raise PluginLoadError(f"Could not create module spec for {plugin_file}")
 
             module = importlib.util.module_from_spec(spec)
-            sys.modules[plugin_name] = module
+            sys.modules[f"core.plugins.loaded.{plugin_name}"] = module
             spec.loader.exec_module(module)
 
             # Validate required attributes

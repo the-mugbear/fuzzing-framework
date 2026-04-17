@@ -19,14 +19,19 @@ async def upload_seed(
     metadata: Optional[str] = None,
     corpus_store=Depends(get_corpus_store),
 ):
+    MAX_SEED_SIZE = 64 * 1024 * 1024  # 64 MiB
     try:
-        data = await file.read()
+        data = await file.read(MAX_SEED_SIZE + 1)
+        if len(data) > MAX_SEED_SIZE:
+            raise HTTPException(status_code=413, detail=f"Seed exceeds {MAX_SEED_SIZE} byte limit")
         import json
 
         meta = json.loads(metadata) if metadata else {}
         meta["filename"] = file.filename
         seed_id = corpus_store.add_seed(data, metadata=meta)
         return {"seed_id": seed_id, "size": len(data)}
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

@@ -1156,7 +1156,7 @@ async def mutate_field_endpoint(
                 if isinstance(value, bytes):
                     try:
                         display_value = value.decode("utf-8")
-                    except:
+                    except (UnicodeDecodeError, AttributeError):
                         display_value = value.hex()
 
                 fields.append(

@@ -132,7 +132,7 @@ class ProbeStatus(BaseModel):
     probe_id: str
     hostname: str
     target_host: str
-    target_port: int
+    target_port: int = Field(..., ge=1, le=65535)
     transport: TransportProtocol = TransportProtocol.TCP
     is_alive: bool
     last_heartbeat: datetime
@@ -159,7 +159,7 @@ class FuzzSession(BaseModel):
     execution_mode: ExecutionMode = Field(default=ExecutionMode.CORE)
     status: FuzzSessionStatus = FuzzSessionStatus.IDLE
     target_host: str
-    target_port: int
+    target_port: int = Field(..., ge=1, le=65535)
     transport: TransportProtocol = TransportProtocol.TCP
     seed_corpus: List[str] = Field(default_factory=list)
     enabled_mutators: List[str] = Field(default_factory=list)
@@ -315,7 +315,7 @@ class FuzzConfig(BaseModel):
 
     protocol: str
     target_host: str
-    target_port: int
+    target_port: int = Field(..., ge=1, le=65535)
     transport: Optional[TransportProtocol] = Field(
         default=None,
         description="Override protocol's default transport (tcp/udp)",
@@ -368,7 +368,7 @@ class ProbeWorkItem(BaseModel):
     test_case_id: str
     protocol: str
     target_host: str
-    target_port: int
+    target_port: int = Field(..., ge=1, le=65535)
     transport: TransportProtocol = TransportProtocol.TCP
     data: bytes
     timeout_ms: int
@@ -394,7 +394,7 @@ class OneOffTestRequest(BaseModel):
 
     protocol: str
     target_host: str
-    target_port: int
+    target_port: int = Field(..., ge=1, le=65535)
     payload: bytes
     execution_mode: ExecutionMode = ExecutionMode.CORE
     timeout_ms: int = 5000
@@ -688,7 +688,7 @@ class WalkerExecuteRequest(BaseModel):
     session_id: str
     transition_index: int  # Index into valid_transitions array
     target_host: str = "target"
-    target_port: int = 9999
+    target_port: int = Field(default=9999, ge=1, le=65535)
 
 
 class WalkerExecuteResponse(BaseModel):
