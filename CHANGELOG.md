@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed - 2026-04-17
+
+- **Agent executions now recorded in history store** (`core/engine/agent_dispatcher.py:247-258`, `core/engine/fuzzing_loop.py:592-603`)
+  - `AgentDispatcher.handle_result` now falls back to `history_store.record()` when no explicit `record_execution` callback is provided
+  - `FuzzingLoopCoordinator._execute_and_record` now writes a placeholder record on agent dispatch so test cases exist in the DB
+  - Response bytes are persisted via INSERT OR REPLACE when the agent result arrives
+  - Impact: Agent-mode sessions no longer have empty execution history
+
+- **Retry on DB write failure** (`core/engine/history_store.py`)
+  - Background writer re-queues failed batches with per-record retry counter (default 3 attempts)
+  - `flush()` retries with exponential backoff before returning False
+  - Synchronous write fallbacks in `record()` and `record_direct()` catch exceptions to avoid crashing the fuzzing loop
+  - Impact: Transient SQLite errors (locked DB, disk full) no longer silently drop execution records
+  - Testing: 3 new tests in `tests/test_history_store.py` (response round-trip, retry, flush retry)
+
+- **Modal initial focus uses full focusable selector** (`core/ui/spa/src/components/Modal.tsx:42-48`)
+  - Initial focus selector now matches the trap selector (links, inputs, textareas, selects, buttons, tabindex)
+  - Falls back to focusing the dialog container itself if no focusable child exists
+  - Added `tabIndex={-1}` to dialog element for fallback focus target
+  - Impact: Modals with non-button content (forms, links) now receive focus correctly on open
+
+- **Tooltip hide timer race condition** (`core/ui/spa/src/components/Tooltip.tsx:15-30`)
+  - Hide timeout stored in a ref; cleared on show, Escape, and component unmount
+  - Eliminates flicker from concurrent hide timers and stale state updates after unmount
+
+- **Max Tests field validation parity** (`core/ui/spa/src/pages/DashboardPage.tsx:449-451`)
+  - Added `onBlur` validation, `aria-invalid`, `has-error` class, and inline error message
+  - Now matches other validated fields for consistent UX and accessibility
+
+- **Undefined CSS design tokens** (`core/ui/spa/src/components/Modal.css:42`, `core/ui/spa/src/pages/DashboardPage.css:299`)
+  - Replaced `var(--shadow-xl)` with existing `var(--shadow-lg)` in modal dialog
+  - Replaced `var(--status-warning)` with existing `var(--color-warning-text)` in warning text
+
 ### Changed - 2026-04-17
 
 - **UI/UX overhaul: accessibility, progressive disclosure, and navigation** (`core/ui/spa/src/`)

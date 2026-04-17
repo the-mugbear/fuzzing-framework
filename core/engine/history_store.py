@@ -32,9 +32,11 @@ def _json_safe(obj):
 class ExecutionHistoryStore:
     """SQLite-backed storage for execution records with async batched writes."""
 
-    def __init__(self, db_path: str = "data/correlation.db", memory_cache_size: int = 100):
+    def __init__(self, db_path: str = "data/correlation.db", memory_cache_size: int = 100,
+                 max_write_retries: int = 3):
         self.db_path = db_path
         self.memory_cache_size = memory_cache_size
+        self._max_write_retries = max_write_retries
 
         # Memory cache for recent tests (fast UI queries)
         self._recent_cache: Dict[str, deque] = {}
@@ -185,13 +187,24 @@ class ExecutionHistoryStore:
         logger.info("flushing_history_store", pending_records=len(pending))
 
         # Write directly to SQLite (bypasses background writer race condition)
-        try:
-            await asyncio.to_thread(self._write_batch, pending)
-            logger.info("history_flush_complete", flushed_records=len(pending))
-            return True
-        except Exception as exc:
-            logger.error("history_flush_failed", error=str(exc), lost_records=len(pending))
-            return False
+        for attempt in range(1, self._max_write_retries + 1):
+            try:
+                await asyncio.to_thread(self._write_batch, pending)
+                logger.info("history_flush_complete", flushed_records=len(pending))
+                return True
+            except Exception as exc:
+                logger.error(
+                    "history_flush_failed",
+                    error=str(exc),
+                    attempt=attempt,
+                    max_retries=self._max_write_retries,
+                    pending_records=len(pending),
+                )
+                if attempt < self._max_write_retries:
+                    await asyncio.sleep(0.5 * attempt)
+
+        logger.error("history_flush_exhausted", lost_records=len(pending))
+        return False
 
     async def _background_writer(self):
         """Background task that batches and writes records to SQLite."""
@@ -222,7 +235,23 @@ class ExecutionHistoryStore:
                     logger.debug("batch_written", count=len(batch))
 
             except Exception as exc:
-                logger.error("background_writer_error", error=str(exc))
+                logger.error("background_writer_error", error=str(exc), batch_size=len(batch))
+                # Re-queue failed batch for retry (up to max_write_retries)
+                for record in batch:
+                    retries = getattr(record, '_write_retries', 0)
+                    if retries < self._max_write_retries:
+                        record._write_retries = retries + 1  # type: ignore[attr-defined]
+                        try:
+                            self._write_queue.put_nowait(record)
+                        except asyncio.QueueFull:
+                            logger.error("requeue_failed_queue_full", test_case_id=record.test_case_id)
+                    else:
+                        logger.error(
+                            "record_dropped_max_retries",
+                            test_case_id=record.test_case_id,
+                            session_id=record.session_id,
+                            retries=retries,
+                        )
                 await asyncio.sleep(1.0)  # Back off on error
 
     def _write_batch(self, records: List[TestCaseExecutionRecord]):
@@ -393,10 +422,16 @@ class ExecutionHistoryStore:
             except asyncio.QueueFull:
                 logger.warning("write_queue_full", writing_sync=True)
                 # Fallback to synchronous write
-                self._write_batch([record])
+                try:
+                    self._write_batch([record])
+                except Exception as exc:
+                    logger.error("sync_write_failed", error=str(exc), test_case_id=test_case.id)
         else:
             # No event loop available - write synchronously
-            self._write_batch([record])
+            try:
+                self._write_batch([record])
+            except Exception as exc:
+                logger.error("sync_write_failed", error=str(exc), test_case_id=test_case.id)
 
         return record
 
@@ -428,10 +463,16 @@ class ExecutionHistoryStore:
                 self._write_queue.put_nowait(record)
             except asyncio.QueueFull:
                 logger.warning("write_queue_full", writing_sync=True)
-                self._write_batch([record])
+                try:
+                    self._write_batch([record])
+                except Exception as exc:
+                    logger.error("sync_write_failed", error=str(exc), test_case_id=record.test_case_id)
         else:
             # No event loop - write synchronously
-            self._write_batch([record])
+            try:
+                self._write_batch([record])
+            except Exception as exc:
+                logger.error("sync_write_failed", error=str(exc), test_case_id=record.test_case_id)
 
         return record
 

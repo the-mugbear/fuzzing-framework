@@ -1,4 +1,4 @@
-import { ReactNode, useId, useState } from 'react';
+import { ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react';
 import './Tooltip.css';
 
 interface TooltipProps {
@@ -10,12 +10,25 @@ interface TooltipProps {
 function Tooltip({ content, position = 'top', children }: TooltipProps) {
   const [isVisible, setIsVisible] = useState(false);
   const tooltipId = useId();
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const show = () => setIsVisible(true);
-  const hide = () => setTimeout(() => setIsVisible(false), 150);
+  const clearHideTimer = useCallback(() => {
+    if (hideTimer.current !== null) {
+      clearTimeout(hideTimer.current);
+      hideTimer.current = null;
+    }
+  }, []);
+
+  const show = useCallback(() => { clearHideTimer(); setIsVisible(true); }, [clearHideTimer]);
+  const hide = useCallback(() => {
+    clearHideTimer();
+    hideTimer.current = setTimeout(() => setIsVisible(false), 150);
+  }, [clearHideTimer]);
+
+  useEffect(() => clearHideTimer, [clearHideTimer]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') { setIsVisible(false); }
+    if (e.key === 'Escape') { clearHideTimer(); setIsVisible(false); }
   };
 
   return (

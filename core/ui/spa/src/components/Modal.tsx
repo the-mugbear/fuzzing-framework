@@ -39,10 +39,13 @@ function Modal({ title, open, onClose, children, className }: ModalProps) {
     previousFocus.current = document.activeElement as HTMLElement;
     const dialog = dialogRef.current;
     if (dialog) {
-      const firstFocusable = dialog.querySelector<HTMLElement>(
-        'button, [tabindex]:not([tabindex="-1"])'
-      );
-      firstFocusable?.focus();
+      const FOCUSABLE = 'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
+      const firstFocusable = dialog.querySelector<HTMLElement>(FOCUSABLE);
+      if (firstFocusable) {
+        firstFocusable.focus();
+      } else {
+        dialog.focus();
+      }
     }
     document.addEventListener('keydown', trapFocus);
     return () => {
@@ -61,6 +64,7 @@ function Modal({ title, open, onClose, children, className }: ModalProps) {
         ref={dialogRef}
         className={`modal-dialog${className ? ` ${className}` : ''}`}
         role="dialog"
+        tabIndex={-1}
         aria-modal="true"
         aria-label={title || 'Dialog'}
         onClick={(event) => event.stopPropagation()}

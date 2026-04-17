@@ -589,7 +589,19 @@ class FuzzingLoopCoordinator:
     ) -> Tuple[TestCaseResult, Optional[bytes]]:
         """Execute test case and record results."""
         if session.execution_mode == ExecutionMode.AGENT:
+            timestamp_sent = utcnow()
             await self._dispatch_to_agent(session, test_case)
+            # Record placeholder so the test case exists in history.
+            # The actual response is written via INSERT OR REPLACE when
+            # AgentDispatcher.handle_result fires.
+            self.history_store.record(
+                session,
+                test_case,
+                timestamp_sent,
+                utcnow(),
+                TestCaseResult.PASS,
+                response=None,
+            )
             return TestCaseResult.PASS, None
 
         # Capture state info before execution

@@ -445,7 +445,11 @@ function DashboardPage() {
                 onChange={(e) =>
                 handleFieldChange('max_iterations', e.target.value ? Number(e.target.value) : '')
                 }
+                onBlur={() => validateField('max_iterations', form.max_iterations)}
+                aria-invalid={!!fieldErrors.max_iterations}
+                className={fieldErrors.max_iterations ? 'has-error' : ''}
               />
+            {fieldErrors.max_iterations && <span className="field-error" role="alert">{fieldErrors.max_iterations}</span>}
           </label>
 
           {/* — Advanced section (toggle) — */}

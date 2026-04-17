@@ -242,12 +242,12 @@ class AgentDispatcher:
             },
         )
 
-        # Record execution history if callback provided
-        if record_execution:
-            timestamp_response = utcnow()
-            duration_ms = payload.execution_time_ms or 0.0
-            timestamp_sent = timestamp_response - timedelta(milliseconds=duration_ms)
+        # Record execution history
+        timestamp_response = utcnow()
+        duration_ms = payload.execution_time_ms or 0.0
+        timestamp_sent = timestamp_response - timedelta(milliseconds=duration_ms)
 
+        if record_execution:
             record_execution(
                 session,
                 test_case,
@@ -257,6 +257,15 @@ class AgentDispatcher:
                 response_bytes,
                 context_snapshot=context_snapshot,
                 parsed_fields=parsed_fields,
+            )
+        elif self._history_store:
+            self._history_store.record(
+                session,
+                test_case,
+                timestamp_sent,
+                timestamp_response,
+                payload.result,
+                response_bytes,
             )
 
         await agent_manager.complete_work(payload.test_case_id)

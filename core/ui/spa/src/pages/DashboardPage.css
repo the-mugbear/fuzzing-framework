@@ -297,7 +297,7 @@
 }
 
 .warning-text {
-  color: var(--status-warning);
+  color: var(--color-warning-text);
   font-size: 0.85rem;
   margin-top: var(--space-sm);
 }

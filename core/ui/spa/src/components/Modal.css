@@ -39,7 +39,7 @@
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-2xl);
   padding: var(--space-2xl);
-  box-shadow: var(--shadow-xl), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   animation: slideUp 0.25s ease-out;
 }
 
