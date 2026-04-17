@@ -4,7 +4,7 @@
 
 Welcome to the documentation for the protocol fuzzer. This index provides a curated list of the most important documents in the repository, organized by audience.
 
-> **Tip:** All documentation is now viewable directly in the web UI via the **Documentation Hub** page. Click "Read documentation" on any card to view the content without leaving the console.
+> **Tip:** All documentation is now viewable directly in the web UI via the **Documentation Hub** page. Click "Read documentation" on any card to view the content without leaving the console. For test server logs, use the **Log Viewer** (`/ui/logs/:targetId`) — accessible from the Targets page via "Open Logs".
 
 > **Note:** The orchestrator has been decomposed into focused components (Phase 5). See the [Architectural Overview](developer/01_architectural_overview.md) for the updated architecture.
 

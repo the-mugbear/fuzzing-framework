@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added - 2026-02-08
+
+- **Full-screen Log Viewer for test server output** (`core/ui/spa/src/pages/LogViewerPage.tsx`, `LogViewerPage.css`)
+  - Standalone page at `/ui/logs/:targetId` — opens in a new browser tab from the Targets page
+  - Real-time log streaming with configurable polling intervals (1s/2s/5s/10s)
+  - Log level parsing (DEBUG/INFO/SUCCESS/WARNING/ERROR) with color-coded display and per-level filtering
+  - Text search, auto-scroll with scroll-lock on user scroll-up, pause/resume, target health indicator
+  - Dark terminal aesthetic with monospace fonts and level-based color coding
+  - Impact: Greatly improved observability for test server output during fuzzing campaigns
+  - Testing: Start a target from the Targets page, click "Open Logs ↗" to open the viewer
+
+- **SPA catch-all route for deep links** (`core/api/server.py`)
+  - Replaced `StaticFiles` mount with `@app.get("/ui/{rest_of_path:path}")` catch-all
+  - Serves real static assets (JS/CSS) from dist/ when they exist, otherwise returns index.html for React Router
+  - Includes path traversal protection via `.resolve()` + `startswith()` check
+  - Impact: Deep links like `/ui/logs/abc123` now work correctly instead of returning 404
+
+### Changed - 2026-02-08
+
+- **Targets page: split log buttons into Preview and Open Logs** (`core/ui/spa/src/pages/TargetsPage.tsx`, `TargetsPage.css`)
+  - "Logs" button renamed to "Preview" for inline toggle
+  - Added "Open Logs ↗" link that opens the full-screen Log Viewer in a new tab
+  - Updated documentation across 7 files (AGENTS.md, CHEATSHEET.md, QUICKSTART.md, docs/README.md, PROTOCOL_SERVER_TEMPLATES.md, TEMPLATE_QUICK_REFERENCE.md, CLAUDE.md) to reference the Log Viewer
+
 ### Changed - 2026-02-08
 
 - **Documentation cleanup and consolidation** (12 files updated)

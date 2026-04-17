@@ -226,7 +226,7 @@ React SPA → FastAPI Server → Orchestrator → Mutation Engine → TCP Socket
 - Separate FastAPI service on port 8001
 - Discovers test servers with `__server_meta__` dicts
 - Start/stop/health-check servers via REST API
-- UI integration: Targets page in the SPA
+- UI integration: Targets page in the SPA (inline log preview + full-screen Log Viewer at `/ui/logs/:targetId`)
 
 ### Data Models (`core/models.py`)
 
@@ -385,6 +385,7 @@ When `error_message` shows "Connection refused":
 1. Verify target is running: `docker-compose ps` or check the Targets page in the UI
 2. Check Docker networking (see above)
 3. Verify port matches target: use the port shown in the Targets page
+4. Open the target's Log Viewer for real-time output: click "Open Logs" on the Targets page
 
 ### Datetime Serialization Errors
 
@@ -429,7 +430,8 @@ Common causes:
 
 Located at `core/ui/spa/` — a React 18 + TypeScript + Vite SPA:
 - **Dashboard**: Session management, real-time stats, create/start/stop fuzzing sessions
-- **Targets**: Start/stop test servers dynamically via Target Manager API
+- **Targets**: Start/stop test servers dynamically via Target Manager API; inline log preview and "Open Logs" button to launch full-screen Log Viewer in a new tab
+- **Log Viewer** (`/ui/logs/:targetId`): Full-screen, dark terminal-style log viewer with auto-refresh polling, pause/resume, log level parsing and filtering, text search, and auto-scroll
 - **Documentation Hub**: Browse all docs from within the UI
 - Polls `/api/sessions` every 2 seconds for real-time updates
 - Auto-fills target host/port from running targets

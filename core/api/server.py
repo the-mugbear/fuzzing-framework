@@ -118,8 +118,24 @@ for mount_path, directory in (
         app.mount(mount_path, StaticFiles(directory=directory), name=mount_path.strip("/"))
 
 spa_dist = settings.project_root / "core" / "ui" / "spa" / "dist"
-if spa_dist.exists():
-    app.mount("/ui", StaticFiles(directory=spa_dist, html=True), name="spa")
+
+
+# SPA catch-all: serve index.html for any /ui/* path that isn't a real static
+# file.  This enables client-side routing (react-router) for deep links like
+# /ui/logs/:targetId without a 404 from the static-file handler.
+@app.get("/ui/{rest_of_path:path}")
+async def spa_fallback(rest_of_path: str):
+    # Serve real static assets (JS, CSS, images) if they exist
+    if rest_of_path:
+        candidate = (spa_dist / rest_of_path).resolve()
+        # Guard against path traversal — file must be inside spa_dist
+        if candidate.is_file() and str(candidate).startswith(str(spa_dist.resolve())):
+            return FileResponse(candidate)
+    # For all other paths, return index.html and let react-router handle routing
+    index = spa_dist / "index.html"
+    if index.exists():
+        return FileResponse(index)
+    return RedirectResponse(url="/")
 
 
 @app.get("/")

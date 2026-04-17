@@ -196,10 +196,19 @@ export default function TargetsPage() {
                   <button
                     className="btn-logs"
                     onClick={() => fetchLogs(t.id)}
-                    title="Toggle logs"
+                    title="Toggle inline logs"
                   >
-                    {logViewId === t.id ? 'Hide logs' : 'Logs'}
+                    {logViewId === t.id ? 'Hide' : 'Preview'}
                   </button>
+                  <a
+                    className="btn-logs btn-open-tab"
+                    href={`/ui/logs/${t.id}?name=${encodeURIComponent(t.name)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Open full log viewer in new tab"
+                  >
+                    Open Logs ↗
+                  </a>
                   <button
                     className="btn-stop"
                     onClick={() => stopTarget(t.id)}
@@ -269,9 +278,15 @@ export default function TargetsPage() {
                       >
                         Stop (:{running.port})
                       </button>
-                      <button className="btn-logs" onClick={() => fetchLogs(running.id)}>
-                        Logs
-                      </button>
+                      <a
+                        className="btn-logs btn-open-tab"
+                        href={`/ui/logs/${running.id}?name=${encodeURIComponent(running.name)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Open full log viewer in new tab"
+                      >
+                        Open Logs ↗
+                      </a>
                     </>
                   ) : (
                     <button

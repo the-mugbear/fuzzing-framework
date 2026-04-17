@@ -384,6 +384,7 @@ curl http://localhost:8001/targets
 # Check if running locally
 lsof -i :9999
 ```
+Also open the **Log Viewer** for the target: click "Open Logs" on the Targets page, or navigate to `/ui/logs/:targetId`.
 
 ### No findings
 - Target must be running and accepting connections

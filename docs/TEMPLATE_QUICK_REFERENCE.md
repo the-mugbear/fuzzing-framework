@@ -109,7 +109,7 @@ echo -ne '\xDE\xAD\xBE\xEF...' | nc localhost 9999 | xxd
 1.  **Create a session** pointing to your server (`localhost:9999`).
 2.  **Start the session**.
 3.  **Check for hangs**. If all tests are hanging, your server is likely deadlocked. Review your `_calculate_message_size()` implementation.
-4.  **Check server logs**. The templates have built-in logging. Use the `--verbose` flag to see detailed logs.
+4.  **Check server logs**. The templates have built-in logging. Use the `--verbose` flag to see detailed logs, or open the **Log Viewer** in the web UI (Targets page → "Open Logs") for real-time streaming with level filtering and search.
 
 ---
 ## Resources

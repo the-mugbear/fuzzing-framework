@@ -131,6 +131,7 @@ This example demonstrates how the server maintains state (`self.sessions`) and r
 -   **All tests hang (TCP)**: Your `_calculate_message_size()` is almost certainly wrong. It's either returning `-1` forever or an incorrect size, causing a deadlock. Add verbose logging to see what it's calculating.
 -   **Parse errors**: The `data_model` in your protocol plugin doesn't match the bytes the server is receiving. Check field orders, sizes, and endianness.
 -   **Orchestration fails at bootstrap**: Your server is not returning the response that the `bootstrap` plugin expects. Manually send the handshake message (`HELLO` in our example) and verify the server's response contains the data needed for `exports`.
+-   **Viewing server output**: Use the full-screen **Log Viewer** in the web UI (Targets page → "Open Logs") for real-time streaming with level filtering and text search.
 
 ---
 ## See Also

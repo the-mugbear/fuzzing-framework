@@ -69,6 +69,8 @@ docker-compose logs -f core
 docker-compose logs -f target-manager
 ```
 
+For **test server logs**, use the full-screen **Log Viewer** in the web UI: go to the Targets page and click **"Open Logs"** on any running target. The viewer provides real-time streaming, log level filtering, and text search.
+
 ### Stop Everything
 
 ```bash
@@ -184,6 +186,7 @@ Reload the Core or restart Docker to load the new plugin.
 
 ### Target not responding
 - Verify target is running and logs show it is listening on the correct port.
+- Open the **Log Viewer** for real-time server output: click "Open Logs" on the Targets page.
 
 ## Architecture Overview
 

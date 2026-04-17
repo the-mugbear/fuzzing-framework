@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
 import DashboardPage from './pages/DashboardPage';
+import LogViewerPage from './pages/LogViewerPage';
 import PluginDebuggerPage from './pages/PluginDebuggerPage';
 import PacketParserPage from './pages/PacketParserPage';
 import MutationWorkbenchPage from './pages/MutationWorkbenchPage';
@@ -21,6 +22,9 @@ function App() {
   return (
     <BrowserRouter basename="/ui">
       <Routes>
+        {/* Standalone page — no sidebar, opens in own tab */}
+        <Route path="/logs/:targetId" element={<LogViewerPage />} />
+
         <Route path="/" element={<Layout />}>
           <Route index element={<DashboardPage />} />
           <Route path="targets" element={<TargetsPage />} />

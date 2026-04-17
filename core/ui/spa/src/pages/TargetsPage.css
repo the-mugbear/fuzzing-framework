@@ -166,6 +166,21 @@
   padding: 8px 12px !important;
 }
 
+a.btn-open-tab {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+a.btn-open-tab:hover {
+  background: var(--bg-surface-3, #30363d);
+  color: var(--text-primary);
+  border-color: var(--text-secondary) !important;
+}
+
 /* ---- Running instances section ---- */
 .running-targets {
   display: grid;
