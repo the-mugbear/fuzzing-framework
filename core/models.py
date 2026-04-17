@@ -77,6 +77,12 @@ class ProtocolPlugin(BaseModel):
         description="Heartbeat/keepalive configuration",
     )
 
+    # Target server hints (optional)
+    target_servers: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Compatible test server scripts for this protocol",
+    )
+
 
 class TestCase(BaseModel):
     """Individual test case"""

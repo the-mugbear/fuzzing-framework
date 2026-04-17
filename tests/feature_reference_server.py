@@ -42,6 +42,15 @@ USAGE:
 Part of the Proprietary Protocol Fuzzer framework.
 """
 
+__server_meta__ = {
+    "name": "Feature Reference",
+    "description": "Full protocol server with 10 intentional vulnerabilities (★ to ★★★★★)",
+    "transport": "tcp",
+    "default_port": 9999,
+    "compatible_plugins": ["feature_reference"],
+    "vulnerabilities": 10,
+}
+
 import argparse
 import os
 import random

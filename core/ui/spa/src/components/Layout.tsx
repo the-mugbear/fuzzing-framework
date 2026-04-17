@@ -6,6 +6,7 @@ const navGroups = [
     heading: 'Run',
     links: [
       { to: '/', label: 'Dashboard', description: 'Sessions & orchestration' },
+      { to: '/targets', label: 'Targets', description: 'Start & stop test servers' },
       { to: '/one-off', label: 'One-Off Test', description: 'Fire single payloads' },
     ],
   },
@@ -69,10 +70,6 @@ function Layout() {
               </p>
             </div>
             <div className="masthead-meta">
-              <div>
-                <span>Targets</span>
-                <strong>Simple TCP  |  Feature Showcase</strong>
-              </div>
             </div>
           </header>
           <main className="app-content">

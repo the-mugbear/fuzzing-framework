@@ -21,19 +21,17 @@ services:
       - fuzzer-network
     restart: unless-stopped
 
-  # Test target server
-  # Available servers:
-  #   - simple_tcp_server.py: Basic echo server for quick testing
-  #   - feature_reference_server.py: Full protocol server with 10 intentional vulnerabilities
-  target:
+  # Target Manager — dynamic test server lifecycle management
+  # Start/stop test servers via API without restarting containers.
+  # API: http://localhost:8001  |  Target ports: 9990-9999
+  target-manager:
     build:
       context: .
-      dockerfile: Dockerfile
-    container_name: fuzzer-target
-    #command: python tests/simple_tcp_server.py --host 0.0.0.0 --port 9999
-    command: python tests/feature_reference_server.py --host 0.0.0.0 --port 9999
+      dockerfile: Dockerfile.target-manager
+    container_name: fuzzer-target-manager
     ports:
-      - "9999:9999"
+      - "8001:8001"
+      - "9990-9999:9990-9999"
     networks:
       - fuzzer-network
     restart: unless-stopped
@@ -46,11 +44,11 @@ services:
   #   container_name: fuzzer-probe
   #   environment:
   #     - FUZZER_CORE_URL=http://core:8000
-  #     - FUZZER_TARGET_HOST=target
+  #     - FUZZER_TARGET_HOST=target-manager
   #     - FUZZER_TARGET_PORT=9999
   #   depends_on:
   #     - core
-  #     - target
+  #     - target-manager
   #   networks:
   #     - fuzzer-network
   #   restart: unless-stopped

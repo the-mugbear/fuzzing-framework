@@ -4,6 +4,16 @@ Simple TCP echo server for fuzzing/debugging
 The server now echoes exactly what it receives without enforcing protocol
 validations so contributors can observe the raw payloads being transmitted.
 """
+
+__server_meta__ = {
+    "name": "Simple TCP Echo",
+    "description": "Generic TCP echo server — reflects raw bytes for payload inspection",
+    "transport": "tcp",
+    "default_port": 9999,
+    "compatible_plugins": ["minimal_tcp"],
+    "vulnerabilities": 3,
+}
+
 import socket
 import sys
 import threading

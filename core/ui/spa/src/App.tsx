@@ -15,6 +15,7 @@ import ProtocolAuthoringGuide from './pages/ProtocolAuthoringGuide';
 import ProtocolGuide from './pages/ProtocolGuide';
 import DocumentationHubPage from './pages/DocumentationHubPage';
 import ProtocolStudioPage from './pages/ProtocolStudioPage';
+import TargetsPage from './pages/TargetsPage';
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<DashboardPage />} />
+          <Route path="targets" element={<TargetsPage />} />
           <Route path="plugin-debug" element={<PluginDebuggerPage />} />
           <Route path="packet-parser" element={<PacketParserPage />} />
           <Route path="mutation-workbench" element={<MutationWorkbenchPage />} />

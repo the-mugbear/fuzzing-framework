@@ -241,6 +241,19 @@ function DashboardPage() {
         setProtocolStates([]);
         setToast({ variant: 'error', message: `Failed to load plugin details: ${err.message}` });
       });
+
+    // Auto-fill target host/port from running Target Manager targets
+    const tmBase = import.meta.env.VITE_TARGET_MANAGER_URL ?? 'http://localhost:8001';
+    fetch(`${tmBase}/api/targets`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((targets: Array<{ script: string; port: number; compatible_plugins: string[] }>) => {
+        const match = targets.find((t) => t.compatible_plugins.includes(form.protocol));
+        if (match) {
+          dispatch({ type: 'set_field', field: 'target_host', value: 'target-manager' });
+          dispatch({ type: 'set_field', field: 'target_port', value: match.port });
+        }
+      })
+      .catch(() => { /* Target Manager not available — ignore */ });
   }, [form.protocol]);
 
   const validateForm = () => {

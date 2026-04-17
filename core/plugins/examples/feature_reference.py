@@ -1561,6 +1561,15 @@ state_model = {
     #   - Debug stateful behavior
 }
 
+# Compatible test servers for this protocol
+target_servers = [
+    {
+        "script": "feature_reference_server.py",
+        "description": "Full protocol server with 10 intentional vulnerabilities",
+        "default_port": 9999,
+    },
+]
+
 
 # ==============================================================================
 #  SECTION 5: RESPONSE VALIDATOR (Logic Oracle)

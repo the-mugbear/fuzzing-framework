@@ -66,6 +66,15 @@ state_model = {
     ],
 }
 
+# Compatible test servers for this protocol
+target_servers = [
+    {
+        "script": "udp_server.py",
+        "description": "UDP echo server with command byte flip",
+        "default_port": 9999,
+    },
+]
+
 
 def validate_response(response: bytes) -> bool:
     """Simple sanity check for UDP echo responses."""

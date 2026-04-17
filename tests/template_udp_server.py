@@ -28,9 +28,21 @@ CUSTOMIZATION CHECKLIST:
     [ ] Import your protocol plugin from core/plugins/
     [ ] Customize MAX_DATAGRAM_SIZE if needed
     [ ] Implement _process_message() with your protocol logic
-    [ ] Customize _build_response() for your response format
-    [ ] Consider if your protocol needs session/state tracking
 """
+
+__server_meta__ = {
+    "name": "UDP Template",
+    "description": "Skeleton UDP server — copy and customize for your protocol",
+    "transport": "udp",
+    "default_port": 9999,
+    "compatible_plugins": [],
+    "vulnerabilities": 0,
+}
+
+# Remaining customization checklist:
+#   [ ] Customize _build_response() for your response format
+#   [ ] Consider if your protocol needs session/state tracking
+
 from __future__ import annotations
 
 import argparse

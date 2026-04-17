@@ -1,0 +1,32 @@
+# Dockerfile for Target Manager
+FROM python:3.11-slim
+
+LABEL maintainer="Ken Charles"
+LABEL description="Target Manager — dynamic test server lifecycle management"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy target manager service
+COPY target_manager/ ./target_manager/
+
+# Copy test servers and supporting code they import
+COPY tests/ ./tests/
+COPY core/ ./core/
+
+# Expose Target Manager API port + target port range
+EXPOSE 8001
+EXPOSE 9990-9999
+
+ENV PYTHONUNBUFFERED=1
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=3s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/api/health')"
+
+CMD ["python", "-m", "target_manager.server"]

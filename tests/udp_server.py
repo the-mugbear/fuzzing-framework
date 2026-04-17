@@ -1,4 +1,14 @@
 """Simple UDP server for exercising the SimpleUDP protocol plugin."""
+
+__server_meta__ = {
+    "name": "Simple UDP",
+    "description": "UDP echo server with command byte flip for the minimal_udp plugin",
+    "transport": "udp",
+    "default_port": 9999,
+    "compatible_plugins": ["minimal_udp"],
+    "vulnerabilities": 0,
+}
+
 from __future__ import annotations
 
 import argparse

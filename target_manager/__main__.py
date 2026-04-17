@@ -1,0 +1,6 @@
+"""Entry point for ``python -m target_manager.server``."""
+import uvicorn
+
+from target_manager.server import app
+
+uvicorn.run(app, host="0.0.0.0", port=8001)

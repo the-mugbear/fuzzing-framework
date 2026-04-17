@@ -23,6 +23,16 @@ CUSTOMIZATION CHECKLIST:
     [ ] Customize _build_response() for your response format
     [ ] Adjust timeouts based on your testing needs
 """
+
+__server_meta__ = {
+    "name": "TCP Template",
+    "description": "Skeleton TCP server — copy and customize for your protocol",
+    "transport": "tcp",
+    "default_port": 9999,
+    "compatible_plugins": [],
+    "vulnerabilities": 0,
+}
+
 from __future__ import annotations
 
 import argparse

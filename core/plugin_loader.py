@@ -329,6 +329,8 @@ class PluginManager:
                 "protocol_stack": protocol_stack_normalized,
                 "connection": connection_config,
                 "heartbeat": heartbeat_config,
+                # Target server hints
+                "target_servers": getattr(module, "target_servers", []),
             }
 
             # Cache the loaded plugin
@@ -356,6 +358,8 @@ class PluginManager:
             protocol_stack=data.get("protocol_stack"),
             connection=data.get("connection"),
             heartbeat=data.get("heartbeat"),
+            # Target server hints
+            target_servers=data.get("target_servers", []),
         )
 
     def get_validator(self, plugin_name: str) -> Optional[Callable]:

@@ -3,6 +3,9 @@
 help:
 	@echo "Fuzzer MVP - Available Commands"
 	@echo "================================"
+	@echo "Quick Start:"
+	@echo "  ./start.sh             - Interactive launcher (recommended)"
+	@echo ""
 	@echo "Development:"
 	@echo "  make install       - Install dependencies"
 	@echo "  make dev           - Install development dependencies"
@@ -10,6 +13,7 @@ help:
 	@echo "  make ui-build      - Build the React SPA"
 	@echo "  make ui-dev        - Run the UI dev server"
 	@echo "  make run-core      - Run Core API server"
+	@echo "  make run-tm        - Run Target Manager"
 	@echo "  make run-probe     - Run probe"
 	@echo "  make run-target    - Run test target server"
 	@echo ""
@@ -45,6 +49,9 @@ ui-dev:
 run-core:
 	python -m core.api.server
 
+run-tm:
+	python -c "import uvicorn; from target_manager.server import app; uvicorn.run(app, host='0.0.0.0', port=8001)"
+
 run-probe:
 	python -m probe.main --core-url http://localhost:8000 --target-host localhost --target-port 9999
 
@@ -58,8 +65,10 @@ docker-up:
 	docker-compose up -d
 	@echo ""
 	@echo "Fuzzer Core API: http://localhost:8000"
-	@echo "Web UI: http://localhost:8000"
-	@echo "Target Server: localhost:9999"
+	@echo "Web UI: http://localhost:8000/ui"
+	@echo "Target Manager: http://localhost:8001"
+	@echo ""
+	@echo "Manage targets: open the UI → Targets tab"
 	@echo ""
 	@echo "View logs: make docker-logs"
 

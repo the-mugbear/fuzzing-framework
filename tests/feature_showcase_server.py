@@ -6,6 +6,15 @@ Unlike the generic echo server, this implementation understands
 contributors can observe the response-driven workflow (session tokens,
 status codes, etc.).
 """
+
+__server_meta__ = {
+    "name": "Feature Showcase",
+    "description": "Interactive server for feature_showcase protocol with 5 intentional vulns",
+    "transport": "tcp",
+    "default_port": 9001,
+    "compatible_plugins": ["feature_showcase"],
+    "vulnerabilities": 5,
+}
 from __future__ import annotations
 
 import argparse

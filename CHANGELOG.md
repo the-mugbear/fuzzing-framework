@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added - 2026-04-17
+
+- **Target Manager service — dynamic test server lifecycle management** (`target_manager/`)
+  - New `target_manager/` package: FastAPI service on port 8001 for spawning, stopping, and monitoring test servers
+  - `target_manager/registry.py`: Auto-discovers `tests/*_server.py` scripts via `__server_meta__` dicts or built-in fallbacks
+  - `target_manager/process_manager.py`: Async subprocess management with log capture, health probing (TCP connect / UDP bind), port pool allocation (9990-9999)
+  - `target_manager/server.py`: REST API — `GET /api/servers` (catalog), `POST /api/targets` (start), `DELETE /api/targets/{id}` (stop), `GET /api/targets/{id}/logs` (log streaming)
+  - `Dockerfile.target-manager`: Lightweight Python 3.11-slim image with test scripts
+  - `docker-compose.yml`: Replaced static `target` service with `target-manager` service
+  - Impact: Users no longer edit docker-compose.yml to switch protocols — start/stop servers from the UI or API
+  - Testing: `curl -X POST http://localhost:8001/api/targets -d '{"script":"feature_reference_server.py"}'`
+
+- **`__server_meta__` metadata in all test servers** (`tests/*_server.py`)
+  - Added structured metadata (name, description, transport, port, compatible plugins, vulnerability count) to all 6 server scripts
+  - Enables auto-discovery by Target Manager without hard-coded fallbacks
+  - Files: `simple_tcp_server.py`, `feature_reference_server.py`, `feature_showcase_server.py`, `udp_server.py`, `template_tcp_server.py`, `template_udp_server.py`
+
+- **`target_servers` metadata in protocol plugins** (`core/plugins/examples/`)
+  - Added `target_servers` list to `minimal_tcp.py`, `minimal_udp.py`, `feature_reference.py`
+  - Added `target_servers` field to `ProtocolPlugin` model (`core/models.py`) and wired through `core/plugin_loader.py`
+  - Enables SPA and API consumers to discover compatible servers for each protocol
+
+- **SPA Targets panel** (`core/ui/spa/src/pages/TargetsPage.tsx`)
+  - New "Targets" tab in sidebar under Run group — browse server catalog, start/stop servers, view health status (green/yellow/red dots), read live logs
+  - Auto-fills Dashboard session form (target_host/port) when a running target matches the selected protocol
+  - `TargetsPage.css`: Full dark-theme styling with server cards, health indicators, log viewer
+
+- **Unified startup script** (`start.sh`)
+  - Interactive menu: Docker, Podman, or local Python modes
+  - CLI commands: `./start.sh docker`, `./start.sh local`, `./start.sh status`, `./start.sh stop`, `./start.sh logs`
+  - Auto-detects Docker vs Podman, validates service readiness with port probing
+  - `./start.sh status`: shows Core API, Target Manager, and running target servers
+
 ### Fixed - 2025-07-24
 
 - **C1: Unbounded seed cache in add_seed()** (`core/corpus/store.py:182`)

@@ -99,6 +99,15 @@ state_model = {
     ],
 }
 
+# Compatible test servers for this protocol
+target_servers = [
+    {
+        "script": "simple_tcp_server.py",
+        "description": "Generic TCP echo server — reflects raw bytes",
+        "default_port": 9999,
+    },
+]
+
 
 def validate_response(response: bytes) -> bool:
     """
