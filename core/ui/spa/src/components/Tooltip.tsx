@@ -1,4 +1,4 @@
-import { ReactNode, useState } from 'react';
+import { ReactNode, useId, useState } from 'react';
 import './Tooltip.css';
 
 interface TooltipProps {
@@ -9,24 +9,41 @@ interface TooltipProps {
 
 function Tooltip({ content, position = 'top', children }: TooltipProps) {
   const [isVisible, setIsVisible] = useState(false);
+  const tooltipId = useId();
 
-  const handleMouseEnter = () => setIsVisible(true);
-  const handleMouseLeave = () => {
-    // Small delay to allow moving mouse to tooltip
-    setTimeout(() => setIsVisible(false), 150);
+  const show = () => setIsVisible(true);
+  const hide = () => setTimeout(() => setIsVisible(false), 150);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') { setIsVisible(false); }
   };
 
   return (
     <span
       className="tooltip-wrapper"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onFocus={show}
+      onBlur={hide}
+      onKeyDown={handleKeyDown}
     >
       {children || (
-        <span className="tooltip-trigger">i</span>
+        <button
+          type="button"
+          className="tooltip-trigger"
+          aria-describedby={isVisible ? tooltipId : undefined}
+          tabIndex={0}
+          aria-label="More info"
+        >
+          i
+        </button>
       )}
       {isVisible && (
-        <span className={`tooltip-content position-${position}`}>
+        <span
+          id={tooltipId}
+          className={`tooltip-content position-${position}`}
+          role="tooltip"
+        >
           {content}
         </span>
       )}

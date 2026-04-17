@@ -154,6 +154,44 @@ function DashboardPage() {
   const [expandedSession, setExpandedSession] = useState<string | null>(null);
   const refreshTimer = useRef<number>();
 
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  const validateField = (field: string, value: any) => {
+    let error = '';
+    switch (field) {
+      case 'protocol':
+        if (!value) error = 'Required';
+        break;
+      case 'target_host':
+        if (!String(value).trim()) error = 'Required';
+        break;
+      case 'target_port':
+        if (!Number.isInteger(value) || value <= 0) error = 'Must be a positive integer';
+        break;
+      case 'rate_limit_per_second':
+        if (value !== '' && Number(value) <= 0) error = 'Must be positive';
+        break;
+      case 'max_iterations':
+        if (value !== '' && Number(value) <= 0) error = 'Must be positive';
+        break;
+      case 'timeout_per_test_ms':
+        if (Number(value) < 100) error = 'Minimum 100ms';
+        break;
+    }
+    setFieldErrors(prev => {
+      const next = { ...prev };
+      if (error) next[field] = error; else delete next[field];
+      return next;
+    });
+    return error;
+  };
+
+  const handleFieldChange = (field: keyof CreateSessionForm, value: any) => {
+    dispatch({ type: 'set_field', field, value });
+    validateField(field, value);
+  };
+
   const refreshSessions = () => {
     setLoading(true);
     api<FuzzSession[]>('/api/sessions')
@@ -206,28 +244,24 @@ function DashboardPage() {
   }, [form.protocol]);
 
   const validateForm = () => {
-    const issues: string[] = [];
-    if (!form.protocol) issues.push('Protocol is required.');
-    if (!form.target_host.trim()) issues.push('Target host is required.');
-    if (!Number.isInteger(form.target_port) || form.target_port <= 0) issues.push('Target port must be a positive integer.');
-    if (form.rate_limit_per_second !== '' && Number(form.rate_limit_per_second) <= 0)
-      issues.push('Rate limit must be positive.');
-    if (form.max_iterations !== '' && Number(form.max_iterations) <= 0)
-      issues.push('Max iterations must be positive.');
-    if (form.timeout_per_test_ms < 100) issues.push('Timeout must be at least 100ms.');
-    // Validate mutators for random modes
+    const fields = ['protocol', 'target_host', 'target_port', 'rate_limit_per_second', 'max_iterations', 'timeout_per_test_ms'] as const;
+    const errors: string[] = [];
+    for (const field of fields) {
+      const err = validateField(field, form[field]);
+      if (err) errors.push(`${field}: ${err}`);
+    }
     if (['hybrid', 'structure_aware', 'byte_level'].includes(form.mutation_mode) &&
         form.show_mutator_controls && form.enabled_mutators.length === 0) {
-      issues.push('At least one mutator must be enabled.');
+      errors.push('At least one mutator must be enabled.');
     }
-    return issues;
+    return errors;
   };
 
   const handleCreate = async (event: FormEvent) => {
     event.preventDefault();
     const issues = validateForm();
     if (issues.length) {
-      setToast({ variant: 'error', message: issues.join(' ') });
+      setToast({ variant: 'error', message: 'Please fix the highlighted fields before creating a session.' });
       return;
     }
     try {
@@ -334,17 +368,20 @@ function DashboardPage() {
             <p className="eyebrow">Launch Campaign</p>
             <h2>Create Session</h2>
           </div>
-          <div className="hint">Configure a target &amp; mutation strategy</div>
+          <div className="hint">Set a target and start fuzzing. Defaults work well for getting started.</div>
         </div>
         <form className="session-form" onSubmit={handleCreate}>
-          <label>
+          {/* — Essential fields (always visible) — */}
+          <label className={fieldErrors.protocol ? 'has-error' : ''}>
             <span className="label-text">
               Protocol
-              <Tooltip content="Select a protocol plugin that defines message structure and state machine for fuzzing." />
+              <Tooltip content="Choose which protocol plugin to use. This determines the message format and how the fuzzer talks to your target." />
             </span>
             <select
               value={form.protocol}
-              onChange={(e) => dispatch({ type: 'set_field', field: 'protocol', value: e.target.value })}
+              onChange={(e) => handleFieldChange('protocol', e.target.value)}
+              onBlur={() => validateField('protocol', form.protocol)}
+              aria-invalid={!!fieldErrors.protocol}
             >
               {protocols.length === 0 && <option>Loading...</option>}
               {protocols.map((name) => (
@@ -353,269 +390,285 @@ function DashboardPage() {
                 </option>
               ))}
             </select>
+            {fieldErrors.protocol && <span className="field-error" role="alert">{fieldErrors.protocol}</span>}
           </label>
-          <label>
+          <label className={fieldErrors.target_host ? 'has-error' : ''}>
             <span className="label-text">
               Target Host
-              <Tooltip content="Hostname or IP of the target. Use 'target' for Docker service name, or 'host.docker.internal' for host machine." />
+              <Tooltip content="Where is the target running? Use 'target' for Docker, 'localhost' for local, or an IP address." />
             </span>
             <input
                 value={form.target_host}
-              onChange={(e) => dispatch({ type: 'set_field', field: 'target_host', value: e.target.value })}
+              onChange={(e) => handleFieldChange('target_host', e.target.value)}
+              onBlur={() => validateField('target_host', form.target_host)}
+              aria-invalid={!!fieldErrors.target_host}
             />
+            {fieldErrors.target_host && <span className="field-error" role="alert">{fieldErrors.target_host}</span>}
           </label>
-          <label>
+          <label className={fieldErrors.target_port ? 'has-error' : ''}>
             <span className="label-text">
               Target Port
-              <Tooltip content="TCP/UDP port the target listens on. Must match the protocol's expected port." />
+              <Tooltip content="The port your target listens on. Default is 9999 for the sample target." />
             </span>
             <input
                 type="number"
                 value={form.target_port}
-              onChange={(e) => dispatch({ type: 'set_field', field: 'target_port', value: Number(e.target.value) })}
+              onChange={(e) => handleFieldChange('target_port', Number(e.target.value))}
+              onBlur={() => validateField('target_port', form.target_port)}
+              aria-invalid={!!fieldErrors.target_port}
             />
+            {fieldErrors.target_port && <span className="field-error" role="alert">{fieldErrors.target_port}</span>}
           </label>
           <label>
             <span className="label-text">
-              Execution Mode
-              <Tooltip content="Core: Execute tests locally. Agent: Distribute tests to remote workers near the target." />
+              Where to Run
+              <Tooltip content="Local runner executes tests on this machine. Remote agent runs tests on a worker closer to the target." />
             </span>
             <select
               value={form.execution_mode}
-              onChange={(e) => dispatch({ type: 'set_field', field: 'execution_mode', value: e.target.value as 'core' | 'agent' })}
+              onChange={(e) => handleFieldChange('execution_mode', e.target.value as 'core' | 'agent')}
             >
-              <option value="core">Core</option>
-              <option value="agent">Agent</option>
+              <option value="core">Local runner (recommended)</option>
+              <option value="agent">Remote agent</option>
             </select>
           </label>
           <label>
             <span className="label-text">
-              Mutation Strategy
-              <Tooltip content="Random modes mutate probabilistically. Enumeration modes systematically test boundary values for comprehensive coverage." />
+              Max Tests
+              <Tooltip content="Stop the session after this many tests. Leave empty to keep running until you stop it manually." />
             </span>
-            <select
-              value={form.mutation_mode}
-              onChange={(e) => dispatch({ type: 'set_field', field: 'mutation_mode', value: e.target.value })}
-            >
-              <optgroup label="Random Mutations">
-                <option value="hybrid">Hybrid (structure + byte-level)</option>
-                <option value="structure_aware">Structure-Aware (field boundaries)</option>
-                <option value="byte_level">Byte-Level (raw bytes)</option>
-              </optgroup>
-              <optgroup label="Systematic Enumeration">
-                <option value="enumeration">Enumeration (one field at a time)</option>
-                <option value="enumeration_pairwise">Pairwise (all field pairs)</option>
-                <option value="enumeration_full">Full Permutation (all combinations)</option>
-              </optgroup>
-            </select>
-          </label>
-          {form.mutation_mode === 'hybrid' && (
-            <label>
-              <span className="label-text">
-                Structure-Aware Weight ({form.structure_aware_weight}%)
-                <Tooltip content="Percentage of mutations that use structure-aware logic vs byte-level. Higher = more field-aware mutations." />
-              </span>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={form.structure_aware_weight}
+            <input
+                type="number"
+                min="1"
+                placeholder="Run until stopped"
+                value={form.max_iterations}
                 onChange={(e) =>
-                  dispatch({ type: 'set_field', field: 'structure_aware_weight', value: Number(e.target.value) })
+                handleFieldChange('max_iterations', e.target.value ? Number(e.target.value) : '')
                 }
               />
-            </label>
-          )}
+          </label>
 
-          {/* Mutator Selection - works for all random mutation modes */}
-          {['hybrid', 'structure_aware', 'byte_level'].includes(form.mutation_mode) && (
-            <>
+          {/* — Advanced section (toggle) — */}
+          <div className="advanced-toggle" role="group">
+            <button
+              type="button"
+              className="toggle-btn"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              aria-expanded={showAdvanced}
+            >
+              {showAdvanced ? '▾ Hide' : '▸ Show'} Advanced Options
+            </button>
+          </div>
+
+          {showAdvanced && (
+            <div className="advanced-section">
+              <label>
+                <span className="label-text">
+                  Test Input Strategy
+                  <Tooltip content="How aggressively to change packets. Hybrid mixes smart field-aware mutations with random byte changes. Start with Hybrid unless you know what you need." />
+                </span>
+                <select
+                  value={form.mutation_mode}
+                  onChange={(e) => handleFieldChange('mutation_mode', e.target.value)}
+                >
+                  <optgroup label="Random Mutations">
+                    <option value="hybrid">Hybrid — smart + random (recommended)</option>
+                    <option value="structure_aware">Field-aware — respects message structure</option>
+                    <option value="byte_level">Raw bytes — fully random</option>
+                  </optgroup>
+                  <optgroup label="Systematic Testing">
+                    <option value="enumeration">Boundary values — one field at a time</option>
+                    <option value="enumeration_pairwise">Pairwise — all field pairs</option>
+                    <option value="enumeration_full">Full permutation — all combinations</option>
+                  </optgroup>
+                </select>
+              </label>
+              {form.mutation_mode === 'hybrid' && (
+                <label>
+                  <span className="label-text">
+                    Field-Aware vs Random ({form.structure_aware_weight}% / {100 - form.structure_aware_weight}%)
+                    <Tooltip content="How much of the mutation should respect field boundaries vs randomly change bytes. Higher = more precise, lower = more chaotic." />
+                  </span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={form.structure_aware_weight}
+                    onChange={(e) =>
+                      handleFieldChange('structure_aware_weight', Number(e.target.value))
+                    }
+                  />
+                </label>
+              )}
+
+              {/* Mutator Selection */}
+              {['hybrid', 'structure_aware', 'byte_level'].includes(form.mutation_mode) && (
+                <>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={form.show_mutator_controls}
+                      onChange={(e) => handleFieldChange('show_mutator_controls', e.target.checked)}
+                    />
+                    <span>
+                      Pick specific mutation algorithms
+                      <Tooltip content="By default all algorithms are used. Enable this to select exactly which ones to apply." />
+                    </span>
+                  </label>
+
+                  {form.show_mutator_controls && (
+                    <div className="mutator-selection">
+                      <div className="mutator-grid">
+                        {ALL_MUTATORS.map((mutator) => {
+                          const info = MUTATOR_INFO[mutator];
+                          return (
+                            <label key={mutator} className="mutator-item">
+                              <input
+                                type="checkbox"
+                                checked={form.enabled_mutators.includes(mutator)}
+                                onChange={(e) => {
+                                  const newMutators = e.target.checked
+                                    ? [...form.enabled_mutators, mutator]
+                                    : form.enabled_mutators.filter((m) => m !== mutator);
+                                  handleFieldChange('enabled_mutators', newMutators);
+                                }}
+                              />
+                              <span className="mutator-name">{info.name}</span>
+                              <Tooltip content={`${info.description}\n\nExample: ${info.example}`} />
+                            </label>
+                          );
+                        })}
+                      </div>
+                      {form.enabled_mutators.length === 0 && (
+                        <div className="warning-text">At least one algorithm must be enabled</div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Mode-specific info boxes */}
+              {form.mutation_mode === 'hybrid' && (
+                <div className="info-box">
+                  <strong>Hybrid:</strong> Combines field-aware ({form.structure_aware_weight}%) with random byte ({100 - form.structure_aware_weight}%) mutations. Best for general exploration.
+                </div>
+              )}
+              {form.mutation_mode === 'structure_aware' && (
+                <div className="info-box">
+                  <strong>Field-Aware:</strong> Mutations respect message field boundaries and only change mutable fields. Good for testing specific protocol logic.
+                </div>
+              )}
+              {form.mutation_mode.startsWith('enumeration') && (
+                <div className="info-box">
+                  <strong>Systematic:</strong> Tests boundary values (0, 1, max-1, max) for each field.
+                  {form.mutation_mode === 'enumeration' && ' One field at a time — fast and focused.'}
+                  {form.mutation_mode === 'enumeration_pairwise' && ' All field pairs — good coverage without explosion.'}
+                  {form.mutation_mode === 'enumeration_full' && ' All combinations — thorough but can be very large!'}
+                  {' '}Switches to random mutation after all boundary values are tested.
+                </div>
+              )}
+
+              <label className={fieldErrors.rate_limit_per_second ? 'has-error' : ''}>
+                <span className="label-text">
+                  Speed Limit (tests/sec)
+                  <Tooltip content="Slow down testing to avoid overwhelming the target. Leave empty for maximum speed." />
+                </span>
+                <input
+                    type="number"
+                    min="1"
+                    placeholder="Full speed"
+                    value={form.rate_limit_per_second}
+                    onChange={(e) =>
+                    handleFieldChange('rate_limit_per_second', e.target.value ? Number(e.target.value) : '')
+                    }
+                    onBlur={() => validateField('rate_limit_per_second', form.rate_limit_per_second)}
+                  />
+                {fieldErrors.rate_limit_per_second && <span className="field-error" role="alert">{fieldErrors.rate_limit_per_second}</span>}
+              </label>
+              <label className={fieldErrors.timeout_per_test_ms ? 'has-error' : ''}>
+                <span className="label-text">
+                  Response Timeout (ms)
+                  <Tooltip content="How long to wait for the target to respond before marking a test as a timeout. Increase for slow targets." />
+                </span>
+                <input
+                    type="number"
+                    min="100"
+                    value={form.timeout_per_test_ms}
+                  onChange={(e) => handleFieldChange('timeout_per_test_ms', Number(e.target.value))}
+                  onBlur={() => validateField('timeout_per_test_ms', form.timeout_per_test_ms)}
+                  aria-invalid={!!fieldErrors.timeout_per_test_ms}
+                />
+                {fieldErrors.timeout_per_test_ms && <span className="field-error" role="alert">{fieldErrors.timeout_per_test_ms}</span>}
+              </label>
+
+              <label>
+                <span className="label-text">
+                  Exploration Goal
+                  <Tooltip content="Random: explore broadly. Breadth-first: visit all protocol states evenly. Depth-first: follow paths deeply. Targeted: focus on one state." />
+                </span>
+                <select
+                  value={form.fuzzing_mode}
+                  onChange={(e) => handleFieldChange('fuzzing_mode', e.target.value)}
+                >
+                  <option value="random">Broad exploration (recommended)</option>
+                  <option value="breadth_first">Even coverage — visit all states equally</option>
+                  <option value="depth_first">Deep paths — follow transitions deeply</option>
+                  <option value="targeted">Focus on one state</option>
+                </select>
+              </label>
+
+              {form.fuzzing_mode === 'targeted' && (
+                <label>
+                  <span className="label-text">
+                    Target State
+                    <Tooltip content="The specific protocol state to concentrate testing on. The fuzzer will navigate there and focus mutations." />
+                  </span>
+                  <select
+                    value={form.target_state}
+                    onChange={(e) => handleFieldChange('target_state', e.target.value)}
+                    disabled={protocolStates.length === 0}
+                  >
+                    <option value="">
+                      {protocolStates.length === 0 ? 'No states available' : 'Select a state'}
+                    </option>
+                    {protocolStates.map((state) => (
+                      <option key={state} value={state}>
+                        {state}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              <label>
+                <span className="label-text">
+                  State Reset Interval
+                  <Tooltip content="Reset the protocol state machine every N tests. Useful to repeatedly test setup/teardown and avoid getting stuck." />
+                </span>
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="No reset"
+                  value={form.session_reset_interval}
+                  onChange={(e) =>
+                    handleFieldChange('session_reset_interval', e.target.value ? Number(e.target.value) : '')
+                  }
+                />
+              </label>
+
               <label className="checkbox-label">
                 <input
                   type="checkbox"
-                  checked={form.show_mutator_controls}
-                  onChange={(e) => dispatch({ type: 'set_field', field: 'show_mutator_controls', value: e.target.checked })}
+                  checked={form.enable_termination_fuzzing}
+                  onChange={(e) => handleFieldChange('enable_termination_fuzzing', e.target.checked)}
                 />
-                <span>
-                  Customize Mutators
-                  <Tooltip content="Select which mutation algorithms to use. In structure-aware modes, these map to equivalent field-aware strategies." />
+                <span className="label-text">
+                  Test teardown paths
+                  <Tooltip content="Periodically trigger close/disconnect transitions to test how the target handles session cleanup." />
                 </span>
               </label>
-
-              {form.show_mutator_controls && (
-                <div className="mutator-selection">
-                  <div className="mutator-grid">
-                    {ALL_MUTATORS.map((mutator) => {
-                      const info = MUTATOR_INFO[mutator];
-                      return (
-                        <label key={mutator} className="mutator-item">
-                          <input
-                            type="checkbox"
-                            checked={form.enabled_mutators.includes(mutator)}
-                            onChange={(e) => {
-                              const newMutators = e.target.checked
-                                ? [...form.enabled_mutators, mutator]
-                                : form.enabled_mutators.filter((m) => m !== mutator);
-                              dispatch({ type: 'set_field', field: 'enabled_mutators', value: newMutators });
-                            }}
-                          />
-                          <span className="mutator-name">{info.name}</span>
-                          <Tooltip content={`${info.description}\n\nExample: ${info.example}`} />
-                        </label>
-                      );
-                    })}
-                  </div>
-                  {form.enabled_mutators.length === 0 && (
-                    <div className="warning-text">At least one mutator must be enabled</div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Mode-specific info boxes */}
-          {form.mutation_mode === 'hybrid' && (
-            <div className="info-box">
-              <strong>Hybrid Mode:</strong> Combines structure-aware ({form.structure_aware_weight}%) with byte-level ({100 - form.structure_aware_weight}%) mutations.
-              Mutator selection applies to both: e.g., selecting only "Bit Flip" uses bit flips in both modes.
             </div>
           )}
-          {form.mutation_mode === 'structure_aware' && (
-            <div className="info-box">
-              <strong>Structure-Aware Mode:</strong> Mutations respect field boundaries and only affect mutable fields.
-              Mutator selection maps to field-aware strategies: Bit Flip → field bit flips, Arithmetic → field arithmetic, etc.
-            </div>
-          )}
-          {form.mutation_mode.startsWith('enumeration') && (
-            <div className="info-box">
-              <strong>Enumeration Mode:</strong> Systematically tests boundary values (0, 1, max-1, max) for each mutable field.
-              {form.mutation_mode === 'enumeration' && ' Varies one field at a time.'}
-              {form.mutation_mode === 'enumeration_pairwise' && ' Tests all pairs of field values.'}
-              {form.mutation_mode === 'enumeration_full' && ' Tests ALL combinations (can be very large!).'}
-              {' '}After enumeration completes, falls back to random mutation.
-            </div>
-          )}
-          <label>
-            <span className="label-text">
-              Rate Limit (tests/sec)
-              <Tooltip content="Throttle test execution to avoid overwhelming the target. Leave empty for maximum speed." />
-            </span>
-            <input
-                type="number"
-                min="1"
-                placeholder="Unlimited"
-                value={form.rate_limit_per_second}
-                onChange={(e) =>
-                dispatch({
-                  type: 'set_field',
-                  field: 'rate_limit_per_second',
-                  value: e.target.value ? Number(e.target.value) : '',
-                })
-                }
-              />
-          </label>
-          <label>
-            <span className="label-text">
-              Max Iterations
-              <Tooltip content="Stop session after this many test cases. Leave empty to run indefinitely until manually stopped." />
-            </span>
-            <input
-                type="number"
-                min="1"
-                placeholder="No limit"
-                value={form.max_iterations}
-                onChange={(e) =>
-                dispatch({
-                  type: 'set_field',
-                  field: 'max_iterations',
-                  value: e.target.value ? Number(e.target.value) : '',
-                })
-                }
-              />
-          </label>
-          <label>
-            <span className="label-text">
-              Timeout per Test (ms)
-              <Tooltip content="Maximum time to wait for target response. Increase for slow targets, decrease for faster feedback." />
-            </span>
-            <input
-                type="number"
-                min="100"
-                value={form.timeout_per_test_ms}
-              onChange={(e) => dispatch({ type: 'set_field', field: 'timeout_per_test_ms', value: Number(e.target.value) })}
-            />
-          </label>
-
-          <label>
-            <span className="label-text">
-              Fuzzing Mode
-              <Tooltip content="Random: Default exploration. Breadth-First: Visit all states evenly. Depth-First: Follow deep paths. Targeted: Focus on one state." />
-            </span>
-            <select
-              value={form.fuzzing_mode}
-              onChange={(e) => dispatch({ type: 'set_field', field: 'fuzzing_mode', value: e.target.value })}
-            >
-              <option value="random">Random (Default)</option>
-              <option value="breadth_first">Breadth-First (Explore all states evenly)</option>
-              <option value="depth_first">Depth-First (Follow deep paths)</option>
-              <option value="targeted">Targeted (Focus on specific state)</option>
-            </select>
-          </label>
-
-          {form.fuzzing_mode === 'targeted' && (
-            <label>
-              <span className="label-text">
-                Target State
-                <Tooltip content="The specific state to focus testing on. The fuzzer will navigate to this state and concentrate mutations there." />
-              </span>
-              <select
-                value={form.target_state}
-                onChange={(e) => dispatch({ type: 'set_field', field: 'target_state', value: e.target.value })}
-                disabled={protocolStates.length === 0}
-              >
-                <option value="">
-                  {protocolStates.length === 0 ? 'No states available' : 'Select a state'}
-                </option>
-                {protocolStates.map((state) => (
-                  <option key={state} value={state}>
-                    {state}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-
-          <label>
-            <span className="label-text">
-              Session Reset Interval
-              <Tooltip content="Reset protocol state machine every N test cases. Helps test connection setup/teardown and prevents getting stuck in deep states." />
-            </span>
-            <input
-              type="number"
-              min="1"
-              placeholder="No reset"
-              value={form.session_reset_interval}
-              onChange={(e) =>
-                dispatch({
-                  type: 'set_field',
-                  field: 'session_reset_interval',
-                  value: e.target.value ? Number(e.target.value) : '',
-                })
-              }
-            />
-          </label>
-
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={form.enable_termination_fuzzing}
-              onChange={(e) => dispatch({ type: 'set_field', field: 'enable_termination_fuzzing', value: e.target.checked })}
-            />
-            <span className="label-text">
-              Enable Termination Fuzzing
-              <Tooltip content="Periodically inject termination/close state transitions to test connection cleanup, resource deallocation, and session teardown code." />
-            </span>
-          </label>
 
           <button type="submit">Create Session</button>
         </form>
@@ -649,7 +702,18 @@ function DashboardPage() {
           </div>
         </div>
         {sessions.length === 0 ? (
-          <p>No sessions yet.</p>
+          <div className="empty-state-cta">
+            <h3>No sessions yet</h3>
+            <p>Create your first fuzzing session above to start finding bugs, or try the sample target to see the framework in action.</p>
+            <div className="empty-state-actions">
+              <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+                Create First Session
+              </button>
+              <Link className="ghost-link" to="/guides">
+                Read the Getting Started Guide
+              </Link>
+            </div>
+          </div>
         ) : (
           <table className="session-table">
             <thead>
@@ -680,7 +744,8 @@ function DashboardPage() {
                         <button
                           className="expand-btn"
                           onClick={() => setExpandedSession(isExpanded ? null : session.id)}
-                          title={isExpanded ? 'Collapse' : 'Expand details'}
+                          aria-expanded={isExpanded}
+                          aria-label={isExpanded ? 'Collapse session details' : 'Expand session details'}
                         >
                           {isExpanded ? '▼' : '▶'}
                         </button>

@@ -312,3 +312,112 @@
   font-size: 0.9rem;
   line-height: 1.5;
 }
+
+/* Progressive disclosure toggle */
+.advanced-toggle {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-md);
+  margin-top: var(--space-sm);
+}
+
+.toggle-btn {
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-full);
+  transition: all var(--transition-fast);
+}
+
+.toggle-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.toggle-btn:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+.advanced-section {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+}
+
+.advanced-section label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.9rem;
+  gap: var(--space-sm);
+}
+
+/* Inline field errors */
+.field-error {
+  color: var(--color-error-text);
+  font-size: 0.8rem;
+  margin-top: 2px;
+}
+
+.session-form label.has-error input,
+.session-form label.has-error select {
+  border-color: var(--color-error-border);
+  box-shadow: 0 0 0 1px rgba(255, 92, 92, 0.2);
+}
+
+/* Empty state with CTA */
+.empty-state-cta {
+  text-align: center;
+  padding: var(--space-3xl) var(--space-xl);
+}
+
+.empty-state-cta h3 {
+  color: var(--text-secondary);
+  margin-bottom: var(--space-sm);
+}
+
+.empty-state-cta p {
+  color: var(--text-tertiary);
+  max-width: 480px;
+  margin: 0 auto var(--space-xl);
+  line-height: 1.6;
+}
+
+.empty-state-actions {
+  display: flex;
+  gap: var(--space-lg);
+  justify-content: center;
+  align-items: center;
+}
+
+.empty-state-actions button {
+  background: var(--accent-gradient);
+  border: none;
+  font-weight: 700;
+  color: #0a0d12;
+  padding: 10px 24px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+}
+
+.ghost-link {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 2px;
+  transition: color var(--transition-fast);
+}
+
+.ghost-link:hover {
+  color: var(--text-primary);
+}

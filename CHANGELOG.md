@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed - 2026-04-17
 
+- **UI/UX overhaul: accessibility, progressive disclosure, and navigation** (`core/ui/spa/src/`)
+  - **Modal** (`components/Modal.tsx`): Added focus trap (Tab/Shift+Tab cycling), Escape key closes, `aria-modal`, `aria-label`, `role="dialog"`, return focus to previous element on close
+  - **Tooltip** (`components/Tooltip.tsx`): Trigger changed from `<span>` to `<button>` for keyboard accessibility, added `onFocus`/`onBlur` handlers, `aria-describedby` via `useId()`, `role="tooltip"`, Escape key hides
+  - **Toast** (`components/Toast.tsx`): Auto-dismiss (4s success/info, 8s error), configurable via `autoDismissMs` prop, `aria-live="polite"`, close button gets `aria-label`
+  - **StatusBadge** (`components/StatusBadge.tsx`): Added `role="status"`, `aria-label`, human-readable labels via `STATUS_LABELS` map, separated completed/idle styles, added paused variant
+  - **DashboardPage** (`pages/DashboardPage.tsx`): Progressive disclosure — 5 essential fields always visible, advanced options behind toggle; inline field validation with per-field error messages on blur; plain-language labels (e.g., "Where to Run" instead of "Execution Mode"); empty state with CTA buttons
+  - **Layout** (`components/Layout.tsx`): Flat 8-item nav replaced with 3 workflow groups (Run / Build / Analyze) using section headings; masthead subtitle rewritten to be outcome-focused
+  - **Global CSS** (`global.css`): Added universal `:focus-visible` outline styles, consolidated disabled button opacity, `prefers-reduced-motion` media query disables animations
+  - **Component CSS**: Updated Modal, Tooltip, Toast, StatusBadge, DashboardPage, Layout stylesheets with focus-visible outlines, structural changes for new markup
+  - Impact: WCAG 2.1 AA keyboard and screen reader compliance, reduced cognitive load for new users, clearer navigation structure
+  - Testing: TypeScript `tsc --noEmit` passes, Vite production build succeeds, 185 backend tests pass
+
 - **Consolidated orchestrator state into SessionContextManager** (`core/engine/orchestrator.py`, `core/engine/session_context.py`, `core/api/routes/orchestration.py`)
   - Replaced 8 separate per-session dictionaries (`behavior_processors`, `stateful_sessions`, `response_planners`, `followup_queues`, `session_data_models`, `session_response_models`, `_session_contexts`, `_stage_runners`) with a single `SessionContextManager` using `SessionRuntimeContext` containers
   - Migrated 59 access sites across `orchestrator.py` and 4 access sites in `orchestration.py` routes

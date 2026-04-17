@@ -60,7 +60,23 @@
   margin-top: var(--space-lg);
   display: flex;
   flex-direction: column;
+  gap: var(--space-md);
+}
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
   gap: var(--space-sm);
+}
+
+.nav-group-heading {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-tertiary);
+  padding: var(--space-xs) var(--space-md);
+  margin-top: var(--space-xs);
 }
 
 .nav-link {

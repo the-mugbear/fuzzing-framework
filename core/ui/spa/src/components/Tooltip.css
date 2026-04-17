@@ -18,13 +18,28 @@
   font-size: 0.7rem;
   font-weight: 600;
   cursor: help;
+  padding: 0;
   transition: all var(--transition-fast);
 }
 
-.tooltip-trigger:hover {
+.tooltip-trigger:hover,
+.tooltip-trigger:focus-visible {
   background: var(--accent-gradient);
   color: #0a0d12;
   border-color: var(--border-strong);
+}
+
+.tooltip-trigger:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+/* Show tooltip on both hover and focus-within */
+.tooltip-wrapper:hover .tooltip-content,
+.tooltip-wrapper:focus-within .tooltip-content,
+.tooltip-content:hover {
+  opacity: 1;
+  visibility: visible;
 }
 
 .tooltip-content {
@@ -57,12 +72,6 @@
   left: 0;
   right: 0;
   height: 10px;
-}
-
-.tooltip-wrapper:hover .tooltip-content,
-.tooltip-content:hover {
-  opacity: 1;
-  visibility: visible;
 }
 
 /* Arrow pointing down */

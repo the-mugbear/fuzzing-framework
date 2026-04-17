@@ -1,15 +1,30 @@
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import './Layout.css';
 
-const links = [
-  { to: '/', label: 'Dashboard', description: 'Sessions & orchestration' },
-  { to: '/plugin-debug', label: 'Plugin Debugger', description: 'Inspect blocks & states' },
-  { to: '/packet-parser', label: 'Packet Parser', description: 'Decode binary packets' },
-  { to: '/mutation-workbench', label: 'Mutation Workbench', description: 'Craft & mutate packets' },
-  { to: '/state-walker', label: 'State Walker', description: 'Validate state machines' },
-  { to: '/protocol-studio', label: 'Protocol Studio', description: 'Build & validate plugins' },
-  { to: '/one-off', label: 'One-Off Test', description: 'Fire single payloads' },
-  { to: '/correlation', label: 'Correlation', description: 'Execution digests' },
+const navGroups = [
+  {
+    heading: 'Run',
+    links: [
+      { to: '/', label: 'Dashboard', description: 'Sessions & orchestration' },
+      { to: '/one-off', label: 'One-Off Test', description: 'Fire single payloads' },
+    ],
+  },
+  {
+    heading: 'Build',
+    links: [
+      { to: '/protocol-studio', label: 'Protocol Studio', description: 'Build & validate plugins' },
+      { to: '/plugin-debug', label: 'Plugin Debugger', description: 'Inspect blocks & states' },
+      { to: '/packet-parser', label: 'Packet Parser', description: 'Decode binary packets' },
+    ],
+  },
+  {
+    heading: 'Analyze',
+    links: [
+      { to: '/mutation-workbench', label: 'Mutation Workbench', description: 'Craft & mutate packets' },
+      { to: '/state-walker', label: 'State Walker', description: 'Validate state machines' },
+      { to: '/correlation', label: 'Correlation', description: 'Execution digests' },
+    ],
+  },
 ];
 
 function Layout() {
@@ -21,16 +36,21 @@ function Layout() {
             <span className="sidebar-title">Navigate</span>
           </div>
           <nav className="sidebar-nav" aria-label="Primary">
-            {links.map((link) => (
-              <NavLink
-                key={link.to}
-                to={link.to}
-                end={link.to === '/'}
-                className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
-              >
-                <span className="label">{link.label}</span>
-                <span className="description">{link.description}</span>
-              </NavLink>
+            {navGroups.map((group) => (
+              <div key={group.heading} className="nav-group">
+                <span className="nav-group-heading">{group.heading}</span>
+                {group.links.map((link) => (
+                  <NavLink
+                    key={link.to}
+                    to={link.to}
+                    end={link.to === '/'}
+                    className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
+                  >
+                    <span className="label">{link.label}</span>
+                    <span className="description">{link.description}</span>
+                  </NavLink>
+                ))}
+              </div>
             ))}
           </nav>
         </aside>
@@ -45,7 +65,7 @@ function Layout() {
                 </Link>
               </div>
               <p className="subtitle">
-                Launch campaigns, inspect protocol grammar, and replay interesting executions from a single workspace.
+                Find protocol bugs faster. Define your protocol, launch a campaign, and investigate crashes — all from one workspace.
               </p>
             </div>
             <div className="masthead-meta">

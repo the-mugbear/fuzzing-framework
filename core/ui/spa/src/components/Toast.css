@@ -23,6 +23,11 @@
   background: rgba(255, 255, 255, 0.1);
 }
 
+.toast-banner button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
 .toast-success {
   background: var(--color-success-bg);
   border-color: var(--color-success-border);

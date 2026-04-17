@@ -4,11 +4,22 @@ interface Props {
   value: string;
 }
 
-const normalize = (status: string) => status.toLowerCase();
+const STATUS_LABELS: Record<string, string> = {
+  running: 'Running',
+  completed: 'Completed',
+  idle: 'Idle',
+  failed: 'Failed',
+  paused: 'Paused',
+};
 
 function StatusBadge({ value }: Props) {
-  const variant = normalize(value);
-  return <span className={`status-chip status-${variant}`}>{value}</span>;
+  const variant = value.toLowerCase();
+  const label = STATUS_LABELS[variant] || value;
+  return (
+    <span className={`status-chip status-${variant}`} role="status" aria-label={`Status: ${label}`}>
+      {label}
+    </span>
+  );
 }
 
 export default StatusBadge;
