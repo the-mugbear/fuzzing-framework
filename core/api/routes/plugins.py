@@ -73,14 +73,21 @@ async def get_plugin(plugin_name: str, plugin_manager=Depends(get_plugin_manager
 async def get_plugin_source(plugin_name: str, plugin_manager=Depends(get_plugin_manager)):
     """Get the Python source code of a plugin"""
     try:
-        plugin_file = plugin_manager.plugins_dir / f"{plugin_name}.py"
-        if not plugin_file.exists():
+        plugin_file = plugin_manager._find_plugin_file(plugin_name)
+        if not plugin_file or not plugin_file.exists():
             raise HTTPException(status_code=404, detail=f"Plugin file not found: {plugin_name}")
 
         with open(plugin_file, 'r') as f:
             source_code = f.read()
 
-        return {"plugin_name": plugin_name, "source_code": source_code}
+        # Determine category from path (custom, examples, standard, or root)
+        category = "unknown"
+        for subdir in plugin_manager.PLUGIN_SUBDIRS:
+            if (plugin_manager.plugins_dir / subdir).resolve() in plugin_file.resolve().parents:
+                category = subdir
+                break
+
+        return {"plugin_name": plugin_name, "source_code": source_code, "category": category}
     except HTTPException:
         raise
     except Exception as exc:
