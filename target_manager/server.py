@@ -6,9 +6,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Dict, List
 
+import structlog
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from core.logging import setup_logging
 from target_manager.models import (
     HealthStatus,
     LogResponse,
@@ -20,7 +22,7 @@ from target_manager.models import (
 from target_manager.process_manager import ProcessManager
 from target_manager.registry import discover_servers
 
-logger = logging.getLogger("target_manager.server")
+logger = structlog.get_logger("target_manager.server")
 
 # ---- Globals wired in lifespan ----
 _catalog: Dict[str, ServerMeta] = {}
@@ -34,13 +36,10 @@ PORT_RANGE = (9990, 9999)
 async def lifespan(app: FastAPI):
     global _catalog, _process_manager
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    )
+    setup_logging("target-mgr")
 
     _catalog = discover_servers(TESTS_DIR)
-    logger.info("server_catalog_loaded: %d servers", len(_catalog))
+    logger.info("server_catalog_loaded", server_count=len(_catalog))
 
     _process_manager = ProcessManager(TESTS_DIR, port_range=PORT_RANGE)
     await _process_manager.start_health_checks()

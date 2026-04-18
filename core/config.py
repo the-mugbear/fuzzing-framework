@@ -107,6 +107,7 @@ class Settings(BaseSettings):
     corpus_dir: Path = project_root / "core" / "corpus"
     crash_dir: Path = project_root / "core" / "crashes"
     log_dir: Path = project_root / "logs"
+    log_level: str = "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
 
     # Fuzzing engine
     max_mutations_per_seed: int = 1000

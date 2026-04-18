@@ -1,0 +1,198 @@
+/* ── System Logs Page ── */
+.syslog-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+
+.syslog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+}
+
+.syslog-header h1 {
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  margin: 0;
+}
+
+.syslog-subtitle {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  margin: var(--space-xs) 0 0;
+}
+
+.syslog-actions {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.syslog-error {
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error-border);
+  color: var(--color-error-text);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md) var(--space-lg);
+  font-size: var(--text-sm);
+}
+
+/* Layout: file sidebar + viewer */
+.syslog-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: var(--space-lg);
+  min-height: 500px;
+}
+
+@media (max-width: 768px) {
+  .syslog-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* File list */
+.syslog-file-list {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: var(--space-lg);
+  overflow-y: auto;
+  max-height: 600px;
+}
+
+.syslog-file-list h3 {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+  margin: 0 0 var(--space-md);
+}
+
+.syslog-empty {
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.syslog-file-item {
+  position: relative;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  margin-bottom: var(--space-xs);
+}
+
+.syslog-file-item:hover {
+  background: var(--bg-hover);
+}
+
+.syslog-file-item.active {
+  background: rgba(124, 92, 252, 0.12);
+  border-left: 3px solid var(--accent-color);
+}
+
+.syslog-file-name {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.syslog-file-meta {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.syslog-download-btn {
+  position: absolute;
+  right: var(--space-sm);
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.syslog-file-item:hover .syslog-download-btn {
+  opacity: 1;
+}
+
+.syslog-download-btn:hover {
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
+}
+
+/* Viewer */
+.syslog-viewer {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.syslog-viewer-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-surface-2);
+  flex-wrap: wrap;
+}
+
+.syslog-viewer-controls label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.syslog-viewer-controls select {
+  font-size: var(--text-xs);
+  padding: 4px 8px;
+}
+
+.syslog-content {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-lg);
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  min-height: 400px;
+  max-height: 600px;
+}
+
+/* Footer */
+.syslog-footer {
+  background: var(--color-info-bg);
+  border: 1px solid var(--color-info-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md) var(--space-lg);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.syslog-footer strong {
+  color: var(--text-primary);
+}

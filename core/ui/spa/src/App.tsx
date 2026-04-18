@@ -17,6 +17,7 @@ import ProtocolGuide from './pages/ProtocolGuide';
 import DocumentationHubPage from './pages/DocumentationHubPage';
 import ProtocolStudioPage from './pages/ProtocolStudioPage';
 import TargetsPage from './pages/TargetsPage';
+import SystemLogsPage from './pages/SystemLogsPage';
 
 function App() {
   return (
@@ -36,6 +37,7 @@ function App() {
           <Route path="one-off" element={<OneOffTestPage />} />
           <Route path="correlation" element={<CorrelationPage />} />
           <Route path="protocol-studio" element={<ProtocolStudioPage />} />
+          <Route path="system-logs" element={<SystemLogsPage />} />
           <Route path="guides" element={<DocumentationHubPage />} />
           <Route path="guides/getting-started" element={<GettingStartedGuide />} />
           <Route path="guides/fuzzing" element={<FuzzingGuide />} />

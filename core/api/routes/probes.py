@@ -1,9 +1,12 @@
 """Probe management endpoints."""
+import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from core.api.deps import get_probe_manager, get_orchestrator
 from core.models import ProbeTestResult, ProbeWorkItem, TransportProtocol
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/probes", tags=["probes"])
 
@@ -21,13 +24,20 @@ async def register_probe(probe_info: dict, probe_manager=Depends(get_probe_manag
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid transport: {transport_raw}")
 
-    return probe_manager.register_probe(
+    result = probe_manager.register_probe(
         probe_id=probe_info["probe_id"],
         hostname=probe_info["hostname"],
         target_host=probe_info["target_host"],
         target_port=int(probe_info["target_port"]),
         transport=transport,
     )
+    logger.info(
+        "probe_registered",
+        probe_id=probe_info["probe_id"],
+        hostname=probe_info["hostname"],
+        target=f"{probe_info['target_host']}:{probe_info['target_port']}",
+    )
+    return result
 
 
 @router.post("/{probe_id}/heartbeat")

@@ -1,9 +1,12 @@
 """Corpus and findings endpoints."""
 from typing import Optional
 
+import structlog
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from core.api.deps import get_corpus_store
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/corpus", tags=["corpus"])
 
@@ -29,6 +32,7 @@ async def upload_seed(
         meta = json.loads(metadata) if metadata else {}
         meta["filename"] = file.filename
         seed_id = corpus_store.add_seed(data, metadata=meta)
+        logger.info("seed_uploaded", seed_id=seed_id, size=len(data), filename=file.filename)
         return {"seed_id": seed_id, "size": len(data)}
     except HTTPException:
         raise
