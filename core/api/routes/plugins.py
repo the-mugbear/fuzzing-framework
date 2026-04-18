@@ -1,6 +1,8 @@
 """Plugin and preview endpoints."""
 import base64
 import random
+import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import structlog
@@ -1201,3 +1203,112 @@ async def mutate_field_endpoint(
     except Exception as e:
         logger.error("field_mutate_endpoint_failed", plugin=plugin_name, error=str(e))
         raise HTTPException(status_code=500, detail=f"Field mutation failed: {str(e)}")
+
+
+# ============================================================================
+# Plugin Save / Delete Endpoints
+# ============================================================================
+
+_SAFE_PLUGIN_NAME = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{0,63}$")
+
+
+class SavePluginRequest(BaseModel):
+    name: str
+    code: str
+
+
+@router.post("/plugins/save")
+async def save_plugin(request: SavePluginRequest, plugin_manager=Depends(get_plugin_manager)):
+    """
+    Save plugin source code to core/plugins/custom/{name}.py and hot-reload it.
+
+    The plugin name must be alphanumeric + underscores, starting with a letter.
+    Code is validated before writing. If a custom plugin with the same name exists
+    it is overwritten; plugins in standard/ or examples/ are never touched.
+    """
+    if not _SAFE_PLUGIN_NAME.match(request.name):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid plugin name. Use letters, digits, underscores; start with a letter; max 64 chars.",
+        )
+
+    # Validate code before writing
+    from core.engine.plugin_validator import validate_plugin_code
+
+    is_valid, issues, _ = validate_plugin_code(request.code)
+    errors = [i for i in issues if i["severity"] == "error"]
+    if errors:
+        return {
+            "saved": False,
+            "plugin_name": request.name,
+            "error": "Validation failed",
+            "issues": issues,
+        }
+
+    custom_dir = plugin_manager.plugins_dir / "custom"
+    custom_dir.mkdir(parents=True, exist_ok=True)
+    dest = custom_dir / f"{request.name}.py"
+
+    # Resolve to ensure no path traversal
+    try:
+        dest = dest.resolve()
+        if not str(dest).startswith(str(custom_dir.resolve())):
+            raise HTTPException(status_code=400, detail="Invalid plugin name")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid plugin name")
+
+    dest.write_text(request.code, encoding="utf-8")
+    logger.info("plugin_saved", plugin=request.name, path=str(dest))
+
+    # Evict from cache so next load picks up new code
+    plugin_manager._loaded_plugins.pop(request.name, None)
+    plugin_manager._plugin_paths.pop(request.name, None)
+
+    # Attempt hot-reload
+    try:
+        plugin = plugin_manager.load_plugin(request.name)
+        logger.info("plugin_reloaded_after_save", plugin=request.name)
+        return {
+            "saved": True,
+            "plugin_name": request.name,
+            "reloaded": True,
+            "issues": issues,
+            "plugin": plugin.model_dump() if hasattr(plugin, "model_dump") else None,
+        }
+    except Exception as exc:
+        logger.warning("plugin_reload_failed_after_save", plugin=request.name, error=str(exc))
+        return {
+            "saved": True,
+            "plugin_name": request.name,
+            "reloaded": False,
+            "reload_error": str(exc),
+            "issues": issues,
+        }
+
+
+@router.delete("/plugins/custom/{plugin_name}")
+async def delete_custom_plugin(plugin_name: str, plugin_manager=Depends(get_plugin_manager)):
+    """
+    Delete a custom plugin from core/plugins/custom/.
+
+    Only plugins in the custom/ subdirectory can be deleted via API.
+    Standard and example plugins are protected.
+    """
+    if not _SAFE_PLUGIN_NAME.match(plugin_name):
+        raise HTTPException(status_code=400, detail="Invalid plugin name")
+
+    custom_dir = (plugin_manager.plugins_dir / "custom").resolve()
+    target = (custom_dir / f"{plugin_name}.py").resolve()
+
+    if not str(target).startswith(str(custom_dir)):
+        raise HTTPException(status_code=400, detail="Invalid plugin name")
+
+    if not target.exists():
+        raise HTTPException(status_code=404, detail=f"Custom plugin '{plugin_name}' not found")
+
+    target.unlink()
+    plugin_manager._loaded_plugins.pop(plugin_name, None)
+    plugin_manager._plugin_paths.pop(plugin_name, None)
+    logger.info("plugin_deleted", plugin=plugin_name)
+
+    return {"deleted": True, "plugin_name": plugin_name}

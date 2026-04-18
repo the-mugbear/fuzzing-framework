@@ -4,27 +4,24 @@ import './Layout.css';
 
 const navGroups = [
   {
-    heading: 'Configure',
+    heading: 'Protocol Lab',
+    links: [
+      { to: '/protocol-editor', label: 'Protocol Editor', icon: '✎' },
+      { to: '/packet-workshop', label: 'Packet Workshop', icon: '⟐' },
+      { to: '/state-explorer', label: 'State Explorer', icon: '◈' },
+    ],
+  },
+  {
+    heading: 'Campaigns',
     links: [
       { to: '/targets', label: 'Targets', icon: '◎' },
-      { to: '/protocol-studio', label: 'Protocol Studio', icon: '✎' },
-      { to: '/plugin-debug', label: 'Plugin Debugger', icon: '⚙' },
+      { to: '/findings', label: 'Findings', icon: '⚑' },
     ],
   },
   {
-    heading: 'Test',
-    links: [
-      { to: '/one-off', label: 'One-Off Test', icon: '▹' },
-      { to: '/packet-parser', label: 'Packet Parser', icon: '⟐' },
-      { to: '/mutation-workbench', label: 'Mutation Workbench', icon: '⟳' },
-    ],
-  },
-  {
-    heading: 'Analyze',
+    heading: 'Analysis',
     links: [
       { to: '/correlation', label: 'Correlation', icon: '⊞' },
-      { to: '/state-walker', label: 'State Walker', icon: '⇢' },
-      { to: '/state-graph', label: 'State Graph', icon: '◈' },
       { to: '/system-logs', label: 'System Logs', icon: '⎙' },
     ],
   },
@@ -75,7 +72,7 @@ function Layout() {
                 onClick={() => setSidebarOpen(false)}
               >
                 <span className="nav-icon">⌂</span>
-                <span className="nav-label">Dashboard</span>
+                <span className="nav-label">Sessions</span>
               </NavLink>
 
               {navGroups.map((group) => (
