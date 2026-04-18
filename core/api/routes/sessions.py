@@ -4,6 +4,7 @@ from typing import List, Optional
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from core.api.deps import get_orchestrator
 from core.models import (
@@ -33,6 +34,24 @@ async def create_session(config: FuzzConfig, orchestrator=Depends(get_orchestrat
 @router.get("", response_model=List[FuzzSession])
 async def list_sessions(orchestrator=Depends(get_orchestrator)):
     return orchestrator.list_sessions()
+
+
+class BulkDeleteRequest(BaseModel):
+    session_ids: List[str]
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_sessions(request: BulkDeleteRequest, orchestrator=Depends(get_orchestrator)):
+    deleted = []
+    failed = []
+    for sid in request.session_ids:
+        success = await orchestrator.delete_session(sid)
+        if success:
+            deleted.append(sid)
+        else:
+            failed.append(sid)
+    logger.info("bulk_delete_via_api", deleted=len(deleted), failed=len(failed))
+    return {"deleted": deleted, "failed": failed}
 
 
 @router.get("/{session_id}", response_model=FuzzSession)

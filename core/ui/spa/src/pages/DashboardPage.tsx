@@ -152,6 +152,7 @@ function DashboardPage() {
   const [protocolFields, setProtocolFields] = useState<ProtocolField[]>([]);
   const [protocolStates, setProtocolStates] = useState<string[]>([]);
   const [expandedSession, setExpandedSession] = useState<string | null>(null);
+  const [selectedSessions, setSelectedSessions] = useState<Set<string>>(new Set());
   const refreshTimer = useRef<number>();
 
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -357,11 +358,59 @@ function DashboardPage() {
     try {
       await api(`/api/sessions/${id}`, { method: 'DELETE' });
       setToast({ variant: 'success', message: 'Session deleted.' });
+      setSelectedSessions(prev => { const next = new Set(prev); next.delete(id); return next; });
       refreshSessions();
     } catch (err) {
       setToast({ variant: 'error', message: `Delete failed: ${(err as Error).message}` });
     } finally {
       setActionInProgress(null);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedSessions);
+    if (ids.length === 0) return;
+    const runningSelected = sessions.filter(s => ids.includes(s.id) && s.status === 'RUNNING').length;
+    const msg = runningSelected > 0
+      ? `Delete ${ids.length} session(s)? ${runningSelected} running session(s) will be stopped first. This cannot be undone.`
+      : `Delete ${ids.length} session(s)? This cannot be undone.`;
+    if (!window.confirm(msg)) return;
+
+    setActionInProgress('bulk');
+    try {
+      const result = await api<{ deleted: string[]; failed: string[] }>('/api/sessions/bulk-delete', {
+        method: 'POST',
+        body: JSON.stringify({ session_ids: ids }),
+      });
+      setSelectedSessions(new Set());
+      const count = result.deleted.length;
+      const failCount = result.failed.length;
+      if (failCount > 0) {
+        setToast({ variant: 'error', message: `Deleted ${count}, failed ${failCount}.` });
+      } else {
+        setToast({ variant: 'success', message: `Deleted ${count} session(s).` });
+      }
+      refreshSessions();
+    } catch (err) {
+      setToast({ variant: 'error', message: `Bulk delete failed: ${(err as Error).message}` });
+    } finally {
+      setActionInProgress(null);
+    }
+  };
+
+  const toggleSessionSelection = (id: string) => {
+    setSelectedSessions(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedSessions.size === sessions.length) {
+      setSelectedSessions(new Set());
+    } else {
+      setSelectedSessions(new Set(sessions.map(s => s.id)));
     }
   };
 
@@ -699,6 +748,15 @@ function DashboardPage() {
           </div>
           <div className="session-toolbar">
             <span className="hint">Last refreshed {lastUpdated || '-'}</span>
+            {selectedSessions.size > 0 && (
+              <button
+                className="danger"
+                onClick={handleBulkDelete}
+                disabled={actionInProgress === 'bulk'}
+              >
+                {actionInProgress === 'bulk' ? 'Deleting...' : `Delete ${selectedSessions.size} selected`}
+              </button>
+            )}
             <button onClick={refreshSessions} disabled={loading}>
               Refresh
             </button>
@@ -735,6 +793,14 @@ function DashboardPage() {
           <table className="session-table">
             <thead>
               <tr>
+                <th>
+                  <input
+                    type="checkbox"
+                    checked={sessions.length > 0 && selectedSessions.size === sessions.length}
+                    onChange={toggleSelectAll}
+                    aria-label="Select all sessions"
+                  />
+                </th>
                 <th></th>
                 <th>ID</th>
                 <th>Protocol</th>
@@ -757,6 +823,14 @@ function DashboardPage() {
                 return (
                   <React.Fragment key={session.id}>
                     <tr className={isExpanded ? 'expanded' : ''}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selectedSessions.has(session.id)}
+                          onChange={() => toggleSessionSelection(session.id)}
+                          aria-label={`Select session ${session.id.slice(0, 8)}`}
+                        />
+                      </td>
                       <td>
                         <button
                           className="expand-btn"
@@ -814,19 +888,22 @@ function DashboardPage() {
                       </td>
                       <td>
                         <div className="session-actions">
-                          <button
-                            onClick={() => handleStart(session.id)}
-                            disabled={actionInProgress === session.id}
-                          >
-                            {actionInProgress === session.id ? 'Starting...' : 'Start'}
-                          </button>
-                          <button
-                            onClick={() => handleStop(session.id)}
-                            className="ghost"
-                            disabled={actionInProgress === session.id}
-                          >
-                            {actionInProgress === session.id ? 'Stopping...' : 'Stop'}
-                          </button>
+                          {session.status === 'RUNNING' ? (
+                            <button
+                              onClick={() => handleStop(session.id)}
+                              className="ghost"
+                              disabled={actionInProgress === session.id}
+                            >
+                              {actionInProgress === session.id ? '...' : 'Stop'}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleStart(session.id)}
+                              disabled={actionInProgress === session.id}
+                            >
+                              {actionInProgress === session.id ? '...' : 'Start'}
+                            </button>
+                          )}
                           <button
                             onClick={() => handleDelete(session.id)}
                             className="danger"
@@ -850,7 +927,7 @@ function DashboardPage() {
                     </tr>
                     {isExpanded && (
                       <tr className="detail-row">
-                        <td colSpan={7}>
+                        <td colSpan={8}>
                           <SessionDetailPanel
                             sessionId={session.id}
                             onClose={() => setExpandedSession(null)}

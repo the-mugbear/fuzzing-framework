@@ -104,6 +104,35 @@
   align-items: center;
 }
 
+.session-toolbar button.danger {
+  background: var(--color-error-bg);
+  color: var(--color-error-text);
+  border: 1px solid var(--color-error-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.session-toolbar button.danger:hover {
+  background: rgba(248, 113, 113, 0.3);
+}
+
+/* Checkbox column */
+.session-table th:first-child,
+.session-table td:first-child {
+  width: 32px;
+  text-align: center;
+}
+
+.session-table input[type="checkbox"] {
+  cursor: pointer;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--text-accent);
+}
+
 .session-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

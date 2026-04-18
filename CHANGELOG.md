@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed - 2026-04-17
+
+- **Dashboard: bulk session delete and contextual action buttons** (`core/ui/spa/src/pages/DashboardPage.tsx`, `DashboardPage.css`, `core/api/routes/sessions.py`)
+  - Added checkbox column with select-all for multi-session selection
+  - Added "Delete N selected" bulk action button in toolbar with confirmation dialog
+  - New `POST /api/sessions/bulk-delete` API endpoint accepts `{session_ids: [...]}` 
+  - Replaced always-visible Start + Stop buttons with a single contextual button: shows Start when idle/failed/completed, shows Stop when running
+  - Impact: Faster cleanup of stale sessions; less visual clutter in action column
+
 ### Added - 2026-02-08
 
 - **Full-screen Log Viewer for test server output** (`core/ui/spa/src/pages/LogViewerPage.tsx`, `LogViewerPage.css`)
